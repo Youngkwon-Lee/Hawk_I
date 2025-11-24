@@ -1,0 +1,68 @@
+Console Error
+
+
+Video error: {}
+src/components/dashboard/VideoPlayer.tsx (287:33) @ onError
+
+
+  285 |                     onEnded={onPause}
+  286 |                     onError={(e) => {
+> 287 |                         console.error('Video error:', e)
+      |                                 ^
+  288 |                         const video = e.currentTarget
+  289 |                         console.error('Video error details:', {
+  290 |                             error: video.error,
+Call Stack
+16
+
+Show 11 ignore-listed frame(s)
+onError
+src/components/dashboard/VideoPlayer.tsx (287:33)
+video
+<anonymous>
+VideoPlayer
+src/components/dashboard/VideoPlayer.tsx (277:17)
+ResultContent
+src/app/result/page.tsx (514:33)
+ResultPage
+src/app/result/page.tsx (207:13)
+
+Console Error
+
+
+Video error details: {}
+src/components/dashboard/VideoPlayer.tsx (289:33) @ onError
+
+
+  287 |                         console.error('Video error:', e)
+  288 |                         const video = e.currentTarget
+> 289 |                         console.error('Video error details:', {
+      |                                 ^
+  290 |                             error: video.error,
+  291 |                             networkState: video.networkState,
+  292 |                             readyState: video.readyState,
+Call Stack
+16
+
+Show 11 ignore-listed frame(s)
+onError
+src/components/dashboard/VideoPlayer.tsx (289:33)
+video
+<anonymous>
+VideoPlayer
+src/components/dashboard/VideoPlayer.tsx (277:17)
+ResultContent
+src/app/result/page.tsx (514:33)
+ResultPage
+src/app/result/page.tsx (207:13)
+
+
+
+3/3
+
+Next.js 16.0.3
+Turbopack
+Console NotSupportedError
+
+
+The element has no supported sources.
