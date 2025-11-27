@@ -1,421 +1,849 @@
 """
 Metrics Calculator for Kinematic Analysis
 Calculates clinical metrics from MediaPipe skeleton data
+
+Research References:
+- Finger Tapping: PMC10674854 (2023), VisionMD (2025)
+- Gait: PMC11597901 (2024), PMC7293393 (2020)
+- MDS-UPDRS: Movement Disorder Society Guidelines
 """
 
 import numpy as np
-from typing import List, Dict, Tuple
-from scipy.signal import find_peaks
+from typing import List, Dict, Tuple, Optional
+from scipy.signal import find_peaks, savgol_filter
 from dataclasses import dataclass
 
 
 @dataclass
 class FingerTappingMetrics:
-    """Finger tapping analysis metrics"""
-    tapping_speed: float  # Hz
-    amplitude_mean: float  # pixels
-    amplitude_std: float  # pixels
-    rhythm_variability: float  # %
-    fatigue_rate: float  # %
-    hesitation_count: int
-    total_taps: int
-    duration: float  # seconds
+    """
+    Finger tapping analysis metrics (MDS-UPDRS aligned)
+
+    Research-based features from:
+    - PMC10674854: "Clinically Informed Automated Assessment"
+    - VisionMD (2025): Normalization methods
+    - MDS-UPDRS: Clinical scoring criteria
+    """
+    # Basic metrics
+    tapping_speed: float          # Hz - taps per second
+    total_taps: int               # Total number of taps detected
+    duration: float               # seconds
+
+    # Amplitude metrics (normalized by index finger length)
+    amplitude_mean: float         # Mean opening amplitude (dimensionless)
+    amplitude_std: float          # Amplitude variability
+
+    # Velocity metrics (NEW - MDS-UPDRS critical)
+    opening_velocity_mean: float  # Mean velocity during finger opening (units/s)
+    closing_velocity_mean: float  # Mean velocity during finger closing (units/s)
+    peak_velocity_mean: float     # Mean peak velocity per tap
+    velocity_decrement: float     # % decrease in velocity over time
+
+    # Decrement analysis (MDS-UPDRS scoring aligned)
+    amplitude_decrement: float    # % decrease from first to last tap
+    decrement_pattern: str        # "none", "late", "mid", "early" (MDS-UPDRS 0-3)
+    first_half_amplitude: float   # Mean amplitude of first 5 taps
+    second_half_amplitude: float  # Mean amplitude of last 5 taps
+
+    # Rhythm and hesitation (MDS-UPDRS)
+    rhythm_variability: float     # CV of inter-tap intervals (%)
+    halt_count: int               # Number of halts (interval > 2x mean)
+    hesitation_count: int         # Number of amplitude drops > 20%
+    freeze_episodes: int          # Complete stops (interval > 3x mean)
+
+    # Fatigue analysis
+    fatigue_rate: float           # % amplitude decrease per tap
 
 
 @dataclass
 class GaitMetrics:
-    """Gait analysis metrics"""
-    walking_speed: float  # m/s (estimated)
-    stride_length: float  # m (estimated)
-    cadence: float  # steps/min
-    stride_variability: float  # %
-    arm_swing_asymmetry: float  # %
-    step_count: int
-    duration: float  # seconds
+    """
+    Gait analysis metrics (Clinical standards aligned)
+
+    Research-based features from:
+    - PMC11597901: 3D Markerless Motion Capture Validation
+    - PMC7293393: Freezing of Gait review
+    - PMC6373367: Festination phenotypes
+    """
+    # Basic metrics
+    walking_speed: float          # m/s (estimated)
+    cadence: float                # steps/min
+    step_count: int               # Total steps detected
+    duration: float               # seconds
+
+    # Stride metrics
+    stride_length: float          # m (estimated)
+    stride_variability: float     # CV of stride time (%)
+
+    # Gait phases (NEW - clinical standard)
+    swing_time_mean: float        # Mean swing phase duration (s)
+    stance_time_mean: float       # Mean stance phase duration (s)
+    swing_stance_ratio: float     # Swing time / Stance time
+    double_support_time: float    # Time both feet on ground (s)
+    double_support_percent: float # % of gait cycle in double support
+
+    # Asymmetry metrics (NEW - PD specific)
+    step_length_asymmetry: float  # % difference between left/right steps
+    swing_time_asymmetry: float   # % difference in swing time L/R
+    arm_swing_asymmetry: float    # % asymmetry in arm swing amplitude
+
+    # Left/Right breakdown
+    left_step_count: int
+    right_step_count: int
+    left_stride_length: float
+    right_stride_length: float
+
+    # Advanced PD features
+    festination_index: float      # Degree of step shortening with speed increase
+    gait_regularity: float        # Autocorrelation-based regularity (0-1)
+
+    # NEW: Additional PD-specific metrics (World Landmarks based)
+    arm_swing_amplitude_left: float   # Left arm swing amplitude in meters
+    arm_swing_amplitude_right: float  # Right arm swing amplitude in meters
+    arm_swing_amplitude_mean: float   # Mean arm swing amplitude in meters
+    step_height_left: float           # Left foot lift height in meters
+    step_height_right: float          # Right foot lift height in meters
+    step_height_mean: float           # Mean step height in meters
 
 
 class MetricsCalculator:
-    """Calculate clinical metrics from skeleton data"""
+    """Calculate clinical metrics from skeleton data using 3D coordinates"""
 
-    def __init__(self, fps: float = 30.0, video_resolution: Tuple[int, int] = (854, 480)):
+    def __init__(self, fps: float = 30.0):
         """
         Args:
             fps: Video frame rate
-            video_resolution: (width, height) in pixels
         """
         self.fps = fps
-        self.video_width, self.video_height = video_resolution
 
     def calculate_finger_tapping_metrics(self, landmark_frames: List[Dict]) -> FingerTappingMetrics:
         """
         Calculate finger tapping metrics from hand landmarks (3D)
 
-        Research-based method from:
-        "Clinically Informed Automated Assessment of Finger Tapping Videos in Parkinson's Disease"
-        (PMC10674854, 2023)
+        Uses 3D Euclidean distance for camera-angle independence.
 
-        Hand landmarks (21 points):
-        - 4: Thumb tip (K4)
-        - 8: Index finger tip (K8)
-
-        Key improvement: Thumb-Index distance instead of single finger tracking
+        Hand landmarks (MediaPipe):
+        - 0: Wrist
+        - 4: Thumb tip
+        - 5: Index MCP, 6: Index PIP, 7: Index DIP, 8: Index tip
         """
         if not landmark_frames:
             raise ValueError("No landmark data provided")
 
-        # Extract thumb-index distance and calculate normalization factor (VisionMD method)
-        # Normalization factor: INDEX finger length (sum of 3 segments)
+        # Extract 3D trajectories
         thumb_index_distances = []
         index_finger_lengths = []
         timestamps = []
+        wrist_positions = []
 
         for frame in landmark_frames:
-            # Support both 'keypoints' and 'landmarks' keys
             keypoints = frame.get('keypoints', frame.get('landmarks', []))
             kp_dict = {kp['id']: kp for kp in keypoints}
 
-            # Need thumb tip (4), index tip (8), and index segments (5,6,7,8) for normalization
-            if 4 in kp_dict and 8 in kp_dict and 5 in kp_dict and 6 in kp_dict and 7 in kp_dict:
+            # Required landmarks for finger tapping
+            required = [0, 4, 5, 6, 7, 8]
+            if all(k in kp_dict for k in required):
+                # 3D positions
+                wrist = np.array([kp_dict[0]['x'], kp_dict[0]['y'], kp_dict[0]['z']])
                 thumb_tip = np.array([kp_dict[4]['x'], kp_dict[4]['y'], kp_dict[4]['z']])
                 index_tip = np.array([kp_dict[8]['x'], kp_dict[8]['y'], kp_dict[8]['z']])
-
-                # Calculate 3D Euclidean distance between thumb and index
-                distance = np.linalg.norm(thumb_tip - index_tip)
-                thumb_index_distances.append(distance)
-
-                # Calculate INDEX normalization factor (sum of 3 index finger segments)
-                # MediaPipe landmarks: 5=MCP, 6=PIP, 7=DIP, 8=TIP
                 index_mcp = np.array([kp_dict[5]['x'], kp_dict[5]['y'], kp_dict[5]['z']])
                 index_pip = np.array([kp_dict[6]['x'], kp_dict[6]['y'], kp_dict[6]['z']])
                 index_dip = np.array([kp_dict[7]['x'], kp_dict[7]['y'], kp_dict[7]['z']])
 
-                seg1 = np.linalg.norm(index_pip - index_mcp)  # MCP-PIP
-                seg2 = np.linalg.norm(index_dip - index_pip)  # PIP-DIP
-                seg3 = np.linalg.norm(index_tip - index_dip)  # DIP-TIP
+                # 3D Euclidean distance between thumb and index
+                distance = np.linalg.norm(thumb_tip - index_tip)
+                thumb_index_distances.append(distance)
 
-                index_length = seg1 + seg2 + seg3
-                index_finger_lengths.append(index_length)
+                # Index finger length for normalization (3D)
+                seg1 = np.linalg.norm(index_pip - index_mcp)
+                seg2 = np.linalg.norm(index_dip - index_pip)
+                seg3 = np.linalg.norm(index_tip - index_dip)
+                index_finger_lengths.append(seg1 + seg2 + seg3)
 
-                timestamps.append(frame.get('timestamp', frame.get('frame_number', frame.get('frame', 0)) / self.fps))
+                wrist_positions.append(wrist)
+
+                ts = frame.get('timestamp', frame.get('frame_number', frame.get('frame', 0)) / self.fps)
+                timestamps.append(ts)
 
         if len(thumb_index_distances) < 10:
             raise ValueError("Insufficient landmark data for analysis")
 
-        thumb_index_distances = np.array(thumb_index_distances)
-        index_finger_lengths = np.array(index_finger_lengths)
+        distances = np.array(thumb_index_distances)
+        finger_lengths = np.array(index_finger_lengths)
         timestamps = np.array(timestamps)
 
-        # Calculate normalization factor (VisionMD method: max INDEX length)
-        normalization_factor = np.max(index_finger_lengths) if len(index_finger_lengths) > 0 else 1.0
+        # Normalization factor (VisionMD: max index finger length)
+        norm_factor = np.max(finger_lengths) if len(finger_lengths) > 0 else 1.0
+        distances_normalized = distances / norm_factor
 
-        # Detect taps (peaks in thumb-index distance)
-        # Peaks = maximum opening (finger extended)
-        peaks, properties = find_peaks(
-            thumb_index_distances,
-            height=np.mean(thumb_index_distances),
-            distance=int(self.fps * 0.1)  # Minimum 0.1s between taps
+        duration = timestamps[-1] - timestamps[0]
+        dt = 1.0 / self.fps
+
+        # Smooth signal for better peak detection
+        if len(distances_normalized) > 11:
+            distances_smooth = savgol_filter(distances_normalized, 11, 3)
+        else:
+            distances_smooth = distances_normalized
+
+        # Detect taps (peaks = maximum opening)
+        peaks, peak_props = find_peaks(
+            distances_smooth,
+            height=np.mean(distances_smooth),
+            distance=int(self.fps * 0.08),  # Min 80ms between taps
+            prominence=0.05 * np.ptp(distances_smooth)
+        )
+
+        # Detect valleys (minimum = finger closed)
+        valleys, _ = find_peaks(
+            -distances_smooth,
+            distance=int(self.fps * 0.08),
+            prominence=0.05 * np.ptp(distances_smooth)
         )
 
         total_taps = len(peaks)
-        duration = timestamps[-1] - timestamps[0]
-
-        # Tapping speed (Hz)
         tapping_speed = total_taps / duration if duration > 0 else 0
 
-        # Amplitude (peak thumb-index distances, normalized by index finger length)
-        # VisionMD method: divide by INDEX finger length for hand-size independence
+        # ===== AMPLITUDE METRICS =====
         if len(peaks) > 0:
-            # Extract amplitude at each peak
-            amplitudes_raw = thumb_index_distances[peaks]
-
-            # Normalize by index finger length (dimensionless)
-            amplitudes_normalized = amplitudes_raw / normalization_factor
-
-            amplitude_mean = np.mean(amplitudes_normalized)
-            amplitude_std = np.std(amplitudes_normalized)
+            amplitudes = distances_normalized[peaks]
+            amplitude_mean = float(np.mean(amplitudes))
+            amplitude_std = float(np.std(amplitudes))
         else:
-            amplitude_mean = 0
-            amplitude_std = 0
-            amplitudes_normalized = np.array([])
+            amplitudes = np.array([])
+            amplitude_mean = 0.0
+            amplitude_std = 0.0
 
-        # Rhythm variability (coefficient of variation of inter-tap intervals)
+        # ===== VELOCITY METRICS (NEW) =====
+        # Calculate velocity as derivative of distance
+        velocity = np.diff(distances_normalized) / dt
+
+        opening_velocities = []
+        closing_velocities = []
+        peak_velocities = []
+
+        # For each tap cycle, find opening and closing phases
+        for i, peak_idx in enumerate(peaks):
+            # Find preceding valley (start of opening)
+            prev_valleys = valleys[valleys < peak_idx]
+            if len(prev_valleys) > 0:
+                valley_before = prev_valleys[-1]
+                # Opening phase velocity
+                if valley_before < len(velocity) and peak_idx <= len(velocity):
+                    opening_vel = velocity[valley_before:peak_idx]
+                    if len(opening_vel) > 0:
+                        opening_velocities.append(np.max(opening_vel))
+
+            # Find following valley (end of closing)
+            next_valleys = valleys[valleys > peak_idx]
+            if len(next_valleys) > 0:
+                valley_after = next_valleys[0]
+                # Closing phase velocity (negative values)
+                if peak_idx < len(velocity) and valley_after <= len(velocity):
+                    closing_vel = velocity[peak_idx:valley_after]
+                    if len(closing_vel) > 0:
+                        closing_velocities.append(abs(np.min(closing_vel)))
+
+            # Peak velocity for this tap
+            window_start = max(0, peak_idx - int(self.fps * 0.1))
+            window_end = min(len(velocity), peak_idx + int(self.fps * 0.1))
+            if window_start < window_end:
+                peak_velocities.append(np.max(np.abs(velocity[window_start:window_end])))
+
+        opening_velocity_mean = float(np.mean(opening_velocities)) if opening_velocities else 0.0
+        closing_velocity_mean = float(np.mean(closing_velocities)) if closing_velocities else 0.0
+        peak_velocity_mean = float(np.mean(peak_velocities)) if peak_velocities else 0.0
+
+        # Velocity decrement (first half vs second half)
+        if len(peak_velocities) >= 4:
+            half = len(peak_velocities) // 2
+            first_half_vel = np.mean(peak_velocities[:half])
+            second_half_vel = np.mean(peak_velocities[half:])
+            velocity_decrement = ((first_half_vel - second_half_vel) / first_half_vel * 100) if first_half_vel > 0 else 0
+        else:
+            velocity_decrement = 0.0
+
+        # ===== AMPLITUDE DECREMENT (MDS-UPDRS aligned) =====
+        if len(amplitudes) >= 4:
+            half = len(amplitudes) // 2
+            first_half_amp = float(np.mean(amplitudes[:half]))
+            second_half_amp = float(np.mean(amplitudes[half:]))
+
+            if first_half_amp > 0:
+                amplitude_decrement = ((first_half_amp - second_half_amp) / first_half_amp) * 100
+            else:
+                amplitude_decrement = 0.0
+
+            # Determine decrement pattern (MDS-UPDRS criteria)
+            # Score 1: decrement near end (last 30%)
+            # Score 2: decrement midway (40-70%)
+            # Score 3: decrement after first tap
+            if len(amplitudes) >= 6:
+                third = len(amplitudes) // 3
+                first_third = np.mean(amplitudes[:third])
+                mid_third = np.mean(amplitudes[third:2*third])
+                last_third = np.mean(amplitudes[2*third:])
+
+                if first_third > 0:
+                    early_drop = (first_third - mid_third) / first_third
+                    late_drop = (mid_third - last_third) / mid_third if mid_third > 0 else 0
+
+                    if early_drop > 0.15:  # >15% drop after first third
+                        decrement_pattern = "early"  # MDS-UPDRS 3
+                    elif late_drop > 0.15 and early_drop < 0.1:
+                        decrement_pattern = "late"   # MDS-UPDRS 1
+                    elif early_drop > 0.08 or late_drop > 0.08:
+                        decrement_pattern = "mid"    # MDS-UPDRS 2
+                    else:
+                        decrement_pattern = "none"   # MDS-UPDRS 0
+                else:
+                    decrement_pattern = "none"
+            else:
+                decrement_pattern = "none"
+        else:
+            first_half_amp = amplitude_mean
+            second_half_amp = amplitude_mean
+            amplitude_decrement = 0.0
+            decrement_pattern = "none"
+
+        # ===== RHYTHM AND HESITATION =====
         if len(peaks) > 2:
             inter_tap_intervals = np.diff(timestamps[peaks])
-            rhythm_variability = (np.std(inter_tap_intervals) / np.mean(inter_tap_intervals)) * 100
+            mean_interval = np.mean(inter_tap_intervals)
+            std_interval = np.std(inter_tap_intervals)
+
+            rhythm_variability = (std_interval / mean_interval * 100) if mean_interval > 0 else 0.0
+
+            # Halt: interval > 1.5x mean (MDS-UPDRS "interruption/hesitation")
+            # Lowered from 2x to catch subtle hesitations seen in Score 3 cases
+            halt_count = int(np.sum(inter_tap_intervals > mean_interval * 1.5))
+
+            # Freeze: interval > 2.5x mean (longer pause/complete stop)
+            freeze_episodes = int(np.sum(inter_tap_intervals > mean_interval * 2.5))
         else:
-            rhythm_variability = 0
+            rhythm_variability = 0.0
+            halt_count = 0
+            freeze_episodes = 0
 
-        # Fatigue rate (amplitude decrement using piecewise linear regression)
-        # Research: Use slope of amplitude trend to detect decrement
-        if len(peaks) >= 4 and len(amplitudes_normalized) >= 4:
-            # Simple linear regression for amplitude trend
-            x = np.arange(len(amplitudes_normalized))
-            y = amplitudes_normalized
-
-            # Calculate slope (negative = decreasing amplitude)
-            slope = np.polyfit(x, y, 1)[0]
-
-            # Normalize by initial amplitude to get percentage
-            if np.mean(y) > 0:
-                fatigue_rate = abs(slope / np.mean(y)) * 100 * len(y)
-            else:
-                fatigue_rate = 0
-        else:
-            fatigue_rate = 0
-
-        # Hesitation count (research-based: 20% threshold)
-        # Reference: PMC10674854 - "threshold α = 0.2"
+        # Hesitation: amplitude drop > 20% from expected
         hesitation_count = 0
-        if len(peaks) > 2 and len(amplitudes_normalized) > 2:
-            # Calculate expected amplitude based on adjacent values
-            for i in range(1, len(amplitudes_normalized) - 1):
-                # Average of adjacent amplitudes
-                expected_amp = (amplitudes_normalized[i-1] + amplitudes_normalized[i+1]) / 2
-
-                # Hesitation: actual amplitude < 80% of expected (20% deviation)
-                if amplitudes_normalized[i] < expected_amp * 0.8:
+        if len(amplitudes) > 2:
+            for i in range(1, len(amplitudes) - 1):
+                expected = (amplitudes[i-1] + amplitudes[i+1]) / 2
+                if amplitudes[i] < expected * 0.8:
                     hesitation_count += 1
 
+        # ===== FATIGUE RATE =====
+        if len(amplitudes) >= 4:
+            x = np.arange(len(amplitudes))
+            slope = np.polyfit(x, amplitudes, 1)[0]
+            fatigue_rate = abs(slope / amplitude_mean * 100) if amplitude_mean > 0 else 0.0
+        else:
+            fatigue_rate = 0.0
+
         return FingerTappingMetrics(
-            tapping_speed=tapping_speed,
+            tapping_speed=float(tapping_speed),
+            total_taps=int(total_taps),
+            duration=float(duration),
             amplitude_mean=amplitude_mean,
             amplitude_std=amplitude_std,
-            rhythm_variability=rhythm_variability,
-            fatigue_rate=max(0, fatigue_rate),  # Clamp to 0
+            opening_velocity_mean=opening_velocity_mean,
+            closing_velocity_mean=closing_velocity_mean,
+            peak_velocity_mean=peak_velocity_mean,
+            velocity_decrement=float(velocity_decrement),
+            amplitude_decrement=float(amplitude_decrement),
+            decrement_pattern=decrement_pattern,
+            first_half_amplitude=first_half_amp,
+            second_half_amplitude=second_half_amp,
+            rhythm_variability=float(rhythm_variability),
+            halt_count=int(halt_count),
             hesitation_count=int(hesitation_count),
-            total_taps=total_taps,
-            duration=duration
+            freeze_episodes=int(freeze_episodes),
+            fatigue_rate=float(max(0, fatigue_rate))
         )
 
     def calculate_gait_metrics(self, landmark_frames: List[Dict]) -> GaitMetrics:
         """
         Calculate gait metrics from pose landmarks (3D)
 
-        Pose landmarks (33 points):
-        - 23: Left hip
-        - 24: Right hip
-        - 27: Left ankle
-        - 28: Right ankle
-        - 15: Left wrist
-        - 16: Right wrist
+        Uses World Landmarks (real meters) when available for accurate measurements.
+        Falls back to normalized landmarks with heuristic scaling if world_landmarks not available.
+
+        Pose landmarks (MediaPipe):
+        - 23/24: Left/Right hip
+        - 25/26: Left/Right knee
+        - 27/28: Left/Right ankle
+        - 31/32: Left/Right foot index (toe)
+        - 15/16: Left/Right wrist
         """
         if not landmark_frames:
             raise ValueError("No landmark data provided")
 
+        # Check if world_landmarks are available
+        has_world_landmarks = any(
+            frame.get('world_keypoints') or frame.get('world_landmarks')
+            for frame in landmark_frames
+        )
+
         # Extract 3D trajectories
-        left_ankle_y = []
-        right_ankle_y = []
-        hip_center_3d = []  # (x, y, z)
-        left_wrist_x = []
-        right_wrist_x = []
+        left_ankle = []
+        right_ankle = []
+        left_hip = []
+        right_hip = []
+        left_wrist = []
+        right_wrist = []
         timestamps = []
 
+        # For world landmarks (meters)
+        left_ankle_world = []
+        right_ankle_world = []
+        left_hip_world = []
+        right_hip_world = []
+        left_wrist_world = []
+        right_wrist_world = []
+
         for frame in landmark_frames:
-            # Support both 'keypoints' and 'landmarks' keys
+            # Normalized landmarks (for phase detection)
             keypoints = frame.get('keypoints', frame.get('landmarks', []))
             kp_dict = {kp['id']: kp for kp in keypoints}
 
-            if 27 in kp_dict and 28 in kp_dict and 23 in kp_dict and 24 in kp_dict:
-                left_ankle_y.append(kp_dict[27]['y'])
-                right_ankle_y.append(kp_dict[28]['y'])
+            required = [23, 24, 27, 28]
+            if all(k in kp_dict for k in required):
+                left_ankle.append([kp_dict[27]['x'], kp_dict[27]['y'], kp_dict[27]['z']])
+                right_ankle.append([kp_dict[28]['x'], kp_dict[28]['y'], kp_dict[28]['z']])
+                left_hip.append([kp_dict[23]['x'], kp_dict[23]['y'], kp_dict[23]['z']])
+                right_hip.append([kp_dict[24]['x'], kp_dict[24]['y'], kp_dict[24]['z']])
 
-                # Hip center 3D position
-                hip_x = (kp_dict[23]['x'] + kp_dict[24]['x']) / 2
-                hip_y = (kp_dict[23]['y'] + kp_dict[24]['y']) / 2
-                hip_z = (kp_dict[23]['z'] + kp_dict[24]['z']) / 2
-                hip_center_3d.append([hip_x, hip_y, hip_z])
-
-                # Arm swing
                 if 15 in kp_dict and 16 in kp_dict:
-                    left_wrist_x.append(kp_dict[15]['x'])
-                    right_wrist_x.append(kp_dict[16]['x'])
+                    left_wrist.append([kp_dict[15]['x'], kp_dict[15]['y'], kp_dict[15]['z']])
+                    right_wrist.append([kp_dict[16]['x'], kp_dict[16]['y'], kp_dict[16]['z']])
 
-                timestamps.append(frame.get('timestamp', frame.get('frame_number', frame.get('frame', 0)) / self.fps))
+                # World landmarks (real meters) - for distance calculations
+                world_kp = frame.get('world_keypoints', frame.get('world_landmarks'))
+                if world_kp:
+                    world_dict = {kp['id']: kp for kp in world_kp}
+                    if all(k in world_dict for k in required):
+                        left_ankle_world.append([world_dict[27]['x'], world_dict[27]['y'], world_dict[27]['z']])
+                        right_ankle_world.append([world_dict[28]['x'], world_dict[28]['y'], world_dict[28]['z']])
+                        left_hip_world.append([world_dict[23]['x'], world_dict[23]['y'], world_dict[23]['z']])
+                        right_hip_world.append([world_dict[24]['x'], world_dict[24]['y'], world_dict[24]['z']])
+                        # Wrists for arm swing (World Landmarks)
+                        if 15 in world_dict and 16 in world_dict:
+                            left_wrist_world.append([world_dict[15]['x'], world_dict[15]['y'], world_dict[15]['z']])
+                            right_wrist_world.append([world_dict[16]['x'], world_dict[16]['y'], world_dict[16]['z']])
 
-        if len(left_ankle_y) < 10:
+                ts = frame.get('timestamp', frame.get('frame_number', frame.get('frame', 0)) / self.fps)
+                timestamps.append(ts)
+
+        if len(left_ankle) < 10:
             raise ValueError("Insufficient gait data for analysis")
 
-        left_ankle_y = np.array(left_ankle_y)
-        right_ankle_y = np.array(right_ankle_y)
-        hip_center_3d = np.array(hip_center_3d)  # Shape: (N, 3)
+        left_ankle = np.array(left_ankle)
+        right_ankle = np.array(right_ankle)
+        left_hip = np.array(left_hip)
+        right_hip = np.array(right_hip)
         timestamps = np.array(timestamps)
 
         duration = timestamps[-1] - timestamps[0]
+        dt = 1.0 / self.fps
 
-        # Calculate hip-foot horizontal distance for step detection (research-based method)
-        # Paper: "Automated Gait Analysis Based on a Marker-Free Pose Estimation Model"
-        # Method: Relative horizontal distance between hip and foot
+        # Hip center (3D)
+        hip_center = (left_hip + right_hip) / 2
 
-        left_foot_3d = []
-        right_foot_3d = []
+        # ===== GAIT PHASE DETECTION =====
+        # Method: Ankle vertical velocity for heel-strike (HS) and toe-off (TO)
+        # Heel-strike: ankle velocity changes from downward to near-zero
+        # Toe-off: ankle velocity changes from near-zero to upward
 
-        # Re-extract foot positions
-        for frame in landmark_frames:
-            # Support both 'keypoints' and 'landmarks' keys
-            keypoints = frame.get('keypoints', frame.get('landmarks', []))
-            kp_dict = {kp['id']: kp for kp in keypoints}
+        left_ankle_vel_y = np.diff(left_ankle[:, 1]) / dt
+        right_ankle_vel_y = np.diff(right_ankle[:, 1]) / dt
 
-            if 27 in kp_dict and 28 in kp_dict:
-                left_foot_3d.append([kp_dict[27]['x'], kp_dict[27]['y'], kp_dict[27]['z']])
-                right_foot_3d.append([kp_dict[28]['x'], kp_dict[28]['y'], kp_dict[28]['z']])
+        # Smooth velocity signals
+        if len(left_ankle_vel_y) > 11:
+            left_ankle_vel_y = savgol_filter(left_ankle_vel_y, 11, 3)
+            right_ankle_vel_y = savgol_filter(right_ankle_vel_y, 11, 3)
 
-        left_foot_3d = np.array(left_foot_3d)
-        right_foot_3d = np.array(right_foot_3d)
+        # Detect heel-strikes (peaks in negative velocity = rapid descent stopping)
+        # In MediaPipe, Y increases downward, so heel-strike is when ankle stops moving down
 
-        # Calculate horizontal distance between hip center and each foot
-        left_hip_foot_dist = np.sqrt(
-            (hip_center_3d[:, 0] - left_foot_3d[:, 0]) ** 2 +
-            (hip_center_3d[:, 2] - left_foot_3d[:, 2]) ** 2  # X-Z plane (horizontal)
+        # Use hip-ankle horizontal distance for more robust detection
+        left_hip_ankle_dist = np.sqrt(
+            (hip_center[:, 0] - left_ankle[:, 0]) ** 2 +
+            (hip_center[:, 2] - left_ankle[:, 2]) ** 2
+        )
+        right_hip_ankle_dist = np.sqrt(
+            (hip_center[:, 0] - right_ankle[:, 0]) ** 2 +
+            (hip_center[:, 2] - right_ankle[:, 2]) ** 2
         )
 
-        right_hip_foot_dist = np.sqrt(
-            (hip_center_3d[:, 0] - right_foot_3d[:, 0]) ** 2 +
-            (hip_center_3d[:, 2] - right_foot_3d[:, 2]) ** 2  # X-Z plane (horizontal)
+        # Heel-strikes = peaks in hip-ankle distance (leg extended forward)
+        min_step_frames = int(self.fps * 0.3)  # Min 300ms between steps
+
+        left_hs, _ = find_peaks(
+            left_hip_ankle_dist,
+            height=np.percentile(left_hip_ankle_dist, 40),
+            distance=min_step_frames,
+            prominence=0.02 * np.ptp(left_hip_ankle_dist)
         )
 
-        # Detect heel-strikes (peaks) and toe-offs (valleys)
-        # Heel-strike = maximum hip-foot distance
-        # Toe-off = minimum hip-foot distance
-
-        # Left foot heel-strikes
-        left_peak_threshold = np.max(left_hip_foot_dist) * 0.35  # 35% of max (from paper)
-        left_steps, _ = find_peaks(
-            left_hip_foot_dist,
-            height=left_peak_threshold,
-            distance=int(self.fps * 0.8)  # 0.8s minimum between steps (from paper)
+        right_hs, _ = find_peaks(
+            right_hip_ankle_dist,
+            height=np.percentile(right_hip_ankle_dist, 40),
+            distance=min_step_frames,
+            prominence=0.02 * np.ptp(right_hip_ankle_dist)
         )
 
-        # Right foot heel-strikes
-        right_peak_threshold = np.max(right_hip_foot_dist) * 0.46  # 46% of max (from paper)
-        right_steps, _ = find_peaks(
-            right_hip_foot_dist,
-            height=right_peak_threshold,
-            distance=int(self.fps * 0.8)  # 0.8s minimum between steps
+        # Toe-offs = valleys (leg behind body)
+        left_to, _ = find_peaks(
+            -left_hip_ankle_dist,
+            distance=min_step_frames,
+            prominence=0.02 * np.ptp(left_hip_ankle_dist)
         )
 
-        total_steps = len(left_steps) + len(right_steps)
+        right_to, _ = find_peaks(
+            -right_hip_ankle_dist,
+            distance=min_step_frames,
+            prominence=0.02 * np.ptp(right_hip_ankle_dist)
+        )
 
-        # Cadence (steps per minute)
+        left_step_count = len(left_hs)
+        right_step_count = len(right_hs)
+        total_steps = left_step_count + right_step_count
+
+        # Cadence
         cadence = (total_steps / duration) * 60 if duration > 0 else 0
 
-        # Estimate walking speed using dynamic scale factor based on body proportions
-        # Reference: "Markerless Gait Analysis" - use anatomical landmarks for calibration
+        # ===== SWING AND STANCE TIMES =====
+        left_swing_times = []
+        left_stance_times = []
+        right_swing_times = []
+        right_stance_times = []
 
-        # Calculate dynamic scale factor from hip width (more reliable than fixed value)
-        # Average human hip width ≈ 0.30m (range: 0.25-0.35m)
-        # Calculate normalized hip width from landmarks
-        hip_widths = []
-        for frame in landmark_frames:
-            keypoints = frame.get('keypoints', frame.get('landmarks', []))
-            kp_dict = {kp['id']: kp for kp in keypoints}
-            if 23 in kp_dict and 24 in kp_dict:
-                hip_width = abs(kp_dict[24]['x'] - kp_dict[23]['x'])
-                if hip_width > 0.001:  # Filter out noise
-                    hip_widths.append(hip_width)
+        # Left foot: swing = TO to HS, stance = HS to next TO
+        for i, hs in enumerate(left_hs):
+            # Find preceding toe-off
+            prev_to = left_to[left_to < hs]
+            if len(prev_to) > 0:
+                to_idx = prev_to[-1]
+                swing_time = (timestamps[hs] - timestamps[to_idx])
+                if 0.1 < swing_time < 1.5:  # Valid range
+                    left_swing_times.append(swing_time)
 
-        if hip_widths:
-            avg_hip_width_normalized = np.mean(hip_widths)
-            REAL_HIP_WIDTH = 0.30  # meters (anthropometric average)
-            scale_factor = REAL_HIP_WIDTH / avg_hip_width_normalized
-            # Clamp to reasonable range (1-20m per normalized unit)
-            scale_factor = np.clip(scale_factor, 1.0, 20.0)
+            # Find following toe-off
+            next_to = left_to[left_to > hs]
+            if len(next_to) > 0:
+                to_idx = next_to[0]
+                stance_time = (timestamps[to_idx] - timestamps[hs])
+                if 0.2 < stance_time < 2.0:
+                    left_stance_times.append(stance_time)
+
+        # Right foot
+        for i, hs in enumerate(right_hs):
+            prev_to = right_to[right_to < hs]
+            if len(prev_to) > 0:
+                to_idx = prev_to[-1]
+                swing_time = (timestamps[hs] - timestamps[to_idx])
+                if 0.1 < swing_time < 1.5:
+                    right_swing_times.append(swing_time)
+
+            next_to = right_to[right_to > hs]
+            if len(next_to) > 0:
+                to_idx = next_to[0]
+                stance_time = (timestamps[to_idx] - timestamps[hs])
+                if 0.2 < stance_time < 2.0:
+                    right_stance_times.append(stance_time)
+
+        all_swing_times = left_swing_times + right_swing_times
+        all_stance_times = left_stance_times + right_stance_times
+
+        swing_time_mean = float(np.mean(all_swing_times)) if all_swing_times else 0.0
+        stance_time_mean = float(np.mean(all_stance_times)) if all_stance_times else 0.0
+        swing_stance_ratio = swing_time_mean / stance_time_mean if stance_time_mean > 0 else 0.0
+
+        # Double support time (both feet on ground)
+        # Approximate: overlap between stance phases
+        gait_cycle_time = swing_time_mean + stance_time_mean if (swing_time_mean + stance_time_mean) > 0 else 1.0
+        # In normal gait, double support is ~20% of cycle
+        # Estimate from stance time: double_support ≈ 2 * (stance - swing)
+        double_support_time = max(0, (stance_time_mean - swing_time_mean))
+        double_support_percent = (double_support_time / gait_cycle_time * 100) if gait_cycle_time > 0 else 0
+
+        # ===== STRIDE LENGTH AND SPEED =====
+        # Use world landmarks (meters) if available, otherwise use heuristic scaling
+        use_world = len(left_ankle_world) >= len(left_hs) and len(left_ankle_world) > 0
+
+        if use_world:
+            # Use real-world coordinates (meters) - no heuristic needed
+            left_ankle_arr = np.array(left_ankle_world)
+            right_ankle_arr = np.array(right_ankle_world)
+            scale_factor = 1.0  # Already in meters
         else:
-            scale_factor = 2.0  # Fallback
+            # Fallback: Use normalized landmarks with hip-width heuristic
+            left_ankle_arr = left_ankle
+            right_ankle_arr = right_ankle
+            hip_widths = np.linalg.norm(right_hip - left_hip, axis=1)
+            avg_hip_width_norm = np.mean(hip_widths[hip_widths > 0.01])
+            REAL_HIP_WIDTH = 0.30  # meters
+            scale_factor = REAL_HIP_WIDTH / avg_hip_width_norm if avg_hip_width_norm > 0 else 2.0
+            scale_factor = np.clip(scale_factor, 1.0, 15.0)
 
-        # Calculate displacement
-        x_displacement = abs(hip_center_3d[-1, 0] - hip_center_3d[0, 0])
-        z_displacement = abs(hip_center_3d[-1, 2] - hip_center_3d[0, 2])
+        # Calculate per-step lengths
+        left_step_lengths = []
+        right_step_lengths = []
 
-        # Use larger displacement (either lateral or forward)
-        max_displacement = max(x_displacement, z_displacement)
-        distance_traveled = max_displacement * scale_factor
+        # Left steps: distance between consecutive left heel-strikes
+        for i in range(1, len(left_hs)):
+            if left_hs[i] < len(left_ankle_arr) and left_hs[i-1] < len(left_ankle_arr):
+                step_dist = np.linalg.norm(left_ankle_arr[left_hs[i]] - left_ankle_arr[left_hs[i-1]])
+                step_length = step_dist * scale_factor
+                if 0.1 < step_length < 2.5:  # Valid range (meters)
+                    left_step_lengths.append(step_length)
 
-        walking_speed = distance_traveled / duration if duration > 0 else 0
+        for i in range(1, len(right_hs)):
+            if right_hs[i] < len(right_ankle_arr) and right_hs[i-1] < len(right_ankle_arr):
+                step_dist = np.linalg.norm(right_ankle_arr[right_hs[i]] - right_ankle_arr[right_hs[i-1]])
+                step_length = step_dist * scale_factor
+                if 0.1 < step_length < 2.5:
+                    right_step_lengths.append(step_length)
 
-        # Stride length (distance per step)
-        stride_length = distance_traveled / total_steps if total_steps > 0 else 0
+        left_stride_length = float(np.mean(left_step_lengths)) if left_step_lengths else 0.0
+        right_stride_length = float(np.mean(right_step_lengths)) if right_step_lengths else 0.0
 
-        # Alternative cadence-based speed estimation (more reliable for certain camera angles)
-        if cadence > 0 and total_steps >= 4:
-            # Use typical stride length relationship: stride ≈ 0.43 * height
-            # Assume average height = 1.7m → stride ≈ 0.73m
-            typical_stride = 0.73
-            cadence_based_speed = (cadence * typical_stride) / 60
+        all_step_lengths = left_step_lengths + right_step_lengths
+        stride_length = float(np.mean(all_step_lengths)) if all_step_lengths else 0.6
 
-            # Use cadence-based speed if displacement-based seems unreliable
-            # Expanded threshold: normal walking is 0.8-1.4 m/s
-            if walking_speed < 0.4 or walking_speed > 2.5:
-                walking_speed = cadence_based_speed
-                stride_length = typical_stride
+        # Walking speed = cadence * stride_length
+        walking_speed = (cadence / 60) * stride_length if cadence > 0 else 0.0
 
-        # Stride variability (improved: use both feet, require minimum steps)
-        # Research: CV of stride time is a reliable gait variability measure
-        # Reference: "Gait variability and fall risk in community-dwelling older adults"
-        all_steps = np.sort(np.concatenate([left_steps, right_steps]))
+        # Validate walking speed (typical range: 0.5 - 2.0 m/s for adults)
+        if walking_speed < 0.2 or walking_speed > 3.0:
+            # Fallback to typical values
+            walking_speed = (cadence / 60) * 0.6
+            stride_length = 0.6
 
-        if len(all_steps) >= 6:  # Minimum 6 steps for reliable variability
-            # Calculate step intervals (time between consecutive steps)
-            step_intervals = np.diff(timestamps[all_steps])
+        # ===== ASYMMETRY METRICS =====
+        # Step length asymmetry
+        if left_stride_length > 0 and right_stride_length > 0:
+            avg_stride = (left_stride_length + right_stride_length) / 2
+            step_length_asymmetry = abs(left_stride_length - right_stride_length) / avg_stride * 100
+        else:
+            step_length_asymmetry = 0.0
 
-            # Filter out outliers (intervals outside 2 standard deviations)
+        # Swing time asymmetry
+        left_swing_mean = np.mean(left_swing_times) if left_swing_times else 0
+        right_swing_mean = np.mean(right_swing_times) if right_swing_times else 0
+        if left_swing_mean > 0 and right_swing_mean > 0:
+            avg_swing = (left_swing_mean + right_swing_mean) / 2
+            swing_time_asymmetry = abs(left_swing_mean - right_swing_mean) / avg_swing * 100
+        else:
+            swing_time_asymmetry = 0.0
+
+        # ===== ARM SWING (World Landmarks - meters) =====
+        # Use World Landmarks to avoid camera perspective error
+        use_world_wrist = len(left_wrist_world) > 10 and len(right_wrist_world) > 10
+
+        if use_world_wrist:
+            # Use World Landmarks (real meters)
+            left_wrist_arr = np.array(left_wrist_world)
+            right_wrist_arr = np.array(right_wrist_world)
+            left_hip_arr = np.array(left_hip_world[:len(left_wrist_arr)])
+            right_hip_arr = np.array(right_hip_world[:len(right_wrist_arr)])
+            hip_center_world = (left_hip_arr + right_hip_arr) / 2
+
+            # Arm swing amplitude = peak-to-peak range of wrist position relative to hip
+            # Using Z-axis (forward/backward in World Landmarks) for sagittal plane movement
+            left_wrist_rel_z = left_wrist_arr[:, 2] - hip_center_world[:, 2]
+            right_wrist_rel_z = right_wrist_arr[:, 2] - hip_center_world[:, 2]
+
+            # Amplitude in meters
+            left_arm_amplitude = np.ptp(left_wrist_rel_z)
+            right_arm_amplitude = np.ptp(right_wrist_rel_z)
+            arm_swing_amplitude_mean = (left_arm_amplitude + right_arm_amplitude) / 2
+
+            # Asymmetry calculation
+            if left_arm_amplitude > 0 and right_arm_amplitude > 0:
+                more = max(left_arm_amplitude, right_arm_amplitude)
+                less = min(left_arm_amplitude, right_arm_amplitude)
+                arm_swing_asymmetry = ((more - less) / more) * 100
+            else:
+                arm_swing_asymmetry = 0.0
+        elif len(left_wrist) > 0 and len(right_wrist) > 0:
+            # Fallback: Use normalized landmarks (less accurate)
+            left_wrist_norm = np.array(left_wrist)
+            right_wrist_norm = np.array(right_wrist)
+
+            # X-axis displacement relative to hip center
+            left_wrist_rel = left_wrist_norm[:, 0] - hip_center[:len(left_wrist_norm), 0]
+            right_wrist_rel = right_wrist_norm[:, 0] - hip_center[:len(right_wrist_norm), 0]
+
+            left_arm_range_norm = np.ptp(left_wrist_rel)
+            right_arm_range_norm = np.ptp(right_wrist_rel)
+
+            # Estimate amplitude in meters using hip-width scaling
+            hip_widths = np.linalg.norm(right_hip - left_hip, axis=1)
+            avg_hip_width = np.mean(hip_widths[hip_widths > 0.01])
+            REAL_HIP_WIDTH = 0.30  # meters
+            scale = REAL_HIP_WIDTH / avg_hip_width if avg_hip_width > 0 else 2.0
+
+            left_arm_amplitude = left_arm_range_norm * scale
+            right_arm_amplitude = right_arm_range_norm * scale
+            arm_swing_amplitude_mean = (left_arm_amplitude + right_arm_amplitude) / 2
+
+            if left_arm_range_norm > 0 and right_arm_range_norm > 0:
+                more = max(left_arm_range_norm, right_arm_range_norm)
+                less = min(left_arm_range_norm, right_arm_range_norm)
+                arm_swing_asymmetry = ((more - less) / more) * 100
+            else:
+                arm_swing_asymmetry = 0.0
+        else:
+            arm_swing_asymmetry = 0.0
+            left_arm_amplitude = 0.0
+            right_arm_amplitude = 0.0
+            arm_swing_amplitude_mean = 0.0
+
+        # ===== STEP HEIGHT (World Landmarks - meters) =====
+        # Step height = maximum vertical lift of ankle during swing phase
+        # Uses Y-axis in World Landmarks (vertical, with Y increasing upward in hip-centered coords)
+        if len(left_ankle_world) > 10:
+            left_ankle_arr_world = np.array(left_ankle_world)
+            right_ankle_arr_world = np.array(right_ankle_world)
+
+            # For each foot, find peaks in Y position (highest point during swing)
+            # World Landmarks: Y is vertical (positive = up relative to hip center)
+            # Note: In World Landmarks, hip center is origin, so ankle Y will be negative (below hip)
+
+            # Calculate step heights per swing phase
+            left_step_heights = []
+            right_step_heights = []
+
+            # Left foot step heights: find Y peak between each toe-off and heel-strike
+            for i, hs in enumerate(left_hs):
+                prev_to = left_to[left_to < hs]
+                if len(prev_to) > 0:
+                    to_idx = prev_to[-1]
+                    if to_idx < len(left_ankle_arr_world) and hs < len(left_ankle_arr_world):
+                        # Y values during swing (to_idx to hs)
+                        swing_y = left_ankle_arr_world[to_idx:hs, 1]
+                        if len(swing_y) > 2:
+                            # Step height = peak Y - baseline Y (min of endpoints)
+                            baseline_y = min(left_ankle_arr_world[to_idx, 1],
+                                           left_ankle_arr_world[hs-1, 1] if hs > 0 else left_ankle_arr_world[to_idx, 1])
+                            peak_y = np.max(swing_y)
+                            step_height = peak_y - baseline_y
+                            if 0.01 < step_height < 0.50:  # Valid range: 1cm to 50cm
+                                left_step_heights.append(step_height)
+
+            # Right foot step heights
+            for i, hs in enumerate(right_hs):
+                prev_to = right_to[right_to < hs]
+                if len(prev_to) > 0:
+                    to_idx = prev_to[-1]
+                    if to_idx < len(right_ankle_arr_world) and hs < len(right_ankle_arr_world):
+                        swing_y = right_ankle_arr_world[to_idx:hs, 1]
+                        if len(swing_y) > 2:
+                            baseline_y = min(right_ankle_arr_world[to_idx, 1],
+                                           right_ankle_arr_world[hs-1, 1] if hs > 0 else right_ankle_arr_world[to_idx, 1])
+                            peak_y = np.max(swing_y)
+                            step_height = peak_y - baseline_y
+                            if 0.01 < step_height < 0.50:
+                                right_step_heights.append(step_height)
+
+            step_height_left = float(np.mean(left_step_heights)) if left_step_heights else 0.0
+            step_height_right = float(np.mean(right_step_heights)) if right_step_heights else 0.0
+            step_height_mean = (step_height_left + step_height_right) / 2 if (step_height_left + step_height_right) > 0 else 0.0
+        else:
+            step_height_left = 0.0
+            step_height_right = 0.0
+            step_height_mean = 0.0
+
+        # ===== STRIDE VARIABILITY =====
+        all_hs = np.sort(np.concatenate([left_hs, right_hs]))
+        if len(all_hs) >= 4:
+            step_intervals = np.diff(timestamps[all_hs])
             mean_interval = np.mean(step_intervals)
-            std_interval = np.std(step_intervals)
-            valid_intervals = step_intervals[
-                (step_intervals > mean_interval - 2 * std_interval) &
-                (step_intervals < mean_interval + 2 * std_interval)
-            ]
-
-            if len(valid_intervals) >= 3:
-                # Coefficient of variation (CV) = (std / mean) * 100
-                stride_variability = (np.std(valid_intervals) / np.mean(valid_intervals)) * 100
+            # Filter outliers
+            valid = step_intervals[(step_intervals > mean_interval * 0.5) &
+                                   (step_intervals < mean_interval * 2.0)]
+            if len(valid) >= 2:
+                stride_variability = (np.std(valid) / np.mean(valid)) * 100
             else:
-                stride_variability = (np.std(step_intervals) / np.mean(step_intervals)) * 100
-        elif len(all_steps) >= 3:
-            # Fallback for shorter sequences (less reliable)
-            step_intervals = np.diff(timestamps[all_steps])
-            stride_variability = (np.std(step_intervals) / np.mean(step_intervals)) * 100
+                stride_variability = (np.std(step_intervals) / mean_interval) * 100
         else:
-            stride_variability = 0  # Insufficient data
+            stride_variability = 0.0
 
-        # Arm swing asymmetry (research-based)
-        # Reference: "Evaluation of Arm Swing Features and Asymmetry during Gait in
-        # Parkinson's Disease Using the Azure Kinect Sensor" (PMC9412494, 2022)
-        # Method: Wrist displacement relative to pelvis
-        if len(left_wrist_x) > 0 and len(right_wrist_x) > 0:
-            left_wrist_x = np.array(left_wrist_x)
-            right_wrist_x = np.array(right_wrist_x)
+        # ===== FESTINATION INDEX =====
+        # Festination = steps getting shorter while cadence increases
+        if len(all_step_lengths) >= 6:
+            half = len(all_step_lengths) // 2
+            first_half_steps = all_step_lengths[:half]
+            second_half_steps = all_step_lengths[half:]
 
-            # Extract pelvis center (hip center already calculated)
-            pelvis_x = hip_center_3d[:, 0]
+            first_half_mean = np.mean(first_half_steps)
+            second_half_mean = np.mean(second_half_steps)
 
-            # Calculate wrist position relative to pelvis
-            left_wrist_relative = left_wrist_x - pelvis_x
-            right_wrist_relative = right_wrist_x - pelvis_x
-
-            # Anteroposterior (AP) range: horizontal swing amplitude
-            left_arm_range = np.ptp(left_wrist_relative)
-            right_arm_range = np.ptp(right_wrist_relative)
-
-            # ASA (Absolute Symmetry Angle) formula
-            # ASA = abs((45° - arctan(PMORE/PLESS))/90°) × 100
-            if left_arm_range > 0 and right_arm_range > 0:
-                more = max(left_arm_range, right_arm_range)
-                less = min(left_arm_range, right_arm_range)
-                asa_radians = abs((np.pi/4 - np.arctan(more/less)) / (np.pi/2))
-                arm_swing_asymmetry = asa_radians * 100
+            # Check if steps are getting shorter
+            if first_half_mean > 0:
+                step_decrement = (first_half_mean - second_half_mean) / first_half_mean
+                # Festination: positive value means steps getting shorter
+                festination_index = max(0, step_decrement * 100)
             else:
-                arm_swing_asymmetry = 0
+                festination_index = 0.0
         else:
-            arm_swing_asymmetry = 0
+            festination_index = 0.0
+
+        # ===== GAIT REGULARITY (Autocorrelation) =====
+        if len(left_hip_ankle_dist) >= 30:
+            # Normalize the signal
+            signal = left_hip_ankle_dist - np.mean(left_hip_ankle_dist)
+            # Autocorrelation at gait cycle lag
+            expected_cycle_frames = int(self.fps * 60 / cadence) if cadence > 0 else int(self.fps)
+            expected_cycle_frames = min(expected_cycle_frames, len(signal) // 2)
+
+            if expected_cycle_frames > 5:
+                autocorr = np.correlate(signal, signal, mode='full')
+                autocorr = autocorr[len(autocorr)//2:]
+                autocorr = autocorr / autocorr[0]  # Normalize
+
+                # Find peak near expected cycle
+                search_range = slice(max(0, expected_cycle_frames - 10),
+                                    min(len(autocorr), expected_cycle_frames + 10))
+                if len(autocorr[search_range]) > 0:
+                    gait_regularity = float(np.max(autocorr[search_range]))
+                else:
+                    gait_regularity = 0.5
+            else:
+                gait_regularity = 0.5
+        else:
+            gait_regularity = 0.5
 
         return GaitMetrics(
-            walking_speed=walking_speed,
-            stride_length=stride_length,
-            cadence=cadence,
-            stride_variability=stride_variability,
-            arm_swing_asymmetry=arm_swing_asymmetry,
-            step_count=total_steps,
-            duration=duration
+            walking_speed=float(walking_speed),
+            cadence=float(cadence),
+            step_count=int(total_steps),
+            duration=float(duration),
+            stride_length=float(stride_length),
+            stride_variability=float(stride_variability),
+            swing_time_mean=float(swing_time_mean),
+            stance_time_mean=float(stance_time_mean),
+            swing_stance_ratio=float(swing_stance_ratio),
+            double_support_time=float(double_support_time),
+            double_support_percent=float(double_support_percent),
+            step_length_asymmetry=float(step_length_asymmetry),
+            swing_time_asymmetry=float(swing_time_asymmetry),
+            arm_swing_asymmetry=float(arm_swing_asymmetry),
+            left_step_count=int(left_step_count),
+            right_step_count=int(right_step_count),
+            left_stride_length=float(left_stride_length),
+            right_stride_length=float(right_stride_length),
+            festination_index=float(festination_index),
+            gait_regularity=float(np.clip(gait_regularity, 0, 1)),
+            # NEW: World Landmarks based metrics
+            arm_swing_amplitude_left=float(left_arm_amplitude),
+            arm_swing_amplitude_right=float(right_arm_amplitude),
+            arm_swing_amplitude_mean=float(arm_swing_amplitude_mean),
+            step_height_left=float(step_height_left),
+            step_height_right=float(step_height_right),
+            step_height_mean=float(step_height_mean)
         )
 
 
@@ -432,34 +860,39 @@ if __name__ == "__main__":
     skeleton_path = sys.argv[1]
     mode = sys.argv[2]
 
-    # Load skeleton data
     with open(skeleton_path, 'r') as f:
         landmark_frames = json.load(f)
 
     print(f"\nLoaded {len(landmark_frames)} frames from {skeleton_path}")
 
-    # Calculate metrics
-    calculator = MetricsCalculator(fps=25.0)  # Adjust based on video
+    calculator = MetricsCalculator(fps=30.0)
 
     if mode == "finger":
         metrics = calculator.calculate_finger_tapping_metrics(landmark_frames)
         print("\n=== Finger Tapping Metrics ===")
         print(f"Tapping Speed: {metrics.tapping_speed:.2f} Hz")
-        print(f"Amplitude (mean): {metrics.amplitude_mean:.2f} pixels")
-        print(f"Amplitude (std): {metrics.amplitude_std:.2f} pixels")
-        print(f"Rhythm Variability: {metrics.rhythm_variability:.1f}%")
-        print(f"Fatigue Rate: {metrics.fatigue_rate:.1f}%")
-        print(f"Hesitation Count: {metrics.hesitation_count}")
         print(f"Total Taps: {metrics.total_taps}")
-        print(f"Duration: {metrics.duration:.2f}s")
+        print(f"Amplitude (mean): {metrics.amplitude_mean:.3f}")
+        print(f"Opening Velocity: {metrics.opening_velocity_mean:.3f} /s")
+        print(f"Closing Velocity: {metrics.closing_velocity_mean:.3f} /s")
+        print(f"Velocity Decrement: {metrics.velocity_decrement:.1f}%")
+        print(f"Amplitude Decrement: {metrics.amplitude_decrement:.1f}%")
+        print(f"Decrement Pattern: {metrics.decrement_pattern}")
+        print(f"Halt Count: {metrics.halt_count}")
+        print(f"Hesitation Count: {metrics.hesitation_count}")
+        print(f"Freeze Episodes: {metrics.freeze_episodes}")
 
     elif mode == "gait":
         metrics = calculator.calculate_gait_metrics(landmark_frames)
         print("\n=== Gait Metrics ===")
         print(f"Walking Speed: {metrics.walking_speed:.2f} m/s")
-        print(f"Stride Length: {metrics.stride_length:.2f} m")
         print(f"Cadence: {metrics.cadence:.1f} steps/min")
-        print(f"Stride Variability: {metrics.stride_variability:.1f}%")
+        print(f"Stride Length: {metrics.stride_length:.2f} m")
+        print(f"Swing Time: {metrics.swing_time_mean:.3f} s")
+        print(f"Stance Time: {metrics.stance_time_mean:.3f} s")
+        print(f"Swing/Stance Ratio: {metrics.swing_stance_ratio:.2f}")
+        print(f"Double Support: {metrics.double_support_percent:.1f}%")
+        print(f"Step Asymmetry: {metrics.step_length_asymmetry:.1f}%")
         print(f"Arm Swing Asymmetry: {metrics.arm_swing_asymmetry:.1f}%")
-        print(f"Step Count: {metrics.step_count}")
-        print(f"Duration: {metrics.duration:.2f}s")
+        print(f"Festination Index: {metrics.festination_index:.1f}%")
+        print(f"Gait Regularity: {metrics.gait_regularity:.2f}")
