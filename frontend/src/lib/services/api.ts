@@ -50,6 +50,13 @@ export interface AnalysisResult {
     motion_pattern: string
   }
   reasoning: string
+  reasoning_log?: {
+    agent: string
+    step: string
+    content: string
+    timestamp: string
+    meta?: any
+  }[]
   video_metadata: {
     width: number
     height: number

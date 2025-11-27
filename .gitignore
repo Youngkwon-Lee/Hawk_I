@@ -27,6 +27,20 @@ backend/uploads/*.mp4
 backend/uploads/*.json
 backend/uploads/*.png
 !backend/uploads/.gitkeep
+uploads/
+test_uploads_real/
+
+# Video files
+*.mp4
+*.avi
+*.mov
+*.webm
+*.mkv
+
+# Test output files
+test_output*.txt
+test_real_output*.txt
+debug_*.txt
 
 # Zip files
 *.zip
@@ -34,3 +48,11 @@ backend/uploads/*.png
 # Logs
 *.log
 npm-debug.log*
+
+# Temporary files
+nul
+a.txt
+a copy.txt
+
+# Test scripts (local testing only)
+test_*.py

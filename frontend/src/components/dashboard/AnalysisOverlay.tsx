@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useState, useEffect } from 'react'
 import { Card, CardContent } from "@/components/ui/Card"
-import { Activity, UploadCloud, Scan, User, Flame, Brain, CheckCircle2, Circle } from 'lucide-react'
+import { Activity, UploadCloud, Eye, Stethoscope, FileText, CheckCircle2, Circle } from 'lucide-react'
 import { getAnalysisResult } from "@/lib/services/api"
 import { cn } from "@/lib/utils"
 
@@ -23,16 +23,15 @@ export function AnalysisOverlay({
     onError
 }: AnalysisOverlayProps) {
     const [progress, setProgress] = useState(0)
-    const [activeStep, setActiveStep] = useState(0) // 0: Upload, 1: ROI, 2: Skeleton, 3: Heatmap, 4: AI
+    const [activeStep, setActiveStep] = useState(0) // 0: Upload, 1: Vision, 2: Clinical, 3: Report
     const [currentReasoning, setCurrentReasoning] = useState("시스템 초기화 중...")
 
-    // Steps configuration
+    // Steps configuration - Multi-Agent Architecture
     const steps = [
         { id: 'upload', label: 'Upload', icon: UploadCloud },
-        { id: 'roi', label: 'ROI Scan', icon: Scan },
-        { id: 'skeleton', label: 'Skeleton', icon: User },
-        { id: 'heatmap', label: 'Heatmap', icon: Flame },
-        { id: 'ai', label: 'AI Analysis', icon: Brain },
+        { id: 'vision', label: 'Vision Agent', icon: Eye },
+        { id: 'clinical', label: 'Clinical Agent', icon: Stethoscope },
+        { id: 'report', label: 'Report Agent', icon: FileText },
     ]
 
     const updateReasoning = (message: string) => {
@@ -75,33 +74,48 @@ export function AnalysisOverlay({
                 pollCount++
 
                 if (data.steps) {
-                    if (data.steps.roi_detection?.status === 'in_progress') {
+                    // Vision Agent Phase (ROI + Skeleton + Task Classification)
+                    if (data.steps.roi_detection?.status === 'in_progress' ||
+                        data.steps.skeleton?.status === 'in_progress' ||
+                        (data.steps.roi_detection?.status === 'completed' && data.steps.skeleton?.status !== 'completed')) {
                         setActiveStep(1)
-                        if (Math.random() > 0.6) updateReasoning("Motion ROI Classifier: 관심 영역 스캔 중...")
-                        else if (Math.random() > 0.6) updateReasoning("배경 노이즈 제거 및 객체 추적 알고리즘 실행...")
+                        const msgs = [
+                            "Vision Agent: ROI 감지 및 모션 분석 중...",
+                            "Vision Agent: MediaPipe 스켈레톤 추출 중...",
+                            "Vision Agent: Task 유형 분류 및 신뢰도 계산..."
+                        ]
+                        updateReasoning(msgs[Math.floor(Math.random() * msgs.length)])
                     }
-                    else if (data.steps.skeleton?.status === 'in_progress') {
+                    // Clinical Agent Phase (Heatmap + Metrics + UPDRS)
+                    else if (data.steps.heatmap?.status === 'in_progress' ||
+                             data.steps.updrs_calculation?.status === 'in_progress' ||
+                             (data.steps.skeleton?.status === 'completed' && data.steps.updrs_calculation?.status !== 'completed')) {
                         setActiveStep(2)
-                        if (Math.random() > 0.6) updateReasoning("MediaPipe Pose: 33개 관절 포인트 추출...")
-                        else if (Math.random() > 0.6) updateReasoning("프레임별 관절 좌표 정규화 및 보정...")
+                        const msgs = [
+                            "Clinical Agent: 운동학적 메트릭 계산 중...",
+                            "Clinical Agent: UPDRS 점수 추정 중...",
+                            "Clinical Agent: 속도, 진폭, 불규칙성 분석..."
+                        ]
+                        updateReasoning(msgs[Math.floor(Math.random() * msgs.length)])
                     }
-                    else if (data.steps.heatmap?.status === 'in_progress') {
+                    // Report Agent Phase (AI Interpretation)
+                    else if (data.steps.ai_interpretation?.status === 'in_progress' ||
+                             (data.steps.updrs_calculation?.status === 'completed' && data.steps.ai_interpretation?.status !== 'completed')) {
                         setActiveStep(3)
-                        if (Math.random() > 0.6) updateReasoning("Temporal Heatmap: 움직임 밀도 시각화...")
-                        else if (Math.random() > 0.6) updateReasoning("운동 강도 분포 분석 및 오버레이 생성...")
-                    }
-                    else if (data.steps.ai_interpretation?.status === 'in_progress') {
-                        setActiveStep(4)
-                        if (Math.random() > 0.6) updateReasoning("Multi-modal Analysis: 종합 진단 수행 중...")
-                        else if (Math.random() > 0.6) updateReasoning("UPDRS 점수 예측 및 임상 리포트 생성...")
+                        const msgs = [
+                            "Report Agent: GPT-4 기반 임상 해석 생성 중...",
+                            "Report Agent: 환자용/의료진용 리포트 작성...",
+                            "Report Agent: 권장사항 및 추천 운동 생성..."
+                        ]
+                        updateReasoning(msgs[Math.floor(Math.random() * msgs.length)])
                     }
                 }
 
                 if (data.status === 'completed') {
                     clearInterval(progressInterval)
                     setProgress(100)
-                    setActiveStep(5) // All done
-                    updateReasoning("분석 완료. 결과 리포트로 이동합니다.")
+                    setActiveStep(4) // All done (past last step)
+                    updateReasoning("모든 에이전트 분석 완료! 결과 페이지로 이동합니다.")
 
                     try {
                         const result = await getAnalysisResult(videoId)

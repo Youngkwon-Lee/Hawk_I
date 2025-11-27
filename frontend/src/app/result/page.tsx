@@ -12,25 +12,23 @@ import { TrendChart } from "@/components/dashboard/TrendChart"
 import { VideoPlayer } from "@/components/dashboard/VideoPlayer"
 import { AIInterpretation } from "@/components/dashboard/AIInterpretation"
 import { MedicationTimeline } from "@/components/dashboard/MedicationTimeline"
-import { AlertTriangle, Download, Share2, FileText, Activity } from "lucide-react"
+import { AlertTriangle, Download, Share2, FileText, Activity, Brain } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AnalysisResult, FingerTappingMetrics, GaitMetrics, TimelineEvent } from "@/lib/services/api"
+import { ReasoningLogViewer } from "@/components/dashboard/ReasoningLogViewer"
 
 // Mock Data - Gait
 const GAIT_METRICS: MetricRow[] = [
     { label: "보행 속도", value: "0.8 m/s", unit: "", change: "-2%", status: "neutral", normalRange: "0.8-1.2" },
     { label: "보행률 (Cadence)", value: "102", unit: "steps/min", change: "+1%", status: "good", normalRange: "100-120" },
     { label: "보폭 길이", value: "0.98", unit: "m", change: "-8%", status: "bad", normalRange: "0.6-0.8" },
-    { label: "보폭 변동성", value: "4.2", unit: "%", change: "+1.2%", status: "warning", normalRange: "<10" },
     { label: "팔 흔들기 비대칭", value: "15", unit: "%", change: "+5%", status: "bad", normalRange: "<20" },
-    { label: "회전 시간", value: "2.4", unit: "s", change: "+0.4s", status: "bad", normalRange: "<2.0" },
 ]
 
 // Mock Data - Finger
 const FINGER_METRICS: MetricRow[] = [
     { label: "태핑 속도", value: "3.2 Hz", unit: "", change: "-5%", status: "warning", normalRange: "3.0-6.0" },
     { label: "진폭 (Amplitude)", value: "4.5 cm", unit: "", change: "-10%", status: "bad", normalRange: ">0.8" },
-    { label: "리듬 변동성", value: "8.5", unit: "%", change: "+2%", status: "neutral", normalRange: "<15" },
     { label: "주저함", value: "3", unit: "회", change: "+1", status: "warning", normalRange: "≤2" },
     { label: "피로율", value: "12", unit: "%", change: "+3%", status: "bad", normalRange: "<20" },
 ]
@@ -60,12 +58,6 @@ function convertFingerMetricsToRows(metrics: FingerTappingMetrics): MetricRow[] 
         return "bad"
     }
 
-    const getRhythmVariabilityStatus = (variability: number) => {
-        if (variability < 15) return "good"
-        if (variability < 30) return "warning"
-        return "bad"
-    }
-
     const getHesitationStatus = (hesitation: number) => {
         if (hesitation <= 2) return "good"
         if (hesitation <= 5) return "warning"
@@ -92,13 +84,6 @@ function convertFingerMetricsToRows(metrics: FingerTappingMetrics): MetricRow[] 
             unit: "×finger",
             normalRange: ">0.8",
             status: getAmplitudeStatus(metrics.amplitude_mean)
-        },
-        {
-            label: "리듬 변동성",
-            value: metrics.rhythm_variability.toFixed(1),
-            unit: "%",
-            normalRange: "<15",
-            status: getRhythmVariabilityStatus(metrics.rhythm_variability)
         },
         {
             label: "주저함",
@@ -179,25 +164,11 @@ function convertGaitMetricsToRows(metrics: GaitMetrics): MetricRow[] {
             status: getStrideLengthStatus(metrics.stride_length)
         },
         {
-            label: "보폭 변동성",
-            value: metrics.stride_variability.toFixed(1),
-            unit: "%",
-            normalRange: "<10",
-            status: getVariabilityStatus(metrics.stride_variability)
-        },
-        {
             label: "팔 흔들기 비대칭",
             value: metrics.arm_swing_asymmetry.toFixed(1),
             unit: "%",
             normalRange: "<20",
             status: getAsymmetryStatus(metrics.arm_swing_asymmetry)
-        },
-        {
-            label: "걸음 수",
-            value: metrics.step_count.toString(),
-            unit: "",
-            normalRange: "-",
-            status: "neutral"
         },
     ]
 }
@@ -284,7 +255,10 @@ function ResultContent() {
     const title = isFinger ? "손가락 태핑 분석" : "보행 분석"
 
     // Get UPDRS score from backend result
-    const score = analysisResult?.updrs_score?.score?.toString() || (isFinger ? "1.5" : "2.0")
+    // Backend returns total_score, not score
+    const score = analysisResult?.updrs_score?.total_score?.toString() ||
+                  analysisResult?.updrs_score?.score?.toString() ||
+                  "N/A"
     const severity = analysisResult?.updrs_score?.severity || "Unknown"
 
     // Use actual uploaded video from backend if available
@@ -480,19 +454,50 @@ function ResultContent() {
                     />
                 )}
 
-                {/* Warning Banner */}
-                <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-4 flex items-start gap-3">
-                    <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5 shrink-0" />
-                    <div>
-                        <h3 className="font-semibold text-yellow-500 text-sm">주의 필요</h3>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            {isFinger
-                                ? "10초 후 진폭 감소가 관찰되었습니다. 리듬 변동성이 기준치보다 약간 높습니다."
-                                : "최근 3회 검사에서 지속적인 보폭 길이 감소가 관찰되었습니다. 2회의 회전 주저함이 감지되었습니다."
-                            }
-                        </p>
-                    </div>
-                </div>
+                {/* Warning Banner - Dynamic based on analysis results */}
+                {(() => {
+                    const warnings: string[] = [];
+
+                    if (isFinger) {
+                        // Finger tapping warnings
+                        const metrics = analysisResult?.metrics;
+                        if (metrics?.decrement_ratio && metrics.decrement_ratio > 20) {
+                            warnings.push(`진폭 감소율이 ${metrics.decrement_ratio.toFixed(1)}%로 측정되었습니다.`);
+                        }
+                        if (metrics?.fatigue_index && metrics.fatigue_index > 0.3) {
+                            warnings.push("후반부 피로 징후가 감지되었습니다.");
+                        }
+                    } else {
+                        // Gait warnings
+                        const metrics = analysisResult?.metrics;
+                        if (metrics?.walking_speed && metrics.walking_speed < 0.8) {
+                            warnings.push(`보행 속도가 ${metrics.walking_speed.toFixed(2)} m/s로 정상 범위(0.8-1.2)보다 낮습니다.`);
+                        }
+                        if (metrics?.cadence && metrics.cadence < 100) {
+                            warnings.push(`보행률이 ${Math.round(metrics.cadence)} steps/min으로 정상 범위(100-120)보다 낮습니다.`);
+                        }
+                        if (metrics?.arm_swing_asymmetry && metrics.arm_swing_asymmetry > 20) {
+                            warnings.push(`팔 흔들기 비대칭이 ${metrics.arm_swing_asymmetry.toFixed(1)}%로 기준치(20%)를 초과합니다.`);
+                        }
+                    }
+
+                    // Only show warning banner if there are actual warnings
+                    if (warnings.length === 0) return null;
+
+                    return (
+                        <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-4 flex items-start gap-3">
+                            <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5 shrink-0" />
+                            <div>
+                                <h3 className="font-semibold text-yellow-500 text-sm">주의 필요</h3>
+                                <ul className="text-sm text-muted-foreground mt-1 space-y-1">
+                                    {warnings.map((warning, idx) => (
+                                        <li key={idx}>• {warning}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    );
+                })()}
 
                 {/* Tabs Navigation */}
                 <div className="border-b border-border">
@@ -541,6 +546,15 @@ function ResultContent() {
                             )}
                         >
                             약물 타임라인
+                        </button>
+                        <button
+                            onClick={() => setActiveTab("reasoning")}
+                            className={cn(
+                                "pb-3 text-sm font-medium transition-all border-b-2",
+                                activeTab === "reasoning" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            AI 추론 과정
                         </button>
                     </div>
                 </div>
@@ -715,6 +729,12 @@ function ResultContent() {
                 {activeTab === "timeline" && (
                     <div className="animate-in fade-in slide-in-from-bottom-2">
                         <MedicationTimeline patientId={analysisResult?.patient_id || "unknown"} />
+                    </div>
+                )}
+
+                {activeTab === "reasoning" && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2">
+                        <ReasoningLogViewer logs={analysisResult?.reasoning_log || []} />
                     </div>
                 )}
             </div>

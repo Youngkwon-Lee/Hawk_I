@@ -70,7 +70,8 @@ class MetricsCalculator:
         timestamps = []
 
         for frame in landmark_frames:
-            keypoints = frame.get('keypoints', [])
+            # Support both 'keypoints' and 'landmarks' keys
+            keypoints = frame.get('keypoints', frame.get('landmarks', []))
             kp_dict = {kp['id']: kp for kp in keypoints}
 
             # Need thumb tip (4), index tip (8), and index segments (5,6,7,8) for normalization
@@ -95,7 +96,7 @@ class MetricsCalculator:
                 index_length = seg1 + seg2 + seg3
                 index_finger_lengths.append(index_length)
 
-                timestamps.append(frame.get('timestamp', frame['frame'] / self.fps))
+                timestamps.append(frame.get('timestamp', frame.get('frame_number', frame.get('frame', 0)) / self.fps))
 
         if len(thumb_index_distances) < 10:
             raise ValueError("Insufficient landmark data for analysis")
@@ -210,7 +211,8 @@ class MetricsCalculator:
         timestamps = []
 
         for frame in landmark_frames:
-            keypoints = frame.get('keypoints', [])
+            # Support both 'keypoints' and 'landmarks' keys
+            keypoints = frame.get('keypoints', frame.get('landmarks', []))
             kp_dict = {kp['id']: kp for kp in keypoints}
 
             if 27 in kp_dict and 28 in kp_dict and 23 in kp_dict and 24 in kp_dict:
@@ -228,7 +230,7 @@ class MetricsCalculator:
                     left_wrist_x.append(kp_dict[15]['x'])
                     right_wrist_x.append(kp_dict[16]['x'])
 
-                timestamps.append(frame.get('timestamp', frame['frame'] / self.fps))
+                timestamps.append(frame.get('timestamp', frame.get('frame_number', frame.get('frame', 0)) / self.fps))
 
         if len(left_ankle_y) < 10:
             raise ValueError("Insufficient gait data for analysis")
@@ -249,7 +251,8 @@ class MetricsCalculator:
 
         # Re-extract foot positions
         for frame in landmark_frames:
-            keypoints = frame.get('keypoints', [])
+            # Support both 'keypoints' and 'landmarks' keys
+            keypoints = frame.get('keypoints', frame.get('landmarks', []))
             kp_dict = {kp['id']: kp for kp in keypoints}
 
             if 27 in kp_dict and 28 in kp_dict:
@@ -295,25 +298,36 @@ class MetricsCalculator:
         # Cadence (steps per minute)
         cadence = (total_steps / duration) * 60 if duration > 0 else 0
 
-        # Estimate walking speed based on cadence and average stride length
-        # Normal walking: stride length ≈ 0.7-0.8m, speed ≈ 1.0-1.4 m/s
-        # Use empirical relationship: speed = cadence * stride_length / 60
+        # Estimate walking speed using dynamic scale factor based on body proportions
+        # Reference: "Markerless Gait Analysis" - use anatomical landmarks for calibration
 
-        # Estimate stride length from video duration and step count
-        # Assume person walks continuously in frame
-        # For frontal view: use normalized coordinate change
+        # Calculate dynamic scale factor from hip width (more reliable than fixed value)
+        # Average human hip width ≈ 0.30m (range: 0.25-0.35m)
+        # Calculate normalized hip width from landmarks
+        hip_widths = []
+        for frame in landmark_frames:
+            keypoints = frame.get('keypoints', frame.get('landmarks', []))
+            kp_dict = {kp['id']: kp for kp in keypoints}
+            if 23 in kp_dict and 24 in kp_dict:
+                hip_width = abs(kp_dict[24]['x'] - kp_dict[23]['x'])
+                if hip_width > 0.001:  # Filter out noise
+                    hip_widths.append(hip_width)
+
+        if hip_widths:
+            avg_hip_width_normalized = np.mean(hip_widths)
+            REAL_HIP_WIDTH = 0.30  # meters (anthropometric average)
+            scale_factor = REAL_HIP_WIDTH / avg_hip_width_normalized
+            # Clamp to reasonable range (1-20m per normalized unit)
+            scale_factor = np.clip(scale_factor, 1.0, 20.0)
+        else:
+            scale_factor = 2.0  # Fallback
+
+        # Calculate displacement
         x_displacement = abs(hip_center_3d[-1, 0] - hip_center_3d[0, 0])
         z_displacement = abs(hip_center_3d[-1, 2] - hip_center_3d[0, 2])
 
         # Use larger displacement (either lateral or forward)
         max_displacement = max(x_displacement, z_displacement)
-
-        # Calibration: Typical person height ≈ 1.7m
-        # Hip height ≈ 0.53 * body height ≈ 0.9m
-        # Normal stride ≈ 0.7-0.8m
-        # Scale normalized coordinates to meters
-        # Assume normalized coordinate range [0, 1] ≈ 2m in real world
-        scale_factor = 2.0
         distance_traveled = max_displacement * scale_factor
 
         walking_speed = distance_traveled / duration if duration > 0 else 0
@@ -321,7 +335,7 @@ class MetricsCalculator:
         # Stride length (distance per step)
         stride_length = distance_traveled / total_steps if total_steps > 0 else 0
 
-        # Alternative cadence-based speed estimation (more reliable)
+        # Alternative cadence-based speed estimation (more reliable for certain camera angles)
         if cadence > 0 and total_steps >= 4:
             # Use typical stride length relationship: stride ≈ 0.43 * height
             # Assume average height = 1.7m → stride ≈ 0.73m
@@ -329,16 +343,39 @@ class MetricsCalculator:
             cadence_based_speed = (cadence * typical_stride) / 60
 
             # Use cadence-based speed if displacement-based seems unreliable
-            if walking_speed < 0.1 or walking_speed > 3.0:
+            # Expanded threshold: normal walking is 0.8-1.4 m/s
+            if walking_speed < 0.4 or walking_speed > 2.5:
                 walking_speed = cadence_based_speed
                 stride_length = typical_stride
 
-        # Stride variability
-        if len(left_steps) > 2:
-            left_stride_intervals = np.diff(timestamps[left_steps])
-            stride_variability = (np.std(left_stride_intervals) / np.mean(left_stride_intervals)) * 100
+        # Stride variability (improved: use both feet, require minimum steps)
+        # Research: CV of stride time is a reliable gait variability measure
+        # Reference: "Gait variability and fall risk in community-dwelling older adults"
+        all_steps = np.sort(np.concatenate([left_steps, right_steps]))
+
+        if len(all_steps) >= 6:  # Minimum 6 steps for reliable variability
+            # Calculate step intervals (time between consecutive steps)
+            step_intervals = np.diff(timestamps[all_steps])
+
+            # Filter out outliers (intervals outside 2 standard deviations)
+            mean_interval = np.mean(step_intervals)
+            std_interval = np.std(step_intervals)
+            valid_intervals = step_intervals[
+                (step_intervals > mean_interval - 2 * std_interval) &
+                (step_intervals < mean_interval + 2 * std_interval)
+            ]
+
+            if len(valid_intervals) >= 3:
+                # Coefficient of variation (CV) = (std / mean) * 100
+                stride_variability = (np.std(valid_intervals) / np.mean(valid_intervals)) * 100
+            else:
+                stride_variability = (np.std(step_intervals) / np.mean(step_intervals)) * 100
+        elif len(all_steps) >= 3:
+            # Fallback for shorter sequences (less reliable)
+            step_intervals = np.diff(timestamps[all_steps])
+            stride_variability = (np.std(step_intervals) / np.mean(step_intervals)) * 100
         else:
-            stride_variability = 0
+            stride_variability = 0  # Insufficient data
 
         # Arm swing asymmetry (research-based)
         # Reference: "Evaluation of Arm Swing Features and Asymmetry during Gait in

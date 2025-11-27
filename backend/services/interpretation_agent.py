@@ -34,9 +34,11 @@ class InterpretationAgent:
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
-            raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
-
-        self.client = OpenAI(api_key=self.api_key)
+            print("⚠️ OpenAI API key not found. Using fallback interpretation.")
+            self.client = None
+        else:
+            self.client = OpenAI(api_key=self.api_key)
+            
         self.model = "gpt-4o-mini"  # Cost-effective model for interpretation
 
     def interpret_finger_tapping(
