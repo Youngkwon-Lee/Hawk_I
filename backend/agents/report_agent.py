@@ -16,7 +16,7 @@ class ReportAgent(BaseAgent):
 
             # Prepare data for interpretation service
             # The existing service expects specific args. We map context to them.
-            updrs_score = ctx.clinical_scores.get("score", 0)
+            updrs_score = ctx.clinical_scores.get("total_score", ctx.clinical_scores.get("score", 0))
             severity = ctx.clinical_scores.get("severity", "Unknown")
             metrics = ctx.kinematic_metrics
             details = ctx.clinical_scores.get("details", {})
@@ -27,15 +27,18 @@ class ReportAgent(BaseAgent):
             # We might need a dispatcher here.
             
             result = None
+            result = None
+            charts = ctx.clinical_charts
+
             if task_type == "finger_tapping":
-                result = self.interpreter.interpret_finger_tapping(updrs_score, severity, metrics, details)
+                result = self.interpreter.interpret_finger_tapping(updrs_score, severity, metrics, details, charts)
             elif task_type == "gait":
-                result = self.interpreter.interpret_gait(updrs_score, severity, metrics, details)
+                result = self.interpreter.interpret_gait(updrs_score, severity, metrics, details, charts)
             else:
                 # Fallback or generic
                 # For now, let's try to use one of them or a generic method if available
                 # Assuming finger tapping as fallback for prototype if method missing
-                result = self.interpreter.interpret_finger_tapping(updrs_score, severity, metrics, details)
+                result = self.interpreter.interpret_finger_tapping(updrs_score, severity, metrics, details, charts)
 
             if result:
                 ctx.report = Report(

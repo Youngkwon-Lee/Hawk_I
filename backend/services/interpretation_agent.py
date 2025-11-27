@@ -34,7 +34,7 @@ class InterpretationAgent:
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
-            print("⚠️ OpenAI API key not found. Using fallback interpretation.")
+            print("[WARNING] OpenAI API key not found. Using fallback interpretation.")
             self.client = None
         else:
             self.client = OpenAI(api_key=self.api_key)
@@ -46,7 +46,8 @@ class InterpretationAgent:
         updrs_score: float,
         severity: str,
         metrics: Dict[str, Any],
-        details: Dict[str, Any]
+        details: Dict[str, Any],
+        clinical_charts: Optional[str] = None
     ) -> InterpretationResult:
         """
         Interpret finger tapping results for patients
@@ -74,6 +75,12 @@ class InterpretationAgent:
 - 피로율: {metrics.get('fatigue_rate', 0):.1f}% (정상: <20%)
 - 주저함: {metrics.get('hesitation_count', 0)}회 (정상: ≤2회)
 - 총 탭 수: {metrics.get('total_taps', 0)}
+"""
+        
+        if clinical_charts:
+            prompt += f"\n## 상세 차트 데이터\n{clinical_charts}"
+
+        prompt += """
 
 ## 요청사항
 다음 형식으로 JSON 응답을 생성해주세요:
@@ -126,7 +133,7 @@ class InterpretationAgent:
             )
 
         except Exception as e:
-            print(f"⚠️ Interpretation Agent Error: {str(e)}")
+            print(f"[ERROR] Interpretation Agent Error: {str(e)}")
             # Fallback to rule-based interpretation
             return self._fallback_interpretation_finger_tapping(
                 updrs_score, severity, metrics
@@ -137,7 +144,8 @@ class InterpretationAgent:
         updrs_score: float,
         severity: str,
         metrics: Dict[str, Any],
-        details: Dict[str, Any]
+        details: Dict[str, Any],
+        clinical_charts: Optional[str] = None
     ) -> InterpretationResult:
         """
         Interpret gait results for patients
@@ -164,6 +172,12 @@ class InterpretationAgent:
 - 보폭 변동성: {metrics.get('stride_variability', 0):.1f}% (정상: <10%)
 - 팔 흔들기 비대칭: {metrics.get('arm_swing_asymmetry', 0):.1f}% (정상: <10%)
 - 총 걸음 수: {metrics.get('step_count', 0)}
+"""
+
+        if clinical_charts:
+            prompt += f"\n## 상세 차트 데이터\n{clinical_charts}"
+
+        prompt += """
 
 ## 요청사항
 다음 형식으로 JSON 응답을 생성해주세요:
@@ -211,7 +225,7 @@ class InterpretationAgent:
             )
 
         except Exception as e:
-            print(f"⚠️ Interpretation Agent Error: {str(e)}")
+            print(f"[ERROR] Interpretation Agent Error: {str(e)}")
             return self._fallback_interpretation_gait(updrs_score, severity, metrics)
 
     def _fallback_interpretation_finger_tapping(
