@@ -99,15 +99,51 @@ print(f'Predicted: {result.total_score}, Expected: {expected_score}')
 | 3 | 0.5-0.8 m/s | 0.15-0.3 m | 3-5 cm | 2-3 cm |
 | 4 | <0.5 m/s | <0.15 m | <3 cm | <2 cm |
 
-## 이전 테스트 결과 (2024-11-28)
+## 테스트 결과 (2025-11-28)
 
-### Score 1 영상 (demo_videos/score_1_14-005690_demo.mp4)
+### PD4T Score 0 (정상) - 14-005197_022
+| Feature | 측정값 | UPDRS Score |
+|---------|--------|-------------|
+| Walking Speed | **1.71 m/s** | 0 |
+| Stride Length | **0.46 m** | 0 |
+| Arm Swing (L/R) | **6.9 / 5.9 cm** | 1-2 |
+| Step Height | **4.8 cm** | 1 |
+| Arm Asymmetry | **13.9%** | 0 |
+
+- **예측: 2.3 (Mild) | 기대: 0**
+- Base Score: 1, Penalties: 1.3
+- 비고: Arm Swing 측정값이 PD4T 환경에서 낮게 나옴 (카메라 거리/각도 영향)
+
+### PD4T Score 3 (심각한 PD) - 15-002976_019
+| Feature | 측정값 | UPDRS Score |
+|---------|--------|-------------|
+| Walking Speed | **0.43 m/s** | 3 |
+| Stride Length | **0.16 m** | 3 |
+| Arm Swing (L/R) | **4.6 / 6.1 cm** | 3 |
+| Step Height | **1.3 cm** | 4 |
+| Arm Asymmetry | **23.7%** | 3 |
+| Cadence | **162.9 steps/min** | Penalty |
+
+- **예측: 4.0 (Severe) | 기대: 3**
+- Base Score: 3, Penalties: 1.0
+- 비고: 높은 Cadence는 PD 보상 전략 (짧은 보폭 보상)
+
+### 분석
+- **Score 0 vs Score 3 구별**: ✅ 성공
+  - Walking Speed: 1.71 → 0.43 m/s (75% 감소)
+  - Step Height: 4.8 → 1.3 cm (73% 감소)
+- **절대 점수 정확도**: ⚠️ 조정 필요
+  - Arm Swing 임계값 하향 조정 필요 (PD4T 환경 특성)
+  - Penalty cap 적용 고려
+
+### demo_videos 테스트 결과 (참고)
+#### Score 1 영상 (demo_videos/score_1_14-005690_demo.mp4)
 - Walking Speed: **1.85 m/s** (정상)
 - Stride Length: **0.49 m** (정상)
 - Arm Swing: L 10.0 / R 10.8 cm (정상)
 - Arm Asymmetry: **7.3%** (정상)
 
-### Score 3 영상 (demo_videos/score_3_13-007586_demo.mp4)
+#### Score 3 영상 (demo_videos/score_3_13-007586_demo.mp4)
 - Walking Speed: **0.62 m/s** (감소)
 - Stride Length: **0.15 m** (매우 짧음)
 - Arm Swing: L 4.9 / R 4.8 cm (감소)
