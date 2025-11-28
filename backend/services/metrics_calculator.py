@@ -13,6 +13,88 @@ from typing import List, Dict, Tuple, Optional
 from scipy.signal import find_peaks, savgol_filter
 from dataclasses import dataclass
 
+# ===== INTERPOLATION CONSTANTS =====
+VISIBILITY_THRESHOLD = 0.5  # Minimum visibility score for valid landmark
+MAX_INTERPOLATION_GAP = 10  # Maximum consecutive frames to interpolate
+
+
+def interpolate_missing_landmarks(
+    landmark_frames: List[Dict],
+    required_ids: List[int],
+    visibility_threshold: float = VISIBILITY_THRESHOLD,
+    max_gap: int = MAX_INTERPOLATION_GAP
+) -> List[Dict]:
+    """Interpolate missing or low-visibility landmarks using linear interpolation."""
+    if len(landmark_frames) < 3:
+        return landmark_frames
+
+    interpolated_frames = []
+    for frame in landmark_frames:
+        new_frame = {
+            'frame_number': frame.get('frame_number', 0),
+            'timestamp': frame.get('timestamp', 0),
+            'keypoints': [kp.copy() for kp in frame.get('keypoints', frame.get('landmarks', []))],
+        }
+        if frame.get('world_keypoints') or frame.get('world_landmarks'):
+            world_kp = frame.get('world_keypoints', frame.get('world_landmarks', []))
+            new_frame['world_keypoints'] = [kp.copy() for kp in world_kp] if world_kp else []
+        interpolated_frames.append(new_frame)
+
+    for landmark_id in required_ids:
+        _interpolate_landmark_trajectory(interpolated_frames, landmark_id, 'keypoints', visibility_threshold, max_gap)
+        _interpolate_landmark_trajectory(interpolated_frames, landmark_id, 'world_keypoints', visibility_threshold, max_gap)
+
+    return interpolated_frames
+
+
+def _interpolate_landmark_trajectory(frames: List[Dict], landmark_id: int, keypoint_key: str, visibility_threshold: float, max_gap: int) -> None:
+    """Interpolate a single landmark's trajectory in-place."""
+    n_frames = len(frames)
+    valid_mask = []
+    for frame in frames:
+        keypoints = frame.get(keypoint_key, [])
+        kp_dict = {kp['id']: kp for kp in keypoints}
+        if landmark_id in kp_dict:
+            valid_mask.append(kp_dict[landmark_id].get('visibility', 1.0) >= visibility_threshold)
+        else:
+            valid_mask.append(False)
+
+    i = 0
+    while i < n_frames:
+        if not valid_mask[i]:
+            gap_start = i
+            while i < n_frames and not valid_mask[i]:
+                i += 1
+            gap_end = i
+            gap_length = gap_end - gap_start
+
+            if gap_start > 0 and gap_end < n_frames and gap_length <= max_gap:
+                start_kp = {kp['id']: kp for kp in frames[gap_start - 1].get(keypoint_key, [])}
+                end_kp = {kp['id']: kp for kp in frames[gap_end].get(keypoint_key, [])}
+
+                if landmark_id in start_kp and landmark_id in end_kp:
+                    start_lm, end_lm = start_kp[landmark_id], end_kp[landmark_id]
+                    for j in range(gap_start, gap_end):
+                        t = (j - gap_start + 1) / (gap_length + 1)
+                        interpolated_kp = {
+                            'id': landmark_id,
+                            'x': start_lm['x'] + t * (end_lm['x'] - start_lm['x']),
+                            'y': start_lm['y'] + t * (end_lm['y'] - start_lm['y']),
+                            'z': start_lm.get('z', 0) + t * (end_lm.get('z', 0) - start_lm.get('z', 0)),
+                            'visibility': min(start_lm.get('visibility', 1.0), end_lm.get('visibility', 1.0)),
+                            'interpolated': True
+                        }
+                        frame_kps = frames[j].get(keypoint_key, [])
+                        existing_idx = next((idx for idx, kp in enumerate(frame_kps) if kp['id'] == landmark_id), None)
+                        if existing_idx is not None:
+                            frame_kps[existing_idx] = interpolated_kp
+                        else:
+                            frame_kps.append(interpolated_kp)
+                        frames[j][keypoint_key] = frame_kps
+        else:
+            i += 1
+
+
 
 @dataclass
 class FingerTappingMetrics:
@@ -379,6 +461,15 @@ class MetricsCalculator:
         if not landmark_frames:
             raise ValueError("No landmark data provided")
 
+        # ===== INTERPOLATION: Fill missing/occluded landmarks =====
+        GAIT_REQUIRED_IDS = [23, 24, 27, 28, 15, 16]  # hips, ankles, wrists
+        landmark_frames = interpolate_missing_landmarks(
+            landmark_frames,
+            required_ids=GAIT_REQUIRED_IDS,
+            visibility_threshold=VISIBILITY_THRESHOLD,
+            max_gap=MAX_INTERPOLATION_GAP
+        )
+
         # Check if world_landmarks are available
         has_world_landmarks = any(
             frame.get('world_keypoints') or frame.get('world_landmarks')
@@ -640,6 +731,7 @@ class MetricsCalculator:
 
         # ===== ARM SWING (World Landmarks - meters) =====
         # Use World Landmarks to avoid camera perspective error
+        # Calculate per-gait-cycle to avoid measuring global movement
         use_world_wrist = len(left_wrist_world) > 10 and len(right_wrist_world) > 10
 
         if use_world_wrist:
@@ -655,9 +747,37 @@ class MetricsCalculator:
             left_wrist_rel_z = left_wrist_arr[:, 2] - hip_center_world[:, 2]
             right_wrist_rel_z = right_wrist_arr[:, 2] - hip_center_world[:, 2]
 
-            # Amplitude in meters
-            left_arm_amplitude = np.ptp(left_wrist_rel_z)
-            right_arm_amplitude = np.ptp(right_wrist_rel_z)
+            # Calculate per-gait-cycle amplitude (not global peak-to-peak)
+            # Use heel strikes to define gait cycles
+            left_cycle_amplitudes = []
+            right_cycle_amplitudes = []
+
+            # Combine all heel strikes and sort
+            all_hs = sorted(list(left_hs) + list(right_hs))
+
+            for i in range(1, len(all_hs)):
+                start_idx = all_hs[i-1]
+                end_idx = all_hs[i]
+
+                # Only process if indices are valid
+                if end_idx <= len(left_wrist_rel_z) and start_idx < end_idx:
+                    # Left arm amplitude in this cycle
+                    left_cycle_z = left_wrist_rel_z[start_idx:end_idx]
+                    if len(left_cycle_z) > 5:
+                        left_amp = np.ptp(left_cycle_z)
+                        if 0.01 < left_amp < 0.5:  # Valid range: 1cm to 50cm
+                            left_cycle_amplitudes.append(left_amp)
+
+                    # Right arm amplitude in this cycle
+                    right_cycle_z = right_wrist_rel_z[start_idx:end_idx]
+                    if len(right_cycle_z) > 5:
+                        right_amp = np.ptp(right_cycle_z)
+                        if 0.01 < right_amp < 0.5:
+                            right_cycle_amplitudes.append(right_amp)
+
+            # Average amplitude across all cycles
+            left_arm_amplitude = float(np.mean(left_cycle_amplitudes)) if left_cycle_amplitudes else 0.0
+            right_arm_amplitude = float(np.mean(right_cycle_amplitudes)) if right_cycle_amplitudes else 0.0
             arm_swing_amplitude_mean = (left_arm_amplitude + right_arm_amplitude) / 2
 
             # Asymmetry calculation
