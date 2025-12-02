@@ -4,19 +4,32 @@ Python Flask backend for Parkinson's Disease motion analysis
 
 ## Features
 
-- ✅ **Movement-based ROI Detection** (100% algorithm-based)
+- **Movement-based ROI Detection** (100% algorithm-based)
   - Frame differencing
   - Contour detection
   - Multi-contour merging for full-body motion
 
-- ✅ **Auto Task Classification**
+- **Auto Task Classification**
   - `finger_tapping` - Small hand ROI (< 2% of frame)
   - `hand_movement` - Larger hand ROI (pronation-supination)
   - `gait` - Full body or large motion area (> 10%)
   - `leg_agility` - Localized foot motion (< 10%)
 
-- ⏳ **MediaPipe Skeleton Extraction** (Coming soon)
-- ⏳ **UPDRS Prediction (0-3)** (Coming soon)
+- **MediaPipe Skeleton Extraction**
+  - Hand landmarks (21 keypoints)
+  - Pose landmarks (33 keypoints)
+  - Frame-by-frame tracking
+
+- **UPDRS Scoring (0-4)**
+  - Rule-based scoring (kinematic metrics)
+  - ML-based scoring (RandomForest, XGBoost)
+  - Ensemble scoring (average of rule + ML)
+
+- **Multi-Agent Architecture**
+  - OrchestratorAgent: Pipeline coordination
+  - VisionAgent: Skeleton extraction & visualization
+  - ClinicalAgent: UPDRS scoring
+  - ReportAgent: AI interpretation
 
 ## Installation
 
@@ -73,27 +86,42 @@ Parameters:
 - video_file: File (required)
 - patient_id: string (optional)
 - test_type: string (optional manual override)
+- scoring_method: string (optional, default: "ensemble")
+  - "rule": Rule-based scoring only
+  - "ml": ML model scoring only
+  - "ensemble": Average of rule + ML scores
+- ml_model_type: string (optional, default: "rf")
+  - "rf": RandomForest model
+  - "xgb": XGBoost model
 ```
 
 Response:
 ```json
 {
   "success": true,
-  "video_type": "finger_tapping",  // AUTO-DETECTED!
+  "video_type": "finger_tapping",
   "confidence": 0.90,
   "auto_detected": true,
+  "scoring_method": "ensemble",
+  "ml_model_type": "rf",
   "roi": {
-    "x": 100,
-    "y": 200,
-    "w": 300,
-    "h": 400
+    "x": 100, "y": 200, "w": 300, "h": 400
   },
-  "motion_analysis": {
-    "motion_pattern": "localized",
-    "motion_area_ratio": 0.015,
-    "body_part": "hand"
+  "updrs_score": {
+    "total_score": 1.5,
+    "severity": "Mild",
+    "confidence": 0.88,
+    "method": "ensemble",
+    "details": {
+      "rule": 1.0,
+      "ml": 2.0
+    }
   },
-  "reasoning": "Hand detected with very small ROI (1.5%). Classified as finger_tapping."
+  "ai_interpretation": {
+    "summary": "Patient shows mild bradykinesia...",
+    "explanation": "Clinical findings indicate...",
+    "recommendations": ["Regular exercise", "Follow-up in 3 months"]
+  }
 }
 ```
 
@@ -101,20 +129,29 @@ Response:
 
 ```
 backend/
-├── app.py                  # Flask application
-├── requirements.txt        # Python dependencies
-├── .env.example           # Environment variables template
+├── app.py                      # Flask application
+├── requirements.txt            # Python dependencies
+├── agents/
+│   ├── orchestrator.py         # Pipeline coordinator
+│   ├── vision_agent.py         # Skeleton extraction
+│   ├── clinical_agent.py       # UPDRS scoring
+│   └── report_agent.py         # AI interpretation
+├── domain/
+│   └── context.py              # Analysis context model
 ├── routes/
-│   ├── health.py          # Health check endpoint
-│   └── analyze.py         # Video analysis endpoint
+│   ├── health.py               # Health check endpoint
+│   └── analyze.py              # Video analysis endpoint
 ├── services/
-│   ├── roi_detector.py    # Movement-based ROI detection
-│   ├── task_classifier.py # Auto task classification
-│   ├── mediapipe_processor.py  # (Coming soon)
-│   └── updrs_model.py     # (Coming soon)
-├── models/
-│   └── saved_models/      # PyTorch weights (Coming soon)
-└── uploads/               # Temporary video storage
+│   ├── roi_detector.py         # Movement-based ROI detection
+│   ├── task_classifier.py      # Auto task classification
+│   ├── mediapipe_processor.py  # Skeleton extraction
+│   ├── updrs_scorer.py         # Rule + ML scoring
+│   └── ml_scorer.py            # ML model inference
+└── ml_models/
+    ├── rf_finger_tapping_scorer.pkl  # RandomForest model
+    ├── xgb_finger_tapping_scorer.pkl # XGBoost model
+    ├── rf_gait_scorer.pkl            # Gait RF model
+    └── xgb_gait_scorer.pkl           # Gait XGBoost model
 ```
 
 ## Testing
@@ -122,14 +159,22 @@ backend/
 ### Test with cURL
 
 ```bash
-# Finger tapping video
+# Finger tapping with ensemble scoring (default)
 curl -X POST http://localhost:5000/api/analyze \
   -F "video_file=@test_finger_tapping.mp4" \
-  -F "patient_id=P001"
+  -F "patient_id=P001" \
+  -F "scoring_method=ensemble"
 
-# Gait video
+# Gait with ML-only scoring (XGBoost)
 curl -X POST http://localhost:5000/api/analyze \
-  -F "video_file=@test_gait.mp4"
+  -F "video_file=@test_gait.mp4" \
+  -F "scoring_method=ml" \
+  -F "ml_model_type=xgb"
+
+# Rule-based scoring only
+curl -X POST http://localhost:5000/api/analyze \
+  -F "video_file=@test_video.mp4" \
+  -F "scoring_method=rule"
 ```
 
 ### Test with Python
@@ -139,10 +184,16 @@ import requests
 
 url = "http://localhost:5000/api/analyze"
 files = {"video_file": open("test_video.mp4", "rb")}
-data = {"patient_id": "P001"}
+data = {
+    "patient_id": "P001",
+    "scoring_method": "ensemble",  # rule, ml, ensemble
+    "ml_model_type": "rf"          # rf or xgb
+}
 
 response = requests.post(url, files=files, data=data)
-print(response.json())
+result = response.json()
+print(f"UPDRS Score: {result['updrs_score']['total_score']}")
+print(f"Method: {result['scoring_method']}")
 ```
 
 ## Algorithm Details

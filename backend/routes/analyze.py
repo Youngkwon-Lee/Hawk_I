@@ -35,7 +35,7 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def process_video_background(video_path, video_id, patient_id, manual_test_type, app_config):
+def process_video_background(video_path, video_id, patient_id, manual_test_type, app_config, scoring_method='ensemble', ml_model_type='rf'):
     """
     Background task for video analysis using Multi-Agent Orchestrator
     """
@@ -247,11 +247,13 @@ def start_analysis():
         thread = threading.Thread(
             target=process_video_background,
             args=(
-                video_path, 
-                video_id, 
-                patient_id, 
-                manual_test_type, 
-                current_app.config.copy() # Pass config copy to thread
+                video_path,
+                video_id,
+                patient_id,
+                manual_test_type,
+                current_app.config.copy(),
+                scoring_method,
+                ml_model_type
             )
         )
         thread.daemon = True

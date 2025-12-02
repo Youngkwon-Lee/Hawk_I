@@ -120,11 +120,11 @@ if __name__ == '__main__':
     debug = os.getenv('FLASK_ENV', 'production') == 'development'
 
     print(f"\n{'='*50}")
-    print(f"🚀 HawkEye PD Backend Starting...")
+    print(f"[START] HawkEye PD Backend Starting...")
     print(f"{'='*50}")
-    print(f"📍 Port: {port}")
-    print(f"🐛 Debug: {debug}")
-    print(f"📁 Upload Folder: {app.config['UPLOAD_FOLDER']}")
+    print(f"[PORT] Port: {port}")
+    print(f"[DEBUG] Debug: {debug}")
+    print(f"[FOLDER] Upload Folder: {app.config['UPLOAD_FOLDER']}")
     print(f"{'='*50}\n")
 
     app.run(
