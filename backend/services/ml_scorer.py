@@ -214,6 +214,41 @@ class MLScorer:
         return MLPrediction(score=score, confidence=round(confidence, 3),
                            raw_prediction=round(float(raw_pred), 3), model_type=model_type)
 
+    def predict_lstm(self, landmarks: list, task_type: str) -> Optional[MLPrediction]:
+        """
+        Predict UPDRS score using LSTM model (time-series)
+
+        Args:
+            landmarks: List of landmark frames
+            task_type: 'finger_tapping', 'hand_movement', 'gait', etc.
+
+        Returns:
+            MLPrediction or None if LSTM not available
+        """
+        try:
+            from models.lstm_model import LSTMScorerFactory
+
+            # Map task types
+            if task_type in ['finger_tapping', 'hand_movement']:
+                lstm_task = 'finger_tapping'
+            else:
+                lstm_task = 'gait'
+
+            scorer = LSTMScorerFactory.get_scorer(lstm_task)
+            raw_pred, confidence = scorer.predict(landmarks)
+
+            score = int(np.clip(np.round(raw_pred), 0, 4))
+
+            return MLPrediction(
+                score=score,
+                confidence=round(confidence, 3),
+                raw_prediction=round(float(raw_pred), 3),
+                model_type='lstm'
+            )
+        except Exception as e:
+            logger.warning(f"LSTM prediction failed: {e}")
+            return None
+
 
 def get_ml_scorer() -> MLScorer:
     return MLScorer()
