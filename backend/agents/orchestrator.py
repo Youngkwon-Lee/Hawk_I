@@ -3,6 +3,7 @@ from domain.context import AnalysisContext
 from agents.vision_agent import VisionAgent
 from agents.clinical_agent import ClinicalAgent
 from agents.gait_cycle_agent import GaitCycleAgent
+from agents.validation_agent import ValidationAgent
 from agents.report_agent import ReportAgent
 import traceback
 
@@ -11,11 +12,12 @@ class OrchestratorAgent(BaseAgent):
         self.vision_agent = VisionAgent()
         self.clinical_agent = ClinicalAgent()
         self.gait_cycle_agent = GaitCycleAgent()
+        self.validation_agent = ValidationAgent()
         self.report_agent = ReportAgent()
 
     def process(self, ctx: AnalysisContext, on_progress_update=None) -> AnalysisContext:
         """
-        Main workflow: Vision -> Clinical -> GaitCycle (if gait) -> Report
+        Main workflow: Vision -> Clinical -> GaitCycle (if gait) -> Validation -> Report
         Supports dynamic routing and error handling.
         """
         try:
@@ -69,18 +71,23 @@ class OrchestratorAgent(BaseAgent):
                 ctx = self.gait_cycle_agent.process(ctx)
                 if on_progress_update: on_progress_update("gait_cycle", "completed")
 
-            # --- Step 4: Report (Interpretation) ---
+            # --- Step 4: Validation ---
+            if on_progress_update: on_progress_update("validation", "in_progress")
+            ctx = self.validation_agent.process(ctx)
+            if on_progress_update: on_progress_update("validation", "completed")
+
+            # --- Step 5: Report (Interpretation) ---
             if on_progress_update: on_progress_update("ai_interpretation", "in_progress")
 
             # Even if clinical failed, we might have visual data to report on
             ctx = self.report_agent.process(ctx)
-            
+
             if ctx.error:
                 ctx.log("orchestrator", f"Report generation failed.")
                 if on_progress_update: on_progress_update("ai_interpretation", "failed")
             else:
                 if on_progress_update: on_progress_update("ai_interpretation", "completed")
-            
+
             ctx.log("orchestrator", "Workflow completed.")
             return ctx
 

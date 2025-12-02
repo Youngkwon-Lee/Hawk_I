@@ -43,7 +43,9 @@ class AnalysisContext(BaseModel):
     # Gait Cycle Analysis (for gait tasks)
     gait_cycle_data: Optional[Dict[str, Any]] = None
 
-    
+    # Validation Results
+    validation_result: Optional[Dict[str, Any]] = None
+
     report: Optional[Report] = None
     
     # Reasoning Log
