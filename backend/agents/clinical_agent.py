@@ -4,10 +4,16 @@ from domain.context import AnalysisContext
 from services.metrics_calculator import MetricsCalculator
 from services.updrs_scorer import UPDRSScorer
 
+from agents.model_selector_agent import ModelSelectorAgent
+from models.rule_based import register_rule_based_models
+
 class ClinicalAgent(BaseAgent):
     def __init__(self):
-        self.metrics_calculator = MetricsCalculator()
-        self.updrs_scorer = UPDRSScorer()
+        # Initialize Registry with default models
+        register_rule_based_models()
+        
+        self.model_selector = ModelSelectorAgent()
+        # UPDRSScorer is created per-request based on ctx.scoring_method
 
     def process(self, ctx: AnalysisContext) -> AnalysisContext:
         try:
@@ -21,33 +27,16 @@ class ClinicalAgent(BaseAgent):
             task_type = ctx.task_type
             fps = ctx.vision_meta.get("fps", 30.0)
 
-            # 1. Calculate Kinematic Metrics
-            try:
-                # Map task types to metric calculators
-                hand_tasks = ["finger_tapping", "hand_movement", "pronation_supination"]
-                gait_tasks = ["gait", "leg_agility", "walking"]
-
-                if task_type in hand_tasks:
-                    metrics_obj = self.metrics_calculator.calculate_finger_tapping_metrics(landmarks)
-                elif task_type in gait_tasks:
-                    metrics_obj = self.metrics_calculator.calculate_gait_metrics(landmarks)
-                else:
-                    ctx.log("clinical", f"No metric calculation for task type: {task_type}")
-                    metrics_obj = None
-
-                if metrics_obj:
-                    metrics = asdict(metrics_obj)
-                    ctx.kinematic_metrics = metrics
-                else:
-                    metrics = {}
-                    ctx.kinematic_metrics = {}
-            except Exception as e:
-                ctx.log("clinical", f"Error calculating metrics: {e}")
-                metrics = {}
-                ctx.kinematic_metrics = {}
-                ctx.error = f"Metric calculation failed: {e}"
-                ctx.status = "error"  # 상태를 error로 변경
+            # 1. Calculate Kinematic Metrics via Model Selector
+            ctx = self.model_selector.process(ctx)
+            
+            if ctx.error:
+                ctx.log("clinical", f"Model Selector failed: {ctx.error}")
+                # Status is already set to error by ModelSelector if critical
                 return ctx
+
+            metrics = ctx.kinematic_metrics
+            metrics_obj = getattr(ctx, 'latest_metrics_obj', None)
             
             # Log key metrics for reasoning UI
             msg_parts = []
@@ -60,13 +49,25 @@ class ClinicalAgent(BaseAgent):
             ctx.log("clinical", f"Kinematic features extracted. {summary_msg}", meta=metrics)
 
             # 2. UPDRS Scoring (pass the original metrics object, not the dict)
-            if task_type in hand_tasks:
-                score_result_obj = self.updrs_scorer.score_finger_tapping(metrics_obj)
-            elif task_type in gait_tasks:
-                score_result_obj = self.updrs_scorer.score_gait(metrics_obj)
+            # We need to know if it's hand or gait for scoring
+            # Ideally this should also be dynamic, but for now we keep the mapping here
+            hand_tasks = ["finger_tapping", "hand_movement", "pronation_supination"]
+            gait_tasks = ["gait", "leg_agility", "walking"]
+
+            if metrics_obj:
+                # Create scorer with method from context
+                scorer = UPDRSScorer(method=ctx.scoring_method, ml_model_type=ctx.ml_model_type)
+                ctx.log("clinical", f"Using scoring method: {ctx.scoring_method} (model: {ctx.ml_model_type})")
+
+                if task_type in hand_tasks:
+                    score_result_obj = scorer.score_finger_tapping(metrics_obj)
+                elif task_type in gait_tasks:
+                    score_result_obj = scorer.score_gait(metrics_obj)
+                else:
+                    # Default/Fallback
+                    ctx.log("clinical", f"No scoring model for task type: {task_type}")
+                    score_result_obj = None
             else:
-                # Default/Fallback
-                ctx.log("clinical", f"No scoring model for task type: {task_type}")
                 score_result_obj = None
 
             if score_result_obj:
@@ -87,6 +88,9 @@ class ClinicalAgent(BaseAgent):
                 ctx.clinical_scores = {}
                 ctx.log("clinical", "UPDRS Scoring skipped.")
 
+            # 3. Generate Charts for VLM
+            self.generate_charts(ctx)
+
             ctx.status = "clinical_done"
             return ctx
 
@@ -94,3 +98,56 @@ class ClinicalAgent(BaseAgent):
             ctx.error = str(e)
             ctx.log("clinical", f"Error in Clinical Agent: {e}")
             raise e
+
+    def generate_charts(self, ctx: AnalysisContext):
+        """
+        Format metrics into a text-based representation (Markdown) for the VLM.
+        """
+        try:
+            metrics = ctx.kinematic_metrics
+            scores = ctx.clinical_scores
+            
+            if not metrics:
+                ctx.clinical_charts = "No metrics available."
+                return
+
+            charts = []
+            
+            # 1. Metrics Table
+            charts.append("### Kinematic Metrics")
+            charts.append("| Metric | Value | Unit |")
+            charts.append("| :--- | :--- | :--- |")
+            
+            for key, value in metrics.items():
+                # Skip complex objects if any
+                if isinstance(value, (int, float)):
+                    unit = ""
+                    if "speed" in key: unit = "Hz/px/s"
+                    elif "amplitude" in key: unit = "px"
+                    elif "opening" in key: unit = "px"
+                    
+                    charts.append(f"| {key} | {value:.2f} | {unit} |")
+                elif isinstance(value, str):
+                    charts.append(f"| {key} | {value} | - |")
+            
+            charts.append("")
+            
+            # 2. UPDRS Scores
+            if scores:
+                charts.append("### UPDRS Estimation")
+                charts.append(f"- **Total Score**: {scores.get('total_score', 'N/A')}")
+                charts.append(f"- **Severity**: {scores.get('severity', 'N/A')}")
+                
+                details = scores.get('details', {})
+                if details:
+                    charts.append("\n**Detailed Scores:**")
+                    for k, v in details.items():
+                        charts.append(f"- {k}: {v}")
+            
+            ctx.clinical_charts = "\n".join(charts)
+            ctx.log("clinical", "Generated clinical charts for VLM.")
+            
+        except Exception as e:
+            ctx.log("clinical", f"Failed to generate charts: {e}")
+            ctx.clinical_charts = "Error generating charts."
+

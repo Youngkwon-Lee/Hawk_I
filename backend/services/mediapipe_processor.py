@@ -17,6 +17,7 @@ class LandmarkFrame:
     frame_number: int
     landmarks: List[Dict[str, float]]  # [{"id": int, "x": float, "y": float, "z": float, "visibility": float}]
     timestamp: float
+    world_landmarks: Optional[List[Dict[str, float]]] = None # Real-world 3D coordinates (meters)
 
 
 class MediaPipeProcessor:
@@ -98,9 +99,9 @@ class MediaPipeProcessor:
                 fps,
                 (output_width, output_height)
             )
-            print(f"💾 Saving skeleton overlay video to: {output_video_path}")
+            print(f"[SAVE] Saving skeleton overlay video to: {output_video_path}")
             if not video_writer.isOpened():
-                print(f"❌ Error: Could not initialize VideoWriter with mp4v codec")
+                print(f"[ERROR] Error: Could not initialize VideoWriter with mp4v codec")
                 video_writer = None
 
         print(f"\n{'='*50}")
@@ -121,13 +122,16 @@ class MediaPipeProcessor:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
             # Process frame
-            landmarks = self._process_frame(frame_rgb)
-
-            if landmarks:
+            result = self._process_frame(frame_rgb)
+            
+            # _process_frame now returns a tuple (landmarks, world_landmarks) or None
+            if result:
+                landmarks, world_landmarks = result
                 timestamp = frame_count / fps
                 landmark_frame = LandmarkFrame(
                     frame_number=frame_count,
                     landmarks=landmarks,
+                    world_landmarks=world_landmarks,
                     timestamp=timestamp
                 )
                 landmark_frames.append(landmark_frame)
@@ -150,7 +154,7 @@ class MediaPipeProcessor:
         cap.release()
         if video_writer:
             video_writer.release()
-            print(f"✅ Skeleton overlay video saved!")
+            print(f"[OK] Skeleton overlay video saved!")
 
             # Convert to H.264 for browser compatibility
             if output_video_path and os.path.exists(output_video_path):
@@ -173,7 +177,7 @@ class MediaPipeProcessor:
                     if result.returncode == 0 and os.path.exists(temp_path):
                         # Replace original with H.264 version
                         os.replace(temp_path, output_video_path)
-                        print(f"✅ Converted to H.264 for browser compatibility")
+                        print(f"[OK] Converted to H.264 for browser compatibility")
                     else:
                         print(f"⚠️ ffmpeg conversion failed, keeping original")
                         if os.path.exists(temp_path):
@@ -187,12 +191,12 @@ class MediaPipeProcessor:
 
         return landmark_frames
 
-    def _process_frame(self, frame_rgb: np.ndarray) -> Optional[List[Dict[str, float]]]:
+    def _process_frame(self, frame_rgb: np.ndarray) -> Optional[Tuple[List[Dict[str, float]], Optional[List[Dict[str, float]]]]]:
         """
         Process single frame and extract landmarks
 
         Returns:
-            List of landmark dicts or None if no detection
+            Tuple(landmarks, world_landmarks) or None if no detection
         """
         if self.mode == "hand":
             return self._process_hand_frame(frame_rgb)
@@ -233,7 +237,7 @@ class MediaPipeProcessor:
 
         return frame_bgr
 
-    def _process_hand_frame(self, frame_rgb: np.ndarray) -> Optional[List[Dict[str, float]]]:
+    def _process_hand_frame(self, frame_rgb: np.ndarray) -> Optional[Tuple[List[Dict[str, float]], None]]:
         """Extract hand landmarks (21 points per hand)"""
         results = self.hands.process(frame_rgb)
 
@@ -253,9 +257,11 @@ class MediaPipeProcessor:
                 "visibility": 1.0  # Hand landmarks don't have visibility
             })
 
-        return landmarks
+        # Hand model doesn't support world landmarks in the same way pose does usually
+        # or at least we are not prioritizing it now.
+        return landmarks, None
 
-    def _process_pose_frame(self, frame_rgb: np.ndarray) -> Optional[List[Dict[str, float]]]:
+    def _process_pose_frame(self, frame_rgb: np.ndarray) -> Optional[Tuple[List[Dict[str, float]], List[Dict[str, float]]]]:
         """Extract pose landmarks (33 points)"""
         results = self.pose.process(frame_rgb)
 
@@ -271,8 +277,21 @@ class MediaPipeProcessor:
                 "z": landmark.z,
                 "visibility": landmark.visibility
             })
+            
+        world_landmarks = []
+        if results.pose_world_landmarks:
+            for idx, landmark in enumerate(results.pose_world_landmarks.landmark):
+                world_landmarks.append({
+                    "id": idx,
+                    "x": landmark.x,
+                    "y": landmark.y,
+                    "z": landmark.z,
+                    "visibility": landmark.visibility
+                })
+        else:
+            world_landmarks = None
 
-        return landmarks
+        return landmarks, world_landmarks
 
     def save_to_json(self, landmark_frames: List[LandmarkFrame], output_path: str):
         """Save landmark data to JSON file"""
@@ -283,7 +302,8 @@ class MediaPipeProcessor:
             data.append({
                 "frame": lf.frame_number,
                 "timestamp": lf.timestamp,
-                "keypoints": lf.landmarks
+                "keypoints": lf.landmarks,
+                "world_keypoints": lf.world_landmarks
             })
 
         with open(output_path, 'w') as f:
@@ -319,4 +339,4 @@ if __name__ == "__main__":
     output_path = video_path.replace('.mp4', f'_{mode}_skeleton.json')
     processor.save_to_json(landmark_frames, output_path)
 
-    print(f"\n✅ Done! Skeleton data saved to {output_path}")
+    print(f"\n[OK] Done! Skeleton data saved to {output_path}")

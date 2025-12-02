@@ -25,14 +25,21 @@ class AnalysisContext(BaseModel):
     # Workflow Status
     status: Literal["pending", "vision_done", "clinical_done", "report_done", "error"] = "pending"
     error: Optional[str] = None
-    
+
+    # Scoring Configuration
+    scoring_method: Literal["rule", "ml", "ensemble"] = "ensemble"
+    ml_model_type: str = "rf"
+
     # Data Slots (Populated by Agents)
     task_type: Optional[str] = None
     skeleton_data: Optional[Dict[str, Any]] = None
-    vision_meta: Optional[Dict[str, Any]] = None  # frame_rate, quality_flag, etc.
+    vision_meta: Optional[Dict[str, Any]] = None  # frame_rate, quality_flag, heatmap_path, etc.
     
     kinematic_metrics: Optional[Dict[str, Any]] = None
+    latest_metrics_obj: Any = None # Temporary storage for the raw metrics object (for scoring)
     clinical_scores: Optional[Dict[str, Any]] = None
+    clinical_charts: Optional[str] = None # Markdown/Text representation for VLM
+
     
     report: Optional[Report] = None
     
