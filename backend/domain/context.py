@@ -40,6 +40,9 @@ class AnalysisContext(BaseModel):
     clinical_scores: Optional[Dict[str, Any]] = None
     clinical_charts: Optional[str] = None # Markdown/Text representation for VLM
 
+    # Gait Cycle Analysis (for gait tasks)
+    gait_cycle_data: Optional[Dict[str, Any]] = None
+
     
     report: Optional[Report] = None
     
