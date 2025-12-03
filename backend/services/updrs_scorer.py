@@ -96,20 +96,37 @@ class UPDRSScorer:
             {"speed": ss, "decrement": ds, "rhythm": rs}, "rule", 1.0)
 
     def _score_gait_rule(self, m: GaitMetrics) -> UPDRSScore:
+        # Arm swing amplitude (degrees): Normal >= 20, Slight >= 15, Mild >= 10, Moderate >= 5
         arm = m.arm_swing_amplitude_mean
-        asc = 0 if arm >= 0.07 else (1 if arm >= 0.05 else (2 if arm >= 0.03 else (3 if arm >= 0.02 else 4)))
+        asc = 0 if arm >= 20 else (1 if arm >= 15 else (2 if arm >= 10 else (3 if arm >= 5 else 4)))
+
+        # Walking speed (m/s): Normal >= 1.0, Slight >= 0.8, Mild >= 0.6, Moderate >= 0.4
         sp = m.walking_speed
-        ssc = 0 if sp >= 0.8 else (1 if sp >= 0.6 else (2 if sp >= 0.4 else (3 if sp >= 0.2 else 4)))
+        ssc = 0 if sp >= 1.0 else (1 if sp >= 0.8 else (2 if sp >= 0.6 else (3 if sp >= 0.4 else 4)))
+
+        # Cadence (steps/min): Normal 100-120, slight deviation, moderate deviation
         cad = m.cadence
-        csc = 0 if 100 <= cad <= 120 else (1 if 80 <= cad < 100 or 120 < cad <= 140 else (2 if 60 <= cad < 80 or 140 < cad <= 160 else 3))
+        csc = 0 if 100 <= cad <= 120 else (1 if 85 <= cad < 100 or 120 < cad <= 135 else (2 if 70 <= cad < 85 or 135 < cad <= 150 else 3))
+
+        # Step height (meters): Normal >= 0.12, Slight >= 0.10, Mild >= 0.07, Moderate >= 0.04
         sh = m.step_height_mean
-        shc = 0 if sh >= 0.05 else (1 if sh >= 0.04 else (2 if sh >= 0.03 else 3))
-        w = asc * 0.4 + ssc * 0.25 + csc * 0.2 + shc * 0.15
+        shc = 0 if sh >= 0.12 else (1 if sh >= 0.10 else (2 if sh >= 0.07 else (3 if sh >= 0.04 else 4)))
+
+        # Stride length (meters): Normal >= 1.2, Slight >= 0.9, Mild >= 0.6
+        sl = m.stride_length
+        slc = 0 if sl >= 1.2 else (1 if sl >= 0.9 else (2 if sl >= 0.6 else 3))
+
+        # Weighted score: arm swing most important for PD
+        w = asc * 0.30 + ssc * 0.20 + csc * 0.15 + shc * 0.15 + slc * 0.20
         bs = min(4, int(w + 0.5))
+
+        # Penalties for variability and asymmetry
         pen = 0.0
-        if m.stride_variability > 10: pen += min(0.3, (m.stride_variability - 10) / 20 * 0.3)
-        if m.arm_swing_asymmetry > 15: pen += min(0.4, (m.arm_swing_asymmetry - 15) / 25 * 0.4)
+        if m.stride_variability > 0.08: pen += min(0.3, (m.stride_variability - 0.08) / 0.20 * 0.3)
+        if m.arm_swing_asymmetry > 0.10: pen += min(0.4, (m.arm_swing_asymmetry - 0.10) / 0.30 * 0.4)
+        if m.festination_index > 0.05: pen += min(0.3, m.festination_index * 2)
         if m.step_count < 10: pen += 0.2
+
         tot = min(4.0, bs + pen)
         return UPDRSScore(round(tot, 1), bs, round(pen, 2), _get_severity(tot),
-            {"arm": asc, "speed": ssc, "cadence": csc, "step_h": shc}, "rule", 1.0)
+            {"arm": asc, "speed": ssc, "cadence": csc, "step_h": shc, "stride": slc}, "rule", 1.0)
