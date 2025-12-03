@@ -80,20 +80,35 @@ class UPDRSScorer:
             {"rule": r.total_score, "ml": ml.total_score}, "ensemble", (1 + ml.confidence) / 2)
 
     def _score_ft_rule(self, m: FingerTappingMetrics) -> UPDRSScore:
+        # Speed (Hz): Normal >= 4.0, Slight >= 3.0, Mild >= 2.0, Moderate >= 1.2
         sp = m.tapping_speed
-        ss = 0 if sp >= 2.5 else (1 if sp >= 2.0 else (2 if sp >= 1.5 else (3 if sp >= 1.0 else 4)))
+        ss = 0 if sp >= 4.0 else (1 if sp >= 3.0 else (2 if sp >= 2.0 else (3 if sp >= 1.2 else 4)))
+
+        # Amplitude decrement (%): Normal < 10, Slight < 25, Mild < 50, Moderate < 70
         dec = m.amplitude_decrement
-        ds = 0 if dec < 10 else (1 if dec < 20 else (2 if dec < 40 else 3))
+        ds = 0 if dec < 10 else (1 if dec < 25 else (2 if dec < 50 else (3 if dec < 70 else 4)))
+
+        # Rhythm variability (ratio 0-1): Normal < 0.08, Slight < 0.18, Mild < 0.32, Moderate < 0.50
         rv = m.rhythm_variability
-        rs = 0 if rv < 15 else (1 if rv < 25 else (2 if rv < 40 else 3))
-        w = ss * 0.5 + ds * 0.3 + rs * 0.2
+        rs = 0 if rv < 0.08 else (1 if rv < 0.18 else (2 if rv < 0.32 else (3 if rv < 0.50 else 4)))
+
+        # Velocity decrement (%): Normal < 10, Slight < 25, Mild < 45, Moderate < 60
+        vd = m.velocity_decrement
+        vs = 0 if vd < 10 else (1 if vd < 25 else (2 if vd < 45 else (3 if vd < 60 else 4)))
+
+        # Weighted score - balanced across all factors
+        w = ss * 0.30 + ds * 0.25 + rs * 0.20 + vs * 0.25
         bs = min(4, int(w + 0.5))
+
+        # Penalties for halts, hesitations, and freezes (reduced impact)
         pen = 0.0
-        if m.hesitation_count > 2: pen += min(0.3, (m.hesitation_count - 2) / 5 * 0.3)
-        if m.halt_count > 1: pen += min(0.4, (m.halt_count - 1) / 3 * 0.4)
+        if m.hesitation_count > 2: pen += min(0.2, (m.hesitation_count - 2) / 5 * 0.2)
+        if m.halt_count > 1: pen += min(0.3, (m.halt_count - 1) / 3 * 0.3)
+        if m.freeze_episodes > 1: pen += min(0.2, (m.freeze_episodes - 1) * 0.1)
+
         tot = min(4.0, bs + pen)
         return UPDRSScore(round(tot, 1), bs, round(pen, 2), _get_severity(tot),
-            {"speed": ss, "decrement": ds, "rhythm": rs}, "rule", 1.0)
+            {"speed": ss, "decrement": ds, "rhythm": rs, "velocity": vs}, "rule", 1.0)
 
     def _score_gait_rule(self, m: GaitMetrics) -> UPDRSScore:
         # Arm swing amplitude (degrees): Normal >= 20, Slight >= 15, Mild >= 10, Moderate >= 5
