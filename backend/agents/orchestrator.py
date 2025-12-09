@@ -38,10 +38,16 @@ class OrchestratorAgent(BaseAgent):
             print(f"[ORCHESTRATOR] Analysis Pipeline Started")
             print(f"{'='*60}")
 
-            # --- Step 1: Vision ---
+            # --- Step 1: Vision (ROI Detection) ---
             self._log_step("VisionAgent", "start")
             t0 = time.time()
-            if on_progress_update: on_progress_update("roi_detection", "in_progress")
+            if on_progress_update:
+                on_progress_update("roi_detection", "in_progress")
+
+            # Small delay for UI to catch up
+            import time as time_module
+            time_module.sleep(0.3)
+
             ctx = self.vision_agent.process(ctx)
             vision_time = time.time() - t0
 
@@ -54,6 +60,16 @@ class OrchestratorAgent(BaseAgent):
 
             self._log_step("VisionAgent", "done", vision_time)
 
+            # Update progress step by step with small delays for UI
+            if on_progress_update:
+                on_progress_update("roi_detection", "completed")
+                on_progress_update("skeleton", "in_progress")
+                time_module.sleep(0.2)
+                on_progress_update("skeleton", "completed")
+                on_progress_update("heatmap", "in_progress")
+                time_module.sleep(0.2)
+                on_progress_update("heatmap", "completed")
+
             # Check confidence
             confidence = 0.0
             if ctx.vision_meta and "confidence" in ctx.vision_meta:
@@ -62,11 +78,6 @@ class OrchestratorAgent(BaseAgent):
             if confidence < 0.4:
                 ctx.log("orchestrator", f"Warning: Low vision confidence ({confidence:.2f}). Analysis may be unreliable.")
                 ctx.log("orchestrator", "Proceeding with caution.")
-
-            if on_progress_update:
-                on_progress_update("roi_detection", "completed")
-                on_progress_update("skeleton", "completed")
-                on_progress_update("heatmap", "completed")
 
             # --- Step 2: Clinical ---
             self._log_step("ClinicalAgent", "start")

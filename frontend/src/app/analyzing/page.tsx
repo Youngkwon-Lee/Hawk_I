@@ -79,8 +79,20 @@ export default function AnalyzingPage() {
             setStatusMessage("운동 히트맵 생성 중...")
             if (Math.random() > 0.7) addLog("> 움직임 밀도 분석 중...")
           }
+          else if (data.steps.metrics?.status === 'in_progress') {
+            setStatusMessage("운동 지표 계산 중...")
+            if (Math.random() > 0.7) addLog("> 속도/진폭/리듬 분석 중...")
+          }
+          else if (data.steps.gait_cycle?.status === 'in_progress') {
+            setStatusMessage("보행 주기 분석 중...")
+            if (Math.random() > 0.7) addLog("> 스탠스/스윙 단계 감지 중...")
+          }
+          else if (data.steps.validation?.status === 'in_progress') {
+            setStatusMessage("분석 결과 검증 중...")
+            if (Math.random() > 0.7) addLog("> 품질 검사 수행 중...")
+          }
           else if (data.steps.ai_interpretation?.status === 'in_progress') {
-            setStatusMessage("AI 종합 분석 수행 중...")
+            setStatusMessage("AI 해석 리포트 생성 중...")
             if (Math.random() > 0.7) addLog("> LLM 추론 엔진 가동...")
           }
         }
