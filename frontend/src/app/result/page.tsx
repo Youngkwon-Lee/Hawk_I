@@ -14,7 +14,7 @@ import { VideoPlayer } from "@/components/dashboard/VideoPlayer"
 import { AIInterpretation } from "@/components/dashboard/AIInterpretation"
 import { MedicationTimeline } from "@/components/dashboard/MedicationTimeline"
 import { PopulationComparison } from "@/components/dashboard/PopulationComparison"
-import { AlertTriangle, Download, Share2, FileText, Activity, Brain, Users } from "lucide-react"
+import { AlertTriangle, Download, Share2, FileText, Activity, Brain, Users, ClipboardList } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AnalysisResult, FingerTappingMetrics, GaitMetrics, TimelineEvent } from "@/lib/services/api"
 import { ReasoningLogViewer } from "@/components/dashboard/ReasoningLogViewer"
@@ -22,6 +22,7 @@ import { JointAngleChart } from "@/components/dashboard/JointAngleChart"
 import { SymmetryChart } from "@/components/dashboard/SymmetryChart"
 import { GaitCycleChart } from "@/components/dashboard/GaitCycleChart"
 import { SpeedProfileChart } from "@/components/dashboard/SpeedProfileChart"
+import { SOAPNote } from "@/components/dashboard/SOAPNote"
 
 // Mock Data - Gait
 const GAIT_METRICS: MetricRow[] = [
@@ -598,6 +599,16 @@ function ResultContent() {
                         >
                             AI 추론 과정
                         </button>
+                        <button
+                            onClick={() => setActiveTab("soap")}
+                            className={cn(
+                                "pb-3 text-sm font-medium transition-all border-b-2 flex items-center gap-1",
+                                activeTab === "soap" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            <ClipboardList className="h-4 w-4" />
+                            SOAP 노트
+                        </button>
                     </div>
                 </div>
 
@@ -821,6 +832,19 @@ function ResultContent() {
                 {activeTab === "reasoning" && (
                     <div className="animate-in fade-in slide-in-from-bottom-2">
                         <ReasoningLogViewer logs={analysisResult?.reasoning_log || []} />
+                    </div>
+                )}
+
+                {activeTab === "soap" && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2">
+                        <SOAPNote
+                            taskType={type}
+                            metrics={analysisResult?.metrics as Record<string, number> | undefined}
+                            updrsScore={analysisResult?.updrs_score}
+                            aiInterpretation={analysisResult?.ai_interpretation}
+                            patientId={analysisResult?.patient_id}
+                            analysisDate={new Date().toISOString()}
+                        />
                     </div>
                 )}
             </div>
