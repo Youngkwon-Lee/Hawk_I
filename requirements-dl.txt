@@ -1,0 +1,28 @@
+# Hawkeye Deep Learning Requirements
+# For LSTM, Transformer, CNN models
+# Install: pip install -r requirements-dl.txt
+
+# Include base requirements
+-r requirements-base.txt
+
+# PyTorch (choose appropriate version for your CUDA)
+# For CUDA 11.8:
+torch>=2.1.0
+torchvision>=0.16.0
+torchaudio>=2.1.0
+
+# For CPU only (uncomment if no GPU):
+# --index-url https://download.pytorch.org/whl/cpu
+# torch>=2.1.0
+# torchvision>=0.16.0
+
+# Deep Learning Utilities
+einops>=0.7.0          # Tensor operations
+timm>=0.9.0            # Vision models
+
+# Training Utilities
+tensorboard>=2.14.0    # Logging
+wandb>=0.15.0          # Experiment tracking (optional)
+
+# Optimization
+accelerate>=0.24.0     # HuggingFace accelerate

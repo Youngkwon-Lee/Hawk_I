@@ -64,7 +64,10 @@ class MediaPipeProcessor:
         self,
         video_path: str,
         roi: Optional[Tuple[int, int, int, int]] = None,
-        output_video_path: Optional[str] = None
+        output_video_path: Optional[str] = None,
+        frame_skip: int = 1,
+        skip_video_generation: bool = False,
+        max_duration: Optional[float] = None
     ) -> List[LandmarkFrame]:
         """
         Process video and extract landmarks for all frames
@@ -73,10 +76,15 @@ class MediaPipeProcessor:
             video_path: Path to video file
             roi: Optional ROI (x, y, w, h) to crop frames
             output_video_path: Optional path to save video with skeleton overlay
+            frame_skip: Process every Nth frame (1=all frames, 2=every other, etc.)
+            skip_video_generation: Skip skeleton video generation for faster processing
+            max_duration: Maximum duration to process in seconds (None = entire video)
 
         Returns:
             List of LandmarkFrame objects
         """
+        import time
+        start_time = time.time()
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -86,11 +94,9 @@ class MediaPipeProcessor:
 
         # Initialize video writer if output path is provided
         video_writer = None
-        if output_video_path:
+        if output_video_path and not skip_video_generation:
             # Use mp4v codec first (avoids OpenH264 issues), then convert to H.264 with ffmpeg
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            # # Use avc1 (H.264) codec for better browser compatibility
-            # fourcc = cv2.VideoWriter_fourcc(*'avc1')
             output_width = roi[2] if roi else frame_width
             output_height = roi[3] if roi else frame_height
             video_writer = cv2.VideoWriter(
@@ -99,18 +105,24 @@ class MediaPipeProcessor:
                 fps,
                 (output_width, output_height)
             )
-            print(f"[SAVE] Saving skeleton overlay video to: {output_video_path}")
+            print(f"  [MediaPipe] Saving skeleton video to: {os.path.basename(output_video_path)}")
             if not video_writer.isOpened():
-                print(f"[ERROR] Error: Could not initialize VideoWriter with mp4v codec")
+                print(f"  [MediaPipe] ERROR: VideoWriter failed to open")
                 video_writer = None
+        elif skip_video_generation:
+            print(f"  [MediaPipe] Skeleton video generation SKIPPED (fast mode)")
 
-        print(f"\n{'='*50}")
-        print(f"MediaPipe Processing ({self.mode} mode)")
-        print(f"{'='*50}")
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        print(f"  [MediaPipe] Processing {total_frames} frames ({self.mode} mode, skip={frame_skip})")
 
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
+                break
+
+            # Check max_duration limit (stop after N seconds)
+            if max_duration and fps > 0 and (frame_count / fps) >= max_duration:
+                print(f"  [MediaPipe] Reached max_duration ({max_duration}s) at frame {frame_count}, stopping")
                 break
 
             # Apply ROI if provided
@@ -118,38 +130,48 @@ class MediaPipeProcessor:
                 x, y, w, h = roi
                 frame = frame[y:y+h, x:x+w]
 
-            # Convert to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # Frame sampling: only process MediaPipe on selected frames
+            should_process_mediapipe = (frame_count % frame_skip == 0)
 
-            # Process frame
-            result = self._process_frame(frame_rgb)
-            
-            # _process_frame now returns a tuple (landmarks, world_landmarks) or None
-            if result:
-                landmarks, world_landmarks = result
-                timestamp = frame_count / fps
-                landmark_frame = LandmarkFrame(
-                    frame_number=frame_count,
-                    landmarks=landmarks,
-                    world_landmarks=world_landmarks,
-                    timestamp=timestamp
-                )
-                landmark_frames.append(landmark_frame)
+            if should_process_mediapipe:
+                # Convert to RGB
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                # Draw skeleton on frame if video writer is enabled
-                if video_writer:
-                    frame_with_skeleton = self._draw_skeleton(frame.copy(), frame_rgb)
-                    video_writer.write(frame_with_skeleton)
+                # Process frame
+                result = self._process_frame(frame_rgb)
+
+                # _process_frame now returns a tuple (landmarks, world_landmarks) or None
+                if result:
+                    landmarks, world_landmarks = result
+                    timestamp = frame_count / fps
+                    landmark_frame = LandmarkFrame(
+                        frame_number=frame_count,
+                        landmarks=landmarks,
+                        world_landmarks=world_landmarks,
+                        timestamp=timestamp
+                    )
+                    landmark_frames.append(landmark_frame)
+
+                    # Draw skeleton on frame if video writer is enabled
+                    if video_writer:
+                        frame_with_skeleton = self._draw_skeleton(frame.copy(), frame_rgb)
+                        video_writer.write(frame_with_skeleton)
+                else:
+                    # Write original frame if no landmarks detected
+                    if video_writer:
+                        video_writer.write(frame)
             else:
-                # Write original frame if no landmarks detected
+                # For skipped frames, just write original to video
                 if video_writer:
                     video_writer.write(frame)
 
             frame_count += 1
 
-            # Progress indicator
-            if frame_count % 30 == 0:
-                print(f"  Processed {frame_count} frames ({len(landmark_frames)} with landmarks)...")
+            # Progress indicator (every 60 frames)
+            if frame_count % 60 == 0:
+                elapsed = time.time() - start_time
+                pct = (frame_count / total_frames * 100) if total_frames > 0 else 0
+                print(f"  [MediaPipe] {frame_count}/{total_frames} ({pct:.0f}%) - {len(landmark_frames)} landmarks - {elapsed:.1f}s")
 
         cap.release()
         if video_writer:

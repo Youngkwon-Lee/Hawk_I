@@ -1,0 +1,22 @@
+# Hawkeye HPC Requirements
+# Optimized for HPC GPU clusters (V100, A100)
+# Install: pip install -r requirements-hpc.txt
+
+# Include VLM requirements (includes DL and base)
+-r requirements-vlm.txt
+
+# HPC Specific Optimizations
+ninja>=1.11.0          # For faster compilation
+
+# Distributed Training
+deepspeed>=0.12.0      # DeepSpeed for large model training
+
+# NVIDIA Tools (usually pre-installed on HPC)
+# nvidia-ml-py>=12.0.0
+
+# Profiling
+py-spy>=0.3.0          # Performance profiling
+memory_profiler>=0.61.0
+
+# Note: On HPC, prefer conda for PyTorch with optimized CUDA
+# conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia

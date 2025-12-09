@@ -116,6 +116,7 @@ class InterpretationAgent:
                 ],
                 temperature=0.7,
                 max_tokens=800,
+                timeout=15.0,  # 15초 timeout 추가
                 response_format={"type": "json_object"}  # Force JSON response
             )
 
@@ -209,6 +210,7 @@ class InterpretationAgent:
                 ],
                 temperature=0.7,
                 max_tokens=800,
+                timeout=15.0,  # 15초 timeout 추가
                 response_format={"type": "json_object"}
             )
 

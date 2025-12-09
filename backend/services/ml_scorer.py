@@ -12,7 +12,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-ML_MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "ml_models")
+# Model directory: project_root/models/trained
+_script_dir = os.path.dirname(os.path.abspath(__file__))  # backend/services
+_backend_dir = os.path.dirname(_script_dir)  # backend
+_project_root = os.path.dirname(_backend_dir)  # project root
+ML_MODEL_DIR = os.path.join(_project_root, "models", "trained")
 
 
 @dataclass
@@ -105,14 +109,18 @@ class MLScorer:
         return result
 
     def _get_ft_feature_cols(self):
-        return ["tapping_speed", "amplitude_mean", "amplitude_std", "amplitude_decrement",
+        """V2 feature columns: 15 base + 8 engineered = 23 features"""
+        return [
+            # Base features (15)
+            "tapping_speed", "amplitude_mean", "amplitude_std", "amplitude_decrement",
             "first_half_amplitude", "second_half_amplitude", "opening_velocity_mean",
             "closing_velocity_mean", "peak_velocity_mean", "velocity_decrement",
             "rhythm_variability", "hesitation_count", "halt_count", "freeze_episodes",
-            "fatigue_rate", "velocity_first_third", "velocity_mid_third", "velocity_last_third",
-            "amplitude_first_third", "amplitude_mid_third", "amplitude_last_third",
-            "velocity_slope", "amplitude_slope", "rhythm_slope",
-            "variability_first_half", "variability_second_half", "variability_change"]
+            "fatigue_rate",
+            # Engineered features (8)
+            "tap_per_second", "amplitude_cv", "event_ratio", "severity_index",
+            "speed_amplitude", "amplitude_normalized", "speed_normalized", "fatigue_severity"
+        ]
 
     def _get_gait_feature_cols(self):
         return ["arm_swing_amplitude_mean", "arm_swing_asymmetry", "walking_speed", "cadence",

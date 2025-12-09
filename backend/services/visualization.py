@@ -258,3 +258,26 @@ class VisualizationService:
             
         except Exception as e:
             print(f"Error creating overlay: {e}")
+
+    def generate_motion_heatmap(self, movement_map, output_path, video_path=None):
+        """
+        Generate a heatmap from a pixel-based movement map (H x W float32).
+        """
+        try:
+            # Normalize to 0-255
+            heatmap_norm = cv2.normalize(movement_map, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            
+            # Apply colormap (JET is common for heatmaps)
+            heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
+            
+            # Save heatmap
+            cv2.imwrite(output_path, heatmap_color)
+            
+            # Overlay if video_path provided
+            if video_path:
+                self._create_overlay(output_path, video_path, (movement_map.shape[1], movement_map.shape[0]))
+                
+            return True
+        except Exception as e:
+            print(f"Error generating motion heatmap: {e}")
+            return False

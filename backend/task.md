@@ -31,3 +31,10 @@
     - [x] Ensure it generates the structured `Report` object <!-- id: 15 -->
     - [x] Construct prompt with Metrics + Visual descriptions <!-- id: 16 -->
     - [x] Generate natural language report <!-- id: 17 -->
+
+## Phase 4: Frontend Integration & API Cleanup
+- [x] **Refactor API** <!-- id: 18 -->
+    - [x] Remove redundant visualization calls in `analyze.py` <!-- id: 19 -->
+    - [x] Use `VisionAgent` outputs for response <!-- id: 20 -->
+- [ ] **Verify Frontend** <!-- id: 21 -->
+    - [ ] Manual end-to-end test <!-- id: 22 -->

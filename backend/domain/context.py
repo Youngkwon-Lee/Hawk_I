@@ -27,7 +27,9 @@ class AnalysisContext(BaseModel):
     error: Optional[str] = None
 
     # Scoring Configuration
-    scoring_method: Literal["rule", "ml", "ensemble"] = "ensemble"
+    # NOTE: Changed to "rule" to bypass ML feature mismatch (27 vs 23 features)
+    # TODO: Retrain ML models with updated feature set to restore ensemble
+    scoring_method: Literal["rule", "ml", "ensemble"] = "rule"
     ml_model_type: str = "rf"
 
     # Data Slots (Populated by Agents)

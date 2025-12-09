@@ -1,58 +1,104 @@
-# Dependencies
-node_modules/
-venv/
-__pycache__/
-*.pyc
+# ===========================================
+# Hawkeye PD Research - .gitignore
+# ===========================================
 
-# Build outputs
-.next/
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
 dist/
 build/
+eggs/
+.eggs/
 
-# Environment files
-.env
-.env.local
-.env.*.local
+# Virtual environments
+venv/
+lstm_venv/
+.venv/
+env/
+ENV/
 
-# IDE
-.vscode/
-.idea/
+# ============ Data (Large Files) ============
+# Raw datasets (download separately)
+data/raw/
+data/processed/
+data/external/
 
-# OS files
-.DS_Store
-Thumbs.db
+# Demo videos (sample only in repo)
+demo_videos/*.mp4
+!demo_videos/sample_*.mp4
 
-# Uploads (runtime data)
+# Uploads (runtime)
+uploads/
 backend/uploads/*.mp4
 backend/uploads/*.json
 backend/uploads/*.png
 !backend/uploads/.gitkeep
-uploads/
-test_uploads_real/
 
-# Video files
+# ============ Models (Large Files) ============
+models/trained/
+models/checkpoints/
+*.pkl
+*.pth
+*.pt
+*.h5
+*.onnx
+
+# ============ Experiments ============
+experiments/results/
+*.log
+
+# ============ Video Files ============
 *.mp4
 *.avi
 *.mov
 *.webm
 *.mkv
 
-# Test output files
-test_output*.txt
-test_real_output*.txt
-debug_*.txt
-
-# Zip files
-*.zip
-
-# Logs
-*.log
+# ============ Node.js / Frontend ============
+node_modules/
+.next/
+.nuxt/
+.cache/
 npm-debug.log*
+yarn-error.log*
 
-# Temporary files
+# ============ Environment ============
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ============ IDE ============
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ============ OS ============
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ============ Temporary ============
+*.tmp
+*.temp
 nul
-a.txt
-a copy.txt
+*.bak
 
-# Test scripts (local testing only)
-test_*.py
+# ============ Archives ============
+*.zip
+*.tar.gz
+*.rar
+
+# ============ Jupyter ============
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ============ Debug/Test Outputs ============
+test_output*.txt
+debug_*.txt

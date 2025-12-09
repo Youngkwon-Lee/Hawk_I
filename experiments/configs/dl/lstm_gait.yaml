@@ -1,0 +1,61 @@
+# Deep Learning Experiment Configuration - LSTM for Gait Analysis
+# Run on HPC: python scripts/hpc/scripts/train_gait_lstm.py --config experiments/configs/dl/lstm_gait.yaml
+
+experiment:
+  name: "lstm_gait_v1"
+  task: "gait"
+  model_type: "lstm"
+  description: "Bidirectional LSTM with attention for gait UPDRS scoring"
+  requires_gpu: true
+
+data:
+  dataset: "PD4T"
+  task: "gait"
+  sequence_length: 90  # Gait needs longer sequences
+  num_landmarks: 33    # Pose landmarks
+  landmark_dim: 3      # x, y, z
+  augmentation:
+    jitter: 0.03
+    scaling: 0.1
+    time_warp: true
+
+model:
+  type: "AttentionLSTM"
+  architecture:
+    input_size: 99      # 33 landmarks * 3
+    hidden_size: 128
+    num_layers: 2
+    bidirectional: true
+    dropout: 0.3
+    attention: true
+
+training:
+  epochs: 100
+  batch_size: 64        # Reduce to 32 if OOM
+  learning_rate: 0.001
+  optimizer: "AdamW"
+  scheduler:
+    type: "ReduceLROnPlateau"
+    patience: 5
+    factor: 0.5
+  early_stopping:
+    patience: 15
+    monitor: "val_mae"
+  cross_validation: 5
+  mixed_precision: true  # AMP for faster training
+
+environment:
+  # 로컬에서는 CPU로 테스트, HPC에서 GPU 학습
+  local:
+    device: "cpu"
+    batch_size: 16
+    epochs: 5  # Quick test
+  hpc:
+    device: "cuda"
+    batch_size: 64
+    epochs: 100
+
+output:
+  model_name: "lstm_gait_attention.pth"
+  save_best_only: true
+  checkpoint_freq: 10

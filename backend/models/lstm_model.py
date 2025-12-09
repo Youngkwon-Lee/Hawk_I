@@ -79,8 +79,8 @@ class LSTMScorer:
 
         self.num_features = (self.num_landmarks * self.landmark_dim) + self.derived_features
 
-        # Model path
-        self.model_dir = os.path.join(os.path.dirname(__file__), '..', 'ml_models')
+        # Model path (updated for new structure)
+        self.model_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'trained')
         self.model_path = os.path.join(self.model_dir, f'lstm_{task_type}_model.h5')
 
     def build_model(self) -> Optional['Model']:

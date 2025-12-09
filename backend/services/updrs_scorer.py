@@ -111,34 +111,58 @@ class UPDRSScorer:
             {"speed": ss, "decrement": ds, "rhythm": rs, "velocity": vs}, "rule", 1.0)
 
     def _score_gait_rule(self, m: GaitMetrics) -> UPDRSScore:
-        # Arm swing amplitude (degrees): Normal >= 20, Slight >= 15, Mild >= 10, Moderate >= 5
+        # Arm swing amplitude: Check if normalized (0-1) or degrees
+        # PD4T data is normalized: 0.1-0.2 range; Real degrees: 5-25 range
         arm = m.arm_swing_amplitude_mean
-        asc = 0 if arm >= 20 else (1 if arm >= 15 else (2 if arm >= 10 else (3 if arm >= 5 else 4)))
+        if arm < 1.0:  # Normalized data (0-1 scale)
+            asc = 0 if arm >= 0.15 else (1 if arm >= 0.12 else (2 if arm >= 0.08 else (3 if arm >= 0.05 else 4)))
+        else:  # Real degrees
+            asc = 0 if arm >= 20 else (1 if arm >= 15 else (2 if arm >= 10 else (3 if arm >= 5 else 4)))
 
         # Walking speed (m/s): Normal >= 1.0, Slight >= 0.8, Mild >= 0.6, Moderate >= 0.4
         sp = m.walking_speed
         ssc = 0 if sp >= 1.0 else (1 if sp >= 0.8 else (2 if sp >= 0.6 else (3 if sp >= 0.4 else 4)))
 
-        # Cadence (steps/min): Normal 100-120, slight deviation, moderate deviation
+        # Cadence: PD4T data has high cadence (118-171), normal is 100-120
+        # Higher cadence in PD can indicate festination
         cad = m.cadence
-        csc = 0 if 100 <= cad <= 120 else (1 if 85 <= cad < 100 or 120 < cad <= 135 else (2 if 70 <= cad < 85 or 135 < cad <= 150 else 3))
+        if cad > 150:  # Very high cadence = mild issue
+            csc = 2
+        elif cad > 135:  # High cadence = slight issue
+            csc = 1
+        elif 100 <= cad <= 120:  # Normal range
+            csc = 0
+        elif 85 <= cad < 100 or 120 < cad <= 135:
+            csc = 1
+        else:
+            csc = 2
 
-        # Step height (meters): Normal >= 0.12, Slight >= 0.10, Mild >= 0.07, Moderate >= 0.04
+        # Step height: Check if normalized or meters
+        # PD4T data: 0.035-0.071 (normalized); Real meters: 0.04-0.15
         sh = m.step_height_mean
-        shc = 0 if sh >= 0.12 else (1 if sh >= 0.10 else (2 if sh >= 0.07 else (3 if sh >= 0.04 else 4)))
+        if sh < 0.1:  # Likely normalized
+            shc = 0 if sh >= 0.06 else (1 if sh >= 0.05 else (2 if sh >= 0.04 else (3 if sh >= 0.03 else 4)))
+        else:  # Real meters
+            shc = 0 if sh >= 0.12 else (1 if sh >= 0.10 else (2 if sh >= 0.07 else (3 if sh >= 0.04 else 4)))
 
-        # Stride length (meters): Normal >= 1.2, Slight >= 0.9, Mild >= 0.6
+        # Stride length: Check if normalized or meters
+        # PD4T data: 0.20-0.39 (normalized); Real meters: 0.6-1.4
         sl = m.stride_length
-        slc = 0 if sl >= 1.2 else (1 if sl >= 0.9 else (2 if sl >= 0.6 else 3))
+        if sl < 0.5:  # Normalized data
+            slc = 0 if sl >= 0.35 else (1 if sl >= 0.28 else (2 if sl >= 0.22 else 3))
+        else:  # Real meters
+            slc = 0 if sl >= 1.2 else (1 if sl >= 0.9 else (2 if sl >= 0.6 else 3))
 
         # Weighted score: arm swing most important for PD
         w = asc * 0.30 + ssc * 0.20 + csc * 0.15 + shc * 0.15 + slc * 0.20
         bs = min(4, int(w + 0.5))
 
-        # Penalties for variability and asymmetry
+        # Penalties for variability and asymmetry (PD4T has high variability values 25-45)
         pen = 0.0
-        if m.stride_variability > 0.08: pen += min(0.3, (m.stride_variability - 0.08) / 0.20 * 0.3)
-        if m.arm_swing_asymmetry > 0.10: pen += min(0.4, (m.arm_swing_asymmetry - 0.10) / 0.30 * 0.4)
+        var_threshold = 25 if m.stride_variability > 1 else 0.08
+        if m.stride_variability > var_threshold:
+            pen += min(0.3, (m.stride_variability - var_threshold) / (var_threshold * 2.5) * 0.3)
+        if m.arm_swing_asymmetry > 0.20: pen += min(0.4, (m.arm_swing_asymmetry - 0.20) / 0.30 * 0.4)
         if m.festination_index > 0.05: pen += min(0.3, m.festination_index * 2)
         if m.step_count < 10: pen += 0.2
 

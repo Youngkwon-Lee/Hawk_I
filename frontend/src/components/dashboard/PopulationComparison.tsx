@@ -393,12 +393,12 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
             </Card>
 
             {/* Interpretation */}
-            <Card className="bg-blue-50 border-blue-200">
+            <Card className="bg-slate-800 border-slate-700">
                 <CardContent className="p-4">
-                    <h3 className="font-medium text-blue-800 mb-2">해석 가이드</h3>
-                    <ul className="text-sm text-blue-700 space-y-1">
-                        <li>• <strong>태핑 빈도, 진폭 비율</strong>: 높을수록 좋음 (정상군이 더 높음)</li>
-                        <li>• <strong>변동성, 멈춤율</strong>: 낮을수록 좋음 (정상군이 더 낮음)</li>
+                    <h3 className="font-medium text-blue-300 mb-2">해석 가이드</h3>
+                    <ul className="text-sm text-slate-300 space-y-1">
+                        <li>• <strong className="text-blue-400">태핑 빈도, 진폭 비율</strong>: 높을수록 좋음 (정상군이 더 높음)</li>
+                        <li>• <strong className="text-blue-400">변동성, 멈춤율</strong>: 낮을수록 좋음 (정상군이 더 낮음)</li>
                         <li>• 환자 점수가 정상군 범위에 가까울수록 운동 기능이 양호함을 의미합니다</li>
                     </ul>
                 </CardContent>

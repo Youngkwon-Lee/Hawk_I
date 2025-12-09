@@ -240,7 +240,9 @@ def start_analysis():
         # Get optional parameters
         patient_id = request.form.get('patient_id', 'unknown')
         manual_test_type = request.form.get('test_type', None)
-        scoring_method = request.form.get('scoring_method', 'ensemble')  # rule, ml, ensemble
+        # NOTE: Default changed to 'rule' due to ML model feature mismatch (27 vs 23)
+        # TODO: Retrain ML models with updated feature set to restore ensemble
+        scoring_method = request.form.get('scoring_method', 'rule')  # rule, ml, ensemble
         ml_model_type = request.form.get('ml_model_type', 'rf')  # rf or xgb
         
         # Start background thread

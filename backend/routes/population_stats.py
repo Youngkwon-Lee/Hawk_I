@@ -253,7 +253,8 @@ def get_task_stats(task_type: str):
 
     # Normalize task type
     task_type_normalized = task_type.lower().replace('-', '_')
-    if task_type_normalized in ['finger', 'hand']:
+    # Map hand-related task types to finger_tapping stats
+    if task_type_normalized in ['finger', 'hand', 'hand_movement']:
         task_type_normalized = 'finger_tapping'
 
     if task_type_normalized not in stats:

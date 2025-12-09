@@ -1,0 +1,11 @@
+Task,Model,Features,Accuracy,Std,Within-1,Evaluation,Note
+Gait,RF_300,191 (26 clinical + 9 derived),72.9%,-,100.0%,Subject-based 80/20 (24/6 patients),Best Hold-out
+Gait,ET_300,191,70.4%,+/-2.3%,97.9%,Subject-based 5-Fold CV (6 patients/fold),Best CV
+Gait,RF_300,191,69.7%,+/-3.3%,98.4%,Subject-based 5-Fold CV (6 patients/fold),
+Gait,XGB,191,65.3%,+/-3.0%,98.4%,Subject-based 5-Fold CV (6 patients/fold),
+Gait,Baseline,-,67.1%,-,-,-,
+Finger Tapping,RF_300,70 (10 clinical),58.3%,-,96.8%,Subject-based 80/20 (24/6 patients),Best Hold-out
+Finger Tapping,RF_300,70,57.0%,+/-9.5%,97.3%,Subject-based 5-Fold CV (6 patients/fold),Best CV
+Finger Tapping,ET_300,70,55.3%,+/-9.6%,97.6%,Subject-based 5-Fold CV (6 patients/fold),
+Finger Tapping,XGB,70,54.4%,+/-9.3%,96.6%,Subject-based 5-Fold CV (6 patients/fold),
+Finger Tapping,Baseline,-,59.1%,-,-,-,

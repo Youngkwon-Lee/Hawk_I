@@ -29,6 +29,9 @@ CORS(app, resources={
             "http://localhost:3001",
             os.getenv("FRONTEND_URL", "http://localhost:3000")
         ]
+    },
+    r"/files/*": {
+        "origins": "*"
     }
 })
 
@@ -76,7 +79,7 @@ def index():
 @app.route('/files/<path:filename>')
 def serve_upload(filename):
     """Serve uploaded files and analysis results"""
-    print(f"📂 Serving file: {filename} from {app.config['UPLOAD_FOLDER']}")
+    print(f"[FILE] Serving: {filename}")
     try:
         response = send_from_directory(app.config['UPLOAD_FOLDER'], filename)
         response.headers['Access-Control-Allow-Origin'] = '*'
@@ -84,13 +87,13 @@ def serve_upload(filename):
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response
     except Exception as e:
-        print(f"❌ Error serving file: {e}")
+        print(f"[ERROR] Serving file failed: {e}")
         return jsonify({"error": str(e)}), 404
 
 @app.route('/uploads/<path:filename>')
 def serve_upload_legacy(filename):
     """Serve uploaded files (legacy route for backward compatibility)"""
-    print(f"📂 [LEGACY] Serving file: {filename} from {app.config['UPLOAD_FOLDER']}")
+    print(f"[FILE-LEGACY] Serving: {filename}")
     try:
         response = send_from_directory(app.config['UPLOAD_FOLDER'], filename)
         response.headers['Access-Control-Allow-Origin'] = '*'
@@ -98,7 +101,7 @@ def serve_upload_legacy(filename):
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response
     except Exception as e:
-        print(f"❌ Error serving file: {e}")
+        print(f"[ERROR] Serving file failed: {e}")
         return jsonify({"error": str(e)}), 404
 
 
