@@ -262,3 +262,108 @@ export function getVideoTypeColor(videoType: string): string {
 
   return colorMap[videoType] || 'gray'
 }
+
+// ============================================
+// History API Types and Functions
+// ============================================
+
+export interface HistoryItem {
+  video_id: string
+  date: string
+  task_type: string
+  score: number | null
+  severity: string
+  confidence: number
+  metrics: Record<string, number>
+  patient_id: string
+  scoring_method: string
+}
+
+export interface HistoryResponse {
+  success: boolean
+  data: {
+    items: HistoryItem[]
+    total: number
+    limit: number
+    offset: number
+    has_more: boolean
+  }
+}
+
+export interface HistoryStats {
+  success: boolean
+  data: {
+    total_analyses: number
+    average_score: number | null
+    task_distribution: Record<string, number>
+    score_distribution: Record<number, number>
+    trend: Array<{
+      date: string
+      score: number
+      task_type: string
+    }>
+  }
+}
+
+export interface HistoryFilters {
+  task_type?: string
+  patient_id?: string
+  start_date?: string
+  end_date?: string
+  limit?: number
+  offset?: number
+  sort?: 'date_desc' | 'date_asc' | 'score_desc' | 'score_asc'
+}
+
+/**
+ * Get analysis history with filters
+ */
+export async function getHistory(filters?: HistoryFilters): Promise<HistoryResponse> {
+  const params = new URLSearchParams()
+
+  if (filters) {
+    if (filters.task_type) params.set('task_type', filters.task_type)
+    if (filters.patient_id) params.set('patient_id', filters.patient_id)
+    if (filters.start_date) params.set('start_date', filters.start_date)
+    if (filters.end_date) params.set('end_date', filters.end_date)
+    if (filters.limit) params.set('limit', filters.limit.toString())
+    if (filters.offset) params.set('offset', filters.offset.toString())
+    if (filters.sort) params.set('sort', filters.sort)
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/history/?${params.toString()}`)
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch history')
+  }
+
+  return response.json()
+}
+
+/**
+ * Get aggregated history statistics
+ */
+export async function getHistoryStats(task_type?: string, patient_id?: string): Promise<HistoryStats> {
+  const params = new URLSearchParams()
+  if (task_type) params.set('task_type', task_type)
+  if (patient_id) params.set('patient_id', patient_id)
+
+  const response = await fetch(`${API_BASE_URL}/api/history/stats?${params.toString()}`)
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch history stats')
+  }
+
+  return response.json()
+}
+
+/**
+ * Delete an analysis result
+ */
+export async function deleteAnalysis(videoId: string): Promise<{ success: boolean; message?: string }> {
+  const response = await fetch(`${API_BASE_URL}/api/history/${videoId}`, {
+    method: 'DELETE'
+  })
+
+  return response.json()
+}

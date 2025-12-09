@@ -27,9 +27,9 @@ class AnalysisContext(BaseModel):
     error: Optional[str] = None
 
     # Scoring Configuration
-    # NOTE: Changed to "rule" to bypass ML feature mismatch (27 vs 23 features)
-    # TODO: Retrain ML models with updated feature set to restore ensemble
-    scoring_method: Literal["rule", "ml", "ensemble"] = "rule"
+    # Fixed: Scaler updated to 27 features (2024-12-09)
+    # ensemble = rule + ML weighted average for robust scoring
+    scoring_method: Literal["rule", "ml", "ensemble"] = "ensemble"
     ml_model_type: str = "rf"
 
     # Data Slots (Populated by Agents)
@@ -60,3 +60,7 @@ class AnalysisContext(BaseModel):
             message=message,
             meta=meta
         ))
+
+
+# In-memory cache for analysis results (used by VLM routes)
+analysis_results: Dict[str, Any] = {}

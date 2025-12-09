@@ -1,6 +1,7 @@
 "use client"
 
 import { getAnalysisResult } from "@/lib/services/api"
+import { useAnalysisStore } from "@/store/analysisStore"
 
 import * as React from "react"
 import { useState, useEffect } from 'react'
@@ -22,6 +23,9 @@ export default function AnalyzingPage() {
   const searchParams = useSearchParams()
   const videoId = searchParams.get('videoId')
 
+  // Zustand store actions
+  const { setResult, setAnalyzing, setError, clearResult } = useAnalysisStore()
+
   // Simple progress state
   const [progress, setProgress] = useState(0)
   const [statusMessage, setStatusMessage] = useState("시스템 초기화 중...")
@@ -38,6 +42,9 @@ export default function AnalyzingPage() {
 
   useEffect(() => {
     if (!videoId) return
+
+    // Clear previous result when starting new analysis
+    clearResult()
 
     let pollCount = 0
     const MAX_POLLS = 120 // 4 minutes max
@@ -87,13 +94,15 @@ export default function AnalyzingPage() {
 
           try {
             const result = await getAnalysisResult(videoId)
-            sessionStorage.setItem('analysisResult', JSON.stringify(result))
+            // Use Zustand store instead of sessionStorage
+            setResult(result)
             setTimeout(() => {
               router.push(`/result?analysisId=${videoId}`)
             }, 1000)
             return true
           } catch (err) {
             console.error('Failed to fetch result:', err)
+            setError('분석 결과를 가져오는데 실패했습니다.')
             setTimeout(() => {
               router.push(`/result?analysisId=${videoId}&error=fetch_failed`)
             }, 1000)

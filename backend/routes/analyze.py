@@ -22,6 +22,7 @@ from services.metrics_calculator import MetricsCalculator
 from services.updrs_scorer import UPDRSScorer
 from services.interpretation_agent import InterpretationAgent
 from services.progress_tracker import init_analysis, update_step, complete_analysis, fail_analysis
+from services.visualization_data_generator import generate_visualization_data, detect_events
 from agents.orchestrator import OrchestratorAgent
 from domain.context import AnalysisContext
 from dataclasses import asdict
@@ -124,8 +125,37 @@ def process_video_background(video_path, video_id, patient_id, manual_test_type,
                 "recommendations": ai_result.recommendations
             }
 
-        # Reasoning Log conversion
-        reasoning_log = [step.model_dump(mode='json') for step in ctx.reasoning_log]
+        # Reasoning Log conversion - transform to frontend format
+        reasoning_log = []
+        for step in ctx.reasoning_log:
+            step_dict = step.model_dump(mode='json')
+            # Map backend fields to frontend fields
+            reasoning_log.append({
+                "agent": step_dict.get("step", "unknown"),  # Backend 'step' -> Frontend 'agent'
+                "step": step_dict.get("step", ""),  # Keep step for display
+                "content": step_dict.get("message", ""),  # Backend 'message' -> Frontend 'content'
+                "timestamp": step_dict.get("timestamp", ""),
+                "meta": step_dict.get("meta")
+            })
+
+        # Generate visualization data for charts
+        fps = ctx.vision_meta.get("fps", 30.0)
+        # Get gait analysis from gait_cycle_data (populated by GaitCycleAgent)
+        gait_analysis = getattr(ctx, 'gait_cycle_data', None)
+        visualization_data = generate_visualization_data(
+            landmark_frames=frames_data,
+            gait_analysis=gait_analysis,
+            fps=fps
+        )
+
+        # Detect clinically relevant events
+        event_task_type = "finger_tapping" if "finger" in ctx.task_type.lower() or "tapping" in ctx.task_type.lower() else "gait"
+        detected_events = detect_events(
+            landmark_frames=frames_data,
+            gait_analysis=gait_analysis,
+            fps=fps,
+            task_type=event_task_type
+        )
 
         response = {
             "success": True,
@@ -165,12 +195,14 @@ def process_video_background(video_path, video_id, patient_id, manual_test_type,
             "ml_model_type": ctx.ml_model_type,
             "updrs_score": updrs_dict,
             "ai_interpretation": ai_interpretation,
-            "events": [], # Event detector not in agents yet
+            "events": detected_events,
             "visualization_urls": {
                 "heatmap": f"/files/{os.path.basename(heatmap_path)}" if heatmap_path else None,
                 "temporal_map": f"/files/{os.path.basename(temporal_path)}" if temporal_path else None,
                 "attention_map": None
-            }
+            },
+            "visualization_data": visualization_data,
+            "gait_cycle_analysis": gait_analysis  # Include raw gait cycle data
         }
 
         # Save result
@@ -240,9 +272,9 @@ def start_analysis():
         # Get optional parameters
         patient_id = request.form.get('patient_id', 'unknown')
         manual_test_type = request.form.get('test_type', None)
-        # NOTE: Default changed to 'rule' due to ML model feature mismatch (27 vs 23)
-        # TODO: Retrain ML models with updated feature set to restore ensemble
-        scoring_method = request.form.get('scoring_method', 'rule')  # rule, ml, ensemble
+        # Feature mismatch fixed (2024-12-09): 27 features correctly configured
+        # Ensemble scoring now available: combines Rule-based + ML predictions
+        scoring_method = request.form.get('scoring_method', 'ensemble')  # rule, ml, ensemble
         ml_model_type = request.form.get('ml_model_type', 'rf')  # rf or xgb
         
         # Start background thread

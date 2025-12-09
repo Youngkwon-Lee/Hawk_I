@@ -57,23 +57,25 @@ def test_clinical_agent_integration():
     ctx = agent.process(ctx)
     
     if ctx.error:
-        print(f"❌ Test Failed: {ctx.error}")
+        print(f"[FAIL] Test Failed: {ctx.error}")
         with open("my_error.txt", "w") as f:
             f.write(ctx.error)
         return
 
-    print("✅ Clinical Agent processed successfully.")
+    print("[OK] Clinical Agent processed successfully.")
     print(f"Metrics: {ctx.kinematic_metrics}")
     
     if "speed" in ctx.kinematic_metrics or "tapping_speed" in ctx.kinematic_metrics:
-        print("✅ Metrics calculated correctly.")
+        print("[OK] Metrics calculated correctly.")
     else:
-        print(f"❌ Metrics missing or keys changed. Keys: {ctx.kinematic_metrics.keys()}")
+        print(f"[FAIL] Metrics missing or keys changed. Keys: {ctx.kinematic_metrics.keys()}")
 
     if ctx.clinical_scores and "total_score" in ctx.clinical_scores:
-        print("✅ UPDRS Scores calculated correctly.")
+        print("[OK] UPDRS Scores calculated correctly.")
+        print(f"  Scoring method: {ctx.scoring_method}")
+        print(f"  Scores: {ctx.clinical_scores}")
     else:
-        print(f"❌ UPDRS Scores missing. Scores: {ctx.clinical_scores}")
+        print(f"[FAIL] UPDRS Scores missing. Scores: {ctx.clinical_scores}")
 
 if __name__ == "__main__":
     test_clinical_agent_integration()

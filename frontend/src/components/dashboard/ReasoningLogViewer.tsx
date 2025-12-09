@@ -5,9 +5,11 @@ import { Terminal, Clock, Activity, FileText, Brain } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface ReasoningStep {
-  agent: string
-  step: string
-  content: string
+  // Support both backend and frontend field names
+  agent?: string      // Frontend format
+  step?: string       // Backend format (also used as display name)
+  content?: string    // Frontend format
+  message?: string    // Backend format
   timestamp: string
   meta?: any
 }
@@ -60,7 +62,7 @@ export function ReasoningLogViewer({ logs, className }: ReasoningLogViewerProps)
               <div key={index} className="flex gap-3 text-sm animate-in slide-in-from-left-2 fade-in duration-300" style={{ animationDelay: `${index * 50}ms` }}>
                 <div className="flex flex-col items-center gap-1 mt-0.5">
                   <div className={cn("p-1.5 rounded-full border", getAgentColor(log.agent))}>
-                    {getAgentIcon(log.agent)}
+                    {getAgentIcon(log.agent || log.step || "")}
                   </div>
                   {index < logs.length - 1 && (
                     <div className="w-px h-full bg-border/50 my-1" />
@@ -80,7 +82,7 @@ export function ReasoningLogViewer({ logs, className }: ReasoningLogViewerProps)
                     </div>
                   </div>
                   <p className="text-slate-400 leading-relaxed font-mono text-xs bg-white/5 p-2 rounded-md border border-white/10">
-                    {log.content}
+                    {log.content || log.message || ""}
                   </p>
                   {log.meta && Object.keys(log.meta).length > 0 && (
                     <div className="mt-2">

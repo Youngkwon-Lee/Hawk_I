@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useSearchParams } from "next/navigation"
+import { useAnalysisStore } from "@/store/analysisStore"
 import { PageLayout } from "@/components/layout/PageLayout"
 import { ChatInterface } from "@/components/ui/ChatInterface"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
@@ -17,6 +18,10 @@ import { AlertTriangle, Download, Share2, FileText, Activity, Brain, Users } fro
 import { cn } from "@/lib/utils"
 import type { AnalysisResult, FingerTappingMetrics, GaitMetrics, TimelineEvent } from "@/lib/services/api"
 import { ReasoningLogViewer } from "@/components/dashboard/ReasoningLogViewer"
+import { JointAngleChart } from "@/components/dashboard/JointAngleChart"
+import { SymmetryChart } from "@/components/dashboard/SymmetryChart"
+import { GaitCycleChart } from "@/components/dashboard/GaitCycleChart"
+import { SpeedProfileChart } from "@/components/dashboard/SpeedProfileChart"
 
 // Mock Data - Gait
 const GAIT_METRICS: MetricRow[] = [
@@ -34,13 +39,13 @@ const FINGER_METRICS: MetricRow[] = [
     { label: "피로율", value: "12", unit: "%", change: "+3%", status: "bad", normalRange: "<20" },
 ]
 
+// Mock trend data for demo (임시 데이터)
 const MOCK_TREND_DATA = [
     { date: "8월", score: 1.2, stride: 1.1 },
-    { date: "9월", score: 1.4, stride: 1.05 },
-    { date: "10월", score: 1.3, stride: 1.08 },
-    { date: "11/01", score: 1.8, stride: 1.02 },
-    { date: "11/15", score: 1.9, stride: 1.00 },
-    { date: "11/23", score: 2.0, stride: 0.98 },
+    { date: "9월", score: 1.5, stride: 1.0 },
+    { date: "10월", score: 1.3, stride: 0.95 },
+    { date: "11월", score: 1.8, stride: 0.92 },
+    { date: "12월", score: 1.6, stride: 0.98 },
 ]
 
 // Helper function to convert backend metrics to frontend display format
@@ -185,40 +190,36 @@ export default function ResultPage() {
 function ResultContent() {
     const searchParams = useSearchParams()
     const [activeTab, setActiveTab] = React.useState("dashboard")
+    const [showScoreDetails, setShowScoreDetails] = React.useState(false)
 
-    // Load analysis result from sessionStorage immediately
-    const getAnalysisResult = () => {
-        if (typeof window === 'undefined') return null
-        const stored = sessionStorage.getItem('analysisResult')
-        if (stored) {
-            try {
-                return JSON.parse(stored)
-            } catch (e) {
-                console.error('Failed to parse analysis result:', e)
-                return null
-            }
-        }
-        return null
-    }
-
-    const [analysisResult, setAnalysisResult] = React.useState<any>(getAnalysisResult())
+    // Zustand store for analysis state management
+    const { result: analysisResult, setResult, error, setError, clearResult } = useAnalysisStore()
     const [isLoading, setIsLoading] = React.useState(false)
-    const [error, setError] = React.useState<string | null>(null)
 
-    // Fetch from API if id is present in URL and no result in sessionStorage
+    // Fetch from API if id is present in URL and result doesn't match
     React.useEffect(() => {
-        const id = searchParams.get("id")
-        if (id && !analysisResult) {
+        const urlId = searchParams.get("id") || searchParams.get("analysisId")
+
+        // Check if we need to fetch: URL has id AND (no result OR result id doesn't match)
+        const storedId = (analysisResult as any)?.id || (analysisResult as any)?.video_id
+        const needsFetch = urlId && (!analysisResult || (storedId && storedId !== urlId))
+
+        if (needsFetch) {
+            // Clear old result if id mismatch
+            if (storedId && storedId !== urlId) {
+                clearResult()
+            }
+
             setIsLoading(true)
-            fetch(`http://localhost:5000/api/analysis/result/${id}`)
+            fetch(`http://localhost:5000/api/analysis/result/${urlId}`)
                 .then(res => {
                     if (!res.ok) throw new Error("Failed to fetch result")
                     return res.json()
                 })
                 .then(data => {
-                    setAnalysisResult(data)
-                    // Also save to session storage for persistence
-                    sessionStorage.setItem('analysisResult', JSON.stringify(data))
+                    // Ensure result has id for future comparisons
+                    const resultWithId = { ...data, id: urlId }
+                    setResult(resultWithId)
                 })
                 .catch(err => {
                     console.error("Error fetching result:", err)
@@ -226,7 +227,7 @@ function ResultContent() {
                 })
                 .finally(() => setIsLoading(false))
         }
-    }, [searchParams, analysisResult])
+    }, [searchParams, analysisResult, setResult, setError, clearResult])
 
     // Log for debugging
     React.useEffect(() => {
@@ -262,6 +263,12 @@ function ResultContent() {
                   "N/A"
     const severity = analysisResult?.updrs_score?.severity || "Unknown"
 
+    // Get individual scoring method results (Rule, ML, Ensemble)
+    const scoringMethod = analysisResult?.updrs_score?.method || "rule"
+    const ruleScore = analysisResult?.updrs_score?.details?.rule
+    const mlScore = analysisResult?.updrs_score?.details?.ml
+    const confidence = analysisResult?.updrs_score?.confidence
+
     // Use actual uploaded video from backend if available
     const hasBackendVideo = !!analysisResult?.skeleton_data?.skeleton_video_url
     const videoSrc = hasBackendVideo
@@ -295,18 +302,9 @@ function ResultContent() {
                 }
             })
         }
-
-        // Fallback to mock data if no events
-        return isFinger ? [
-            { time: 1, label: "시작", type: "info" },
-            { time: 3.5, label: "속도 감소", type: "warning" },
-            { time: 5, label: "종료", type: "good" }
-        ] : [
-            { time: 3, label: "회전 시작", type: "info" },
-            { time: 5.5, label: "주저함", type: "warning" },
-            { time: 8, label: "회전 종료", type: "good" }
-        ]
-    }, [analysisResult, isFinger])
+        // Return empty array if no events - don't show mock data
+        return []
+    }, [analysisResult])
 
     // Convert severity to Korean
     const severityKorean = severity === "Normal" ? "정상" :
@@ -326,12 +324,12 @@ function ResultContent() {
                 content: `${title} 결과입니다. UPDRS 점수는 ${score}점으로 ${severityKorean}을 나타냅니다.`,
                 timestamp: new Date()
             },
-            {
+            ...(analysisResult?.ai_interpretation?.summary ? [{
                 id: "2",
-                role: "agent",
-                content: isFinger ? "3초 후 약간의 리듬 불규칙성이 관찰되었습니다." : "주요 요인은 보폭 길이의 8% 감소입니다.",
+                role: "agent" as const,
+                content: analysisResult.ai_interpretation.summary,
                 timestamp: new Date()
-            }
+            }] : [])
         ]} />}>
             <div className="space-y-8 pb-10">
                 {/* Header */}
@@ -359,18 +357,27 @@ function ResultContent() {
 
                 {/* Summary Section */}
                 <div className="grid gap-4 md:grid-cols-4">
-                    <SummaryCard
-                        title="추정 점수"
-                        value={score}
-                        subtext={`UPDRS (0-4) • ${severity}`}
-                        status={
-                            severity === "Normal" ? "good" :
-                                severity === "Slight" ? "neutral" :
-                                    severity === "Mild" ? "warning" :
-                                        "bad"
-                        }
-                        className="md:col-span-1"
-                    />
+                    <div className="md:col-span-1">
+                        <SummaryCard
+                            title="추정 점수"
+                            value={score}
+                            subtext={`UPDRS (0-4) • ${severity}`}
+                            status={
+                                severity === "Normal" ? "good" :
+                                    severity === "Slight" ? "neutral" :
+                                        severity === "Mild" ? "warning" :
+                                            "bad"
+                            }
+                        />
+                        {scoringMethod === "ensemble" && ruleScore !== undefined && mlScore !== undefined && (
+                            <button
+                                onClick={() => setShowScoreDetails(!showScoreDetails)}
+                                className="w-full mt-1 text-xs text-blue-400 hover:text-blue-300 flex items-center justify-center gap-1"
+                            >
+                                {showScoreDetails ? "▲ 산출 방식 숨기기" : "▼ 산출 방식 보기"}
+                            </button>
+                        )}
+                    </div>
                     {isFinger && analysisResult?.metrics && 'amplitude_mean' in analysisResult.metrics ? (
                         <>
                             <SummaryCard
@@ -418,33 +425,58 @@ function ResultContent() {
                         <>
                             <SummaryCard
                                 title={isFinger ? "진폭" : "보폭 길이"}
-                                value={isFinger ? "4.5cm" : "0.98m"}
-                                trend="down"
-                                trendValue={isFinger ? "10%" : "8%"}
-                                subtext="이전 검사 대비"
-                                status="bad"
+                                value="-"
+                                subtext="분석 데이터 없음"
+                                status="neutral"
                                 className="md:col-span-1"
                             />
                             <SummaryCard
                                 title={isFinger ? "태핑 속도" : "보행 속도"}
-                                value={isFinger ? "3.2 Hz" : "0.8 m/s"}
-                                trend="neutral"
-                                trendValue={isFinger ? "5%" : "2%"}
-                                subtext="이전 검사 대비"
+                                value="-"
+                                subtext="분석 데이터 없음"
                                 className="md:col-span-1"
                             />
                             <SummaryCard
-                                title={isFinger ? "피로도" : "회전 시간"}
-                                value={isFinger ? "12%" : "2.4s"}
-                                trend="up"
-                                trendValue={isFinger ? "3%" : "0.4s"}
-                                subtext={isFinger ? "증가" : "평균보다 느림"}
-                                status="bad"
+                                title={isFinger ? "피로도" : "보행률"}
+                                value="-"
+                                subtext="분석 데이터 없음"
                                 className="md:col-span-1"
                             />
                         </>
                     )}
                 </div>
+
+                {/* Scoring Method Details - Show Rule/ML/Ensemble breakdown */}
+                {showScoreDetails && scoringMethod === "ensemble" && ruleScore !== undefined && mlScore !== undefined && (
+                    <Card className="bg-slate-900 border-slate-700 animate-in fade-in slide-in-from-top-2">
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-sm flex items-center gap-2">
+                                <Brain className="h-4 w-4 text-blue-400" />
+                                점수 산출 방법 (Scoring Method)
+                            </CardTitle>
+                            <CardDescription>Rule-based와 ML 모델의 앙상블 결과</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid grid-cols-3 gap-4 text-center">
+                                <div className="p-3 rounded-lg bg-slate-800 border border-slate-600">
+                                    <div className="text-xs text-slate-400 mb-1">Rule-based</div>
+                                    <div className="text-2xl font-bold text-orange-400">{typeof ruleScore === 'number' ? ruleScore.toFixed(1) : ruleScore}</div>
+                                    <div className="text-xs text-slate-500">임상 규칙 기반</div>
+                                </div>
+                                <div className="p-3 rounded-lg bg-slate-800 border border-slate-600">
+                                    <div className="text-xs text-slate-400 mb-1">ML Model</div>
+                                    <div className="text-2xl font-bold text-purple-400">{typeof mlScore === 'number' ? mlScore.toFixed(1) : mlScore}</div>
+                                    <div className="text-xs text-slate-500">머신러닝 예측</div>
+                                </div>
+                                <div className="p-3 rounded-lg bg-blue-900/50 border border-blue-500">
+                                    <div className="text-xs text-blue-300 mb-1">Ensemble</div>
+                                    <div className="text-2xl font-bold text-blue-400">{score}</div>
+                                    <div className="text-xs text-blue-300/70">신뢰도: {confidence ? (confidence * 100).toFixed(0) : '-'}%</div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {/* AI Interpretation */}
                 {analysisResult?.ai_interpretation && (
@@ -572,10 +604,28 @@ function ResultContent() {
                 {/* Tab Content */}
                 {activeTab === "dashboard" && (
                     <div className="grid gap-6 md:grid-cols-2 animate-in fade-in slide-in-from-bottom-2">
-                        {/* Left Col: Charts */}
+                        {/* Left Col: Charts with mock trend data */}
                         <div className="space-y-6">
-                            <TrendChart data={MOCK_TREND_DATA} dataKey="score" label="점수 추세 (낮을수록 좋음)" color="#f59e0b" />
-                            <TrendChart data={MOCK_TREND_DATA} dataKey="stride" label={isFinger ? "진폭 추세" : "보폭 길이 추세"} color="#3b82f6" />
+                            <div>
+                                <TrendChart
+                                    data={MOCK_TREND_DATA}
+                                    title="점수 추세"
+                                    description="최근 5개월 UPDRS 점수 변화"
+                                    dataKey="score"
+                                    color="#3b82f6"
+                                />
+                                <p className="text-xs text-muted-foreground text-center mt-1">(임시 데이터)</p>
+                            </div>
+                            <div>
+                                <TrendChart
+                                    data={MOCK_TREND_DATA}
+                                    title={isFinger ? "진폭 추세" : "보폭 길이 추세"}
+                                    description={isFinger ? "최근 5개월 진폭 변화" : "최근 5개월 보폭 변화"}
+                                    dataKey="stride"
+                                    color="#10b981"
+                                />
+                                <p className="text-xs text-muted-foreground text-center mt-1">(임시 데이터)</p>
+                            </div>
                         </div>
 
                         {/* Right Col: Metrics Table */}
@@ -609,14 +659,18 @@ function ResultContent() {
                                         <CardTitle className="text-sm">감지된 이벤트</CardTitle>
                                     </CardHeader>
                                     <CardContent className="space-y-4">
-                                        {markers.map((m: any, i: number) => (
-                                            <div key={i} className="flex items-center justify-between text-sm">
-                                                <span className={m.type === "warning" ? "text-yellow-500" : ""}>
-                                                    {`00:0${Math.floor(m.time)} - ${m.label}`}
-                                                </span>
-                                                <Button size="sm" variant="ghost" className="h-6 text-xs">이동</Button>
-                                            </div>
-                                        ))}
+                                        {markers.length > 0 ? (
+                                            markers.map((m: any, i: number) => (
+                                                <div key={i} className="flex items-center justify-between text-sm">
+                                                    <span className={m.type === "warning" ? "text-yellow-500" : ""}>
+                                                        {`00:0${Math.floor(m.time)} - ${m.label}`}
+                                                    </span>
+                                                    <Button size="sm" variant="ghost" className="h-6 text-xs">이동</Button>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <p className="text-sm text-muted-foreground">감지된 이벤트가 없습니다.</p>
+                                        )}
                                     </CardContent>
                                 </Card>
                                 <Card>
@@ -732,6 +786,18 @@ function ResultContent() {
                             </Card>
 
 
+                        </div>
+
+                        {/* Row 2: Chart-based visualizations */}
+                        <div className="grid md:grid-cols-2 gap-6">
+                            <JointAngleChart data={analysisResult.visualization_data?.joint_angles} />
+                            <SymmetryChart data={analysisResult.visualization_data?.symmetry} />
+                        </div>
+
+                        {/* Row 3: Gait cycle and speed profile */}
+                        <div className="grid md:grid-cols-2 gap-6">
+                            <GaitCycleChart data={analysisResult.visualization_data?.gait_cycles} />
+                            <SpeedProfileChart data={analysisResult.visualization_data?.speed_profile} />
                         </div>
                     </div>
                 )}

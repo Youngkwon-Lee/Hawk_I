@@ -116,7 +116,7 @@ class VisionAgent(BaseAgent):
             landmarks = processor.process_video(
                 video_path,
                 output_video_path=skeleton_video_path,
-                max_duration=5.0  # Analyze only first 5 seconds
+                max_duration=7.0  # Analyze only first 7 seconds
             )
             self._log(f"Skeleton extraction complete: {len(landmarks)} frames", time.time() - t0)
 

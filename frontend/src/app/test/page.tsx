@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { analyzeVideoWithProgress, formatVideoType, getVideoTypeColor, type AnalysisResult, type AnalysisStartResponse } from "@/lib/services/api"
+import { useAnalysisStore } from "@/store/analysisStore"
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime']
@@ -18,6 +19,7 @@ import { AnalysisOverlay } from "@/components/dashboard/AnalysisOverlay"
 
 export default function TestPage() {
     const router = useRouter()
+    const { setResult, clearResult } = useAnalysisStore()
     const [selectedTest, setSelectedTest] = React.useState<string | null>(null)
     const [file, setFile] = React.useState<File | null>(null)
     const [fileError, setFileError] = React.useState<string>("")
@@ -75,6 +77,9 @@ export default function TestPage() {
     const handleStartAnalysis = async () => {
         if (!file) return
 
+        // Clear previous result before starting new analysis
+        clearResult()
+
         setIsAnalyzing(true)
         setAnalysisError("")
         setUploadProgress(0)
@@ -105,8 +110,8 @@ export default function TestPage() {
     }
 
     const handleAnalysisComplete = (result: any) => {
-        // Save result to session storage
-        sessionStorage.setItem('analysisResult', JSON.stringify(result))
+        // Save result to Zustand store (auto-persisted to sessionStorage)
+        setResult(result)
         // Navigate to result page
         router.push(`/result?analysisId=${result.id}`)
     }
