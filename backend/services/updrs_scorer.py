@@ -1,4 +1,4 @@
-﻿"""
+"""
 UPDRS Scoring Module - Rule-based and ML-based scoring
 """
 
@@ -80,24 +80,28 @@ class UPDRSScorer:
             {"rule": r.total_score, "ml": ml.total_score}, "ensemble", (1 + ml.confidence) / 2)
 
     def _score_ft_rule(self, m: FingerTappingMetrics) -> UPDRSScore:
-        # Speed (Hz): Normal >= 4.0, Slight >= 3.0, Mild >= 2.0, Moderate >= 1.2
+        # PD4T-calibrated thresholds (2024-12-09)
+        # Speed (Hz): Score0=2.47, Score1=2.08, Score2=1.60
         sp = m.tapping_speed
-        ss = 0 if sp >= 4.0 else (1 if sp >= 3.0 else (2 if sp >= 2.0 else (3 if sp >= 1.2 else 4)))
+        ss = 0 if sp >= 2.25 else (1 if sp >= 1.85 else (2 if sp >= 1.45 else (3 if sp >= 1.0 else 4)))
 
-        # Amplitude decrement (%): Normal < 10, Slight < 25, Mild < 50, Moderate < 70
+        # Amplitude decrement (%): Score0=3%, Score1=5%, Score2=11%
         dec = m.amplitude_decrement
-        ds = 0 if dec < 10 else (1 if dec < 25 else (2 if dec < 50 else (3 if dec < 70 else 4)))
+        ds = 0 if dec < 4 else (1 if dec < 8 else (2 if dec < 15 else (3 if dec < 25 else 4)))
 
-        # Rhythm variability (ratio 0-1): Normal < 0.08, Slight < 0.18, Mild < 0.32, Moderate < 0.50
+        # Rhythm variability - handle CV% (17-19) or ratio (0-1)
         rv = m.rhythm_variability
-        rs = 0 if rv < 0.08 else (1 if rv < 0.18 else (2 if rv < 0.32 else (3 if rv < 0.50 else 4)))
+        if rv > 1.0:  # CV% format
+            rs = 0 if rv < 15 else (1 if rv < 20 else (2 if rv < 30 else (3 if rv < 45 else 4)))
+        else:  # Ratio format
+            rs = 0 if rv < 0.15 else (1 if rv < 0.20 else (2 if rv < 0.30 else (3 if rv < 0.45 else 4)))
 
-        # Velocity decrement (%): Normal < 10, Slight < 25, Mild < 45, Moderate < 60
+        # Velocity decrement (%): Score0=0%, Score1=-7%, Score2=6%
         vd = m.velocity_decrement
-        vs = 0 if vd < 10 else (1 if vd < 25 else (2 if vd < 45 else (3 if vd < 60 else 4)))
+        vs = 0 if vd < 5 else (1 if vd < 15 else (2 if vd < 30 else (3 if vd < 50 else 4)))
 
-        # Weighted score - balanced across all factors
-        w = ss * 0.30 + ds * 0.25 + rs * 0.20 + vs * 0.25
+        # Weighted: speed most discriminative
+        w = ss * 0.45 + ds * 0.30 + rs * 0.10 + vs * 0.15
         bs = min(4, int(w + 0.5))
 
         # Penalties for halts, hesitations, and freezes (reduced impact)
@@ -114,14 +118,15 @@ class UPDRSScorer:
         # Arm swing amplitude: Check if normalized (0-1) or degrees
         # PD4T data is normalized: 0.1-0.2 range; Real degrees: 5-25 range
         arm = m.arm_swing_amplitude_mean
-        if arm < 1.0:  # Normalized data (0-1 scale)
-            asc = 0 if arm >= 0.15 else (1 if arm >= 0.12 else (2 if arm >= 0.08 else (3 if arm >= 0.05 else 4)))
+        if arm < 1.0:  # Normalized data (0-1 scale) - PD4T calibrated
+            # Score0=0.128, Score1=0.097, Score2=0.088, Score3=0.056
+            asc = 0 if arm >= 0.11 else (1 if arm >= 0.09 else (2 if arm >= 0.07 else (3 if arm >= 0.05 else 4)))
         else:  # Real degrees
             asc = 0 if arm >= 20 else (1 if arm >= 15 else (2 if arm >= 10 else (3 if arm >= 5 else 4)))
 
-        # Walking speed (m/s): Normal >= 1.0, Slight >= 0.8, Mild >= 0.6, Moderate >= 0.4
+        # Walking speed - PD4T calibrated: Score0=0.77, Score1=0.62, Score2=0.53
         sp = m.walking_speed
-        ssc = 0 if sp >= 1.0 else (1 if sp >= 0.8 else (2 if sp >= 0.6 else (3 if sp >= 0.4 else 4)))
+        ssc = 0 if sp >= 0.70 else (1 if sp >= 0.57 else (2 if sp >= 0.45 else (3 if sp >= 0.35 else 4)))
 
         # Cadence: PD4T data has high cadence (118-171), normal is 100-120
         # Higher cadence in PD can indicate festination
@@ -137,19 +142,17 @@ class UPDRSScorer:
         else:
             csc = 2
 
-        # Step height: Check if normalized or meters
-        # PD4T data: 0.035-0.071 (normalized); Real meters: 0.04-0.15
+        # Step height - PD4T calibrated: Score0=0.068, Score1=0.055, Score2=0.045
         sh = m.step_height_mean
-        if sh < 0.1:  # Likely normalized
-            shc = 0 if sh >= 0.06 else (1 if sh >= 0.05 else (2 if sh >= 0.04 else (3 if sh >= 0.03 else 4)))
+        if sh < 0.1:  # Normalized
+            shc = 0 if sh >= 0.060 else (1 if sh >= 0.050 else (2 if sh >= 0.040 else (3 if sh >= 0.030 else 4)))
         else:  # Real meters
             shc = 0 if sh >= 0.12 else (1 if sh >= 0.10 else (2 if sh >= 0.07 else (3 if sh >= 0.04 else 4)))
 
-        # Stride length: Check if normalized or meters
-        # PD4T data: 0.20-0.39 (normalized); Real meters: 0.6-1.4
+        # Stride length - PD4T calibrated: Score0=0.328, Score1=0.276, Score2=0.235
         sl = m.stride_length
         if sl < 0.5:  # Normalized data
-            slc = 0 if sl >= 0.35 else (1 if sl >= 0.28 else (2 if sl >= 0.22 else 3))
+            slc = 0 if sl >= 0.30 else (1 if sl >= 0.255 else (2 if sl >= 0.22 else 3))
         else:  # Real meters
             slc = 0 if sl >= 1.2 else (1 if sl >= 0.9 else (2 if sl >= 0.6 else 3))
 
