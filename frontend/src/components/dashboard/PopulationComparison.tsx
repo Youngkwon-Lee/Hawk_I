@@ -48,13 +48,26 @@ interface PopulationComparisonProps {
     patientMetrics?: Record<string, number>
 }
 
+// Map frontend metric keys to backend population stats keys
 const METRIC_MAPPING: Record<string, string> = {
+    // Finger Tapping
     'tapping_speed': 'tapping_freq',
     'amplitude_mean': 'amplitude_ratio',
     'rhythm_variability': 'velocity_variability',
     'fatigue_rate': 'fatigue_index',
     'hesitation_count': 'hesitation_rate',
-    'amplitude_std': 'amplitude_variability'
+    'amplitude_std': 'amplitude_variability',
+    // Gait
+    'velocity_mean': 'walking_speed',
+    'speed': 'walking_speed',
+    'stride_length': 'stride_length',
+    'step_length': 'stride_length',
+    'cadence': 'cadence',
+    'step_frequency': 'cadence',
+    'stride_variability': 'stride_variability',
+    'cv_stride': 'stride_variability',
+    'arm_swing_asymmetry': 'arm_swing_asymmetry',
+    'asymmetry': 'arm_swing_asymmetry'
 }
 
 export function PopulationComparison({ taskType, patientScore, patientMetrics }: PopulationComparisonProps) {
@@ -132,9 +145,23 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
         // Get patient value if available
         let patientValue = 0
         if (patientMetrics) {
+            // Find frontend key that maps to this backend metricKey
             const mappedKey = Object.entries(METRIC_MAPPING).find(([k, v]) => v === metricKey)?.[0]
             if (mappedKey && patientMetrics[mappedKey] !== undefined) {
                 patientValue = patientMetrics[mappedKey]
+            }
+            // Also try direct key match (if metric keys are same)
+            if (patientValue === 0 && patientMetrics[metricKey] !== undefined) {
+                patientValue = patientMetrics[metricKey]
+            }
+            // Try all patient metric keys to find a match
+            if (patientValue === 0) {
+                for (const [pKey, pVal] of Object.entries(patientMetrics)) {
+                    if (METRIC_MAPPING[pKey] === metricKey && typeof pVal === 'number') {
+                        patientValue = pVal
+                        break
+                    }
+                }
             }
         }
 
@@ -277,7 +304,9 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
                                 <PolarRadiusAxis
                                     angle={30}
                                     domain={[0, 1]}
-                                    tick={{ fontSize: 9 }}
+                                    tick={{ fontSize: 9, fill: '#6b7280' }}
+                                    stroke="#374151"
+                                    axisLine={false}
                                 />
                                 <Radar
                                     name="정상 (Score 0)"
@@ -352,10 +381,24 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
                                     // Get patient value
                                     let patientValue: number | undefined
                                     if (patientMetrics) {
+                                        // Find frontend key that maps to this backend metricKey
                                         const mappedKey = Object.entries(METRIC_MAPPING)
                                             .find(([k, v]) => v === metricKey)?.[0]
                                         if (mappedKey && patientMetrics[mappedKey] !== undefined) {
                                             patientValue = patientMetrics[mappedKey]
+                                        }
+                                        // Try direct key match
+                                        if (patientValue === undefined && patientMetrics[metricKey] !== undefined) {
+                                            patientValue = patientMetrics[metricKey]
+                                        }
+                                        // Try all patient metric keys
+                                        if (patientValue === undefined) {
+                                            for (const [pKey, pVal] of Object.entries(patientMetrics)) {
+                                                if (METRIC_MAPPING[pKey] === metricKey && typeof pVal === 'number') {
+                                                    patientValue = pVal
+                                                    break
+                                                }
+                                            }
                                         }
                                     }
 
