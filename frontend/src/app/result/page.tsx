@@ -12,7 +12,8 @@ import { TrendChart } from "@/components/dashboard/TrendChart"
 import { VideoPlayer } from "@/components/dashboard/VideoPlayer"
 import { AIInterpretation } from "@/components/dashboard/AIInterpretation"
 import { MedicationTimeline } from "@/components/dashboard/MedicationTimeline"
-import { AlertTriangle, Download, Share2, FileText, Activity, Brain } from "lucide-react"
+import { PopulationComparison } from "@/components/dashboard/PopulationComparison"
+import { AlertTriangle, Download, Share2, FileText, Activity, Brain, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AnalysisResult, FingerTappingMetrics, GaitMetrics, TimelineEvent } from "@/lib/services/api"
 import { ReasoningLogViewer } from "@/components/dashboard/ReasoningLogViewer"
@@ -548,6 +549,15 @@ function ResultContent() {
                             약물 타임라인
                         </button>
                         <button
+                            onClick={() => setActiveTab("comparison")}
+                            className={cn(
+                                "pb-3 text-sm font-medium transition-all border-b-2",
+                                activeTab === "comparison" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            정상군 비교
+                        </button>
+                        <button
                             onClick={() => setActiveTab("reasoning")}
                             className={cn(
                                 "pb-3 text-sm font-medium transition-all border-b-2",
@@ -729,6 +739,16 @@ function ResultContent() {
                 {activeTab === "timeline" && (
                     <div className="animate-in fade-in slide-in-from-bottom-2">
                         <MedicationTimeline patientId={analysisResult?.patient_id || "unknown"} />
+                    </div>
+                )}
+
+                {activeTab === "comparison" && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2">
+                        <PopulationComparison
+                            taskType={type}
+                            patientScore={analysisResult?.updrs_score?.total_score ?? analysisResult?.updrs_score?.score}
+                            patientMetrics={analysisResult?.metrics as Record<string, number> | undefined}
+                        />
                     </div>
                 )}
 

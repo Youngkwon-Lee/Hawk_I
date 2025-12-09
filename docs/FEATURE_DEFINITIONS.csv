@@ -1,0 +1,58 @@
+Task,Version,Feature_Group,Feature_Name,Description,Index_Range
+Finger Tapping,v1,Clinical,finger_distance,Thumb tip to index tip distance,0
+Finger Tapping,v1,Clinical,dist_velocity,Rate of change of finger distance,1
+Finger Tapping,v1,Clinical,dist_accel,Acceleration of finger distance,2
+Finger Tapping,v1,Clinical,thumb_speed,Frame-to-frame thumb displacement,3
+Finger Tapping,v1,Clinical,index_speed,Frame-to-frame index finger displacement,4
+Finger Tapping,v1,Clinical,combined_speed,Sum of thumb and index speeds,5
+Finger Tapping,v1,Clinical,thumb_from_wrist,Distance from thumb to wrist,6
+Finger Tapping,v1,Clinical,index_from_wrist,Distance from index finger to wrist,7
+Finger Tapping,v1,Clinical,normalized_distance,Finger distance / hand size,8
+Finger Tapping,v1,Clinical,hand_size,Max(thumb_from_wrist; index_from_wrist),9
+Finger Tapping,v2,Raw 3D,WRIST_x/y/z,Wrist landmark coordinates,0-2
+Finger Tapping,v2,Raw 3D,THUMB_CMC_x/y/z,Thumb carpometacarpal joint,3-5
+Finger Tapping,v2,Raw 3D,THUMB_MCP_x/y/z,Thumb metacarpophalangeal joint,6-8
+Finger Tapping,v2,Raw 3D,THUMB_IP_x/y/z,Thumb interphalangeal joint,9-11
+Finger Tapping,v2,Raw 3D,THUMB_TIP_x/y/z,Thumb tip,12-14
+Finger Tapping,v2,Raw 3D,INDEX_MCP_x/y/z,Index finger metacarpophalangeal joint,15-17
+Finger Tapping,v2,Raw 3D,INDEX_PIP_x/y/z,Index finger proximal interphalangeal,18-20
+Finger Tapping,v2,Raw 3D,INDEX_DIP_x/y/z,Index finger distal interphalangeal,21-23
+Finger Tapping,v2,Raw 3D,INDEX_TIP_x/y/z,Index finger tip,24-26
+Finger Tapping,v2,Raw 3D,MIDDLE_MCP/PIP/DIP/TIP_x/y/z,Middle finger landmarks,27-38
+Finger Tapping,v2,Raw 3D,RING_MCP/PIP/DIP/TIP_x/y/z,Ring finger landmarks,39-50
+Finger Tapping,v2,Raw 3D,PINKY_MCP/PIP/DIP/TIP_x/y/z,Pinky finger landmarks,51-62
+Finger Tapping,v2,Clinical,(Same as v1),10 clinical features,63-72
+Gait,v1,Position,step_width,Distance between ankles in x,0
+Gait,v1,Position,hip_height,Hip center height (y),1
+Gait,v1,Position,trunk_angle,Trunk inclination angle,2
+Gait,v1,Position,left_knee_angle,Left knee flexion angle,3
+Gait,v1,Position,right_knee_angle,Right knee flexion angle,4
+Gait,v1,Position,left_ankle_height,Left ankle height,5
+Gait,v1,Position,right_ankle_height,Right ankle height,6
+Gait,v1,Position,left_arm_swing,Left arm swing amplitude,7
+Gait,v1,Position,right_arm_swing,Right arm swing amplitude,8
+Gait,v1,Position,body_sway,Hip center x position,9
+Gait,v1,Position,stride_proxy,Step width proxy,10
+Gait,v1,Position,hip_asymmetry,Left-right hip height difference,11
+Gait,v1,Position,shoulder_asymmetry,Left-right shoulder height difference,12
+Gait,v1,Position,left_hip_angle,Left hip flexion angle,13
+Gait,v1,Position,right_hip_angle,Right hip flexion angle,14
+Gait,v1,Velocity,*_vel,All position features with velocity suffix,15-29
+Gait,v2,Raw 3D,nose_x/y/z,Nose landmark,0-2
+Gait,v2,Raw 3D,left_eye_inner/outer/eye_x/y/z,Left eye landmarks,3-11
+Gait,v2,Raw 3D,right_eye_inner/outer/eye_x/y/z,Right eye landmarks,12-20
+Gait,v2,Raw 3D,left_ear/right_ear_x/y/z,Ear landmarks,21-26
+Gait,v2,Raw 3D,mouth_left/right_x/y/z,Mouth landmarks,27-32
+Gait,v2,Raw 3D,left_shoulder/right_shoulder_x/y/z,Shoulder landmarks (11-12),33-38
+Gait,v2,Raw 3D,left_elbow/right_elbow_x/y/z,Elbow landmarks (13-14),39-44
+Gait,v2,Raw 3D,left_wrist/right_wrist_x/y/z,Wrist landmarks (15-16),45-50
+Gait,v2,Raw 3D,left_pinky/right_pinky_x/y/z,Pinky landmarks (17-18),51-56
+Gait,v2,Raw 3D,left_index/right_index_x/y/z,Index landmarks (19-20),57-62
+Gait,v2,Raw 3D,left_thumb/right_thumb_x/y/z,Thumb landmarks (21-22),63-68
+Gait,v2,Raw 3D,left_hip/right_hip_x/y/z,Hip landmarks (23-24),69-74
+Gait,v2,Raw 3D,left_knee/right_knee_x/y/z,Knee landmarks (25-26),75-80
+Gait,v2,Raw 3D,left_ankle/right_ankle_x/y/z,Ankle landmarks (27-28),81-86
+Gait,v2,Raw 3D,left_heel/right_heel_x/y/z,Heel landmarks (29-30),87-92
+Gait,v2,Raw 3D,left_foot_index/right_foot_index_x/y/z,Foot index landmarks (31-32),93-98
+Gait,v2,Clinical Position,(Same as v1 Position),15 position features,99-113
+Gait,v2,Clinical Velocity,(Same as v1 Velocity),15 velocity features,114-128

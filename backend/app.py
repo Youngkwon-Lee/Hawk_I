@@ -46,7 +46,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 from services.progress_tracker import get_progress
 
 # Import routes
-from routes import analyze, chat, health, timeline, streaming
+from routes import analyze, chat, health, timeline, streaming, population_stats
 
 # Register blueprints
 app.register_blueprint(analyze.bp)
@@ -54,6 +54,7 @@ app.register_blueprint(chat.bp)
 app.register_blueprint(health.bp)
 app.register_blueprint(timeline.bp)
 app.register_blueprint(streaming.bp)
+app.register_blueprint(population_stats.bp)
 
 @app.route('/')
 def index():
