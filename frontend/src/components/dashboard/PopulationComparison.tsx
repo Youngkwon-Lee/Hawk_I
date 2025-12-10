@@ -175,13 +175,15 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
         }
     })
 
-    // Determine patient's score group
+    // Determine patient's score group (using ranges for float scores)
     const getScoreGroup = (score: number | undefined) => {
         if (score === undefined) return null
-        if (score === 0) return 'score_0'
-        if (score >= 3) return 'score_3_4'
-        if (score === 1) return 'score_1'
-        return 'score_2'
+        // Round to nearest integer for group assignment
+        const roundedScore = Math.round(score)
+        if (roundedScore === 0) return 'score_0'
+        if (roundedScore === 1) return 'score_1'
+        if (roundedScore === 2) return 'score_2'
+        return 'score_3_4'  // 3 or 4
     }
 
     const patientScoreGroup = getScoreGroup(patientScore)
@@ -200,9 +202,9 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
                 </div>
                 {patientScore !== undefined && (
                     <Badge
-                        variant={patientScore === 0 ? "default" : patientScore >= 3 ? "destructive" : "secondary"}
+                        variant={Math.round(patientScore) === 0 ? "default" : Math.round(patientScore) >= 3 ? "destructive" : "secondary"}
                     >
-                        환자 점수: {patientScore}점
+                        환자 점수: {patientScore.toFixed(1)}점
                     </Badge>
                 )}
             </div>
