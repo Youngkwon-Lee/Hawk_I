@@ -33,20 +33,20 @@ interface SpeedProfileChartProps {
     taskType?: "gait" | "finger"
 }
 
-// Mock data - shows speed variation over ~5 second walking test
+// Mock data - shows speed variation over ~5 second walking test (PD4T 기준: 0.55-0.95)
 const MOCK_SPEED_DATA: SpeedData[] = Array.from({ length: 50 }, (_, i) => {
     const time = i * 0.1
     // Simulate: start slow, accelerate, maintain, then slow down slightly (fatigue)
-    let baseSpeed = 0.8
-    if (time < 1) baseSpeed = 0.5 + time * 0.3 // Acceleration
-    else if (time < 4) baseSpeed = 0.75 + Math.sin(time * 2) * 0.1 // Steady with variation
-    else baseSpeed = 0.8 - (time - 4) * 0.05 // Slight fatigue
+    let baseSpeed = 0.75  // PD4T normal mean
+    if (time < 1) baseSpeed = 0.5 + time * 0.25 // Acceleration
+    else if (time < 4) baseSpeed = 0.72 + Math.sin(time * 2) * 0.08 // Steady with variation
+    else baseSpeed = 0.75 - (time - 4) * 0.03 // Slight fatigue
 
     return {
         time: parseFloat(time.toFixed(1)),
-        speed: parseFloat((baseSpeed + Math.random() * 0.1 - 0.05).toFixed(3)),
-        normalLow: 0.8,
-        normalHigh: 1.2
+        speed: parseFloat((baseSpeed + Math.random() * 0.08 - 0.04).toFixed(3)),
+        normalLow: 0.55,
+        normalHigh: 0.95
     }
 })
 
@@ -161,11 +161,11 @@ export function SpeedProfileChart({ data, className, taskType = "gait" }: SpeedP
                             }}
                         />
 
-                        {/* Normal range band - only for gait */}
+                        {/* Normal range band - only for gait (PD4T: 0.55-0.95) */}
                         {!isFinger && (
                             <>
-                                <ReferenceLine y={0.8} stroke="#22c55e" strokeDasharray="5 5" />
-                                <ReferenceLine y={1.2} stroke="#22c55e" strokeDasharray="5 5" />
+                                <ReferenceLine y={0.55} stroke="#22c55e" strokeDasharray="5 5" />
+                                <ReferenceLine y={0.95} stroke="#22c55e" strokeDasharray="5 5" />
                             </>
                         )}
 
