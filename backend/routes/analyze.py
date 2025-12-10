@@ -142,14 +142,19 @@ def process_video_background(video_path, video_id, patient_id, manual_test_type,
         fps = ctx.vision_meta.get("fps", 30.0)
         # Get gait analysis from gait_cycle_data (populated by GaitCycleAgent)
         gait_analysis = getattr(ctx, 'gait_cycle_data', None)
+
+        # Determine task type for visualization
+        viz_task_type = "finger_tapping" if "finger" in ctx.task_type.lower() or "tapping" in ctx.task_type.lower() else "gait"
+
         visualization_data = generate_visualization_data(
             landmark_frames=frames_data,
             gait_analysis=gait_analysis,
-            fps=fps
+            fps=fps,
+            task_type=viz_task_type
         )
 
         # Detect clinically relevant events
-        event_task_type = "finger_tapping" if "finger" in ctx.task_type.lower() or "tapping" in ctx.task_type.lower() else "gait"
+        event_task_type = viz_task_type  # Reuse the same task type
         detected_events = detect_events(
             landmark_frames=frames_data,
             gait_analysis=gait_analysis,

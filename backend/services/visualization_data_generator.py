@@ -1,6 +1,7 @@
 """
 Visualization Data Generator
 Generates data for frontend visualization charts from skeleton landmarks
+Supports both Gait and Finger Tapping tasks with dynamic visualization
 """
 
 import numpy as np
@@ -12,9 +13,9 @@ from scipy.signal import savgol_filter, find_peaks
 @dataclass
 class VisualizationData:
     """Container for all visualization chart data"""
-    joint_angles: List[Dict]  # For JointAngleChart
+    joint_angles: List[Dict]  # For JointAngleChart / TappingAmplitudeChart
     symmetry: List[Dict]      # For SymmetryChart
-    gait_cycles: List[Dict]   # For GaitCycleChart
+    gait_cycles: List[Dict]   # For GaitCycleChart / TappingRhythmChart
     speed_profile: List[Dict] # For SpeedProfileChart
 
 
@@ -24,47 +25,97 @@ class VisualizationDataGenerator:
     def __init__(self, fps: float = 30.0):
         self.fps = fps
 
-    def generate(self, landmark_frames: List[Dict], gait_analysis: Optional[Dict] = None) -> Dict:
+    def generate(self, landmark_frames: List[Dict], gait_analysis: Optional[Dict] = None, task_type: str = "gait") -> Dict:
         """
         Generate all visualization data from landmarks
 
         Args:
             landmark_frames: List of frame data with landmarks
             gait_analysis: Optional pre-computed gait cycle analysis
+            task_type: 'gait' or 'finger_tapping'
 
         Returns:
             Dict with visualization data for all charts
         """
         if len(landmark_frames) < 10:
-            return self._empty_data()
+            return self._empty_data(task_type)
 
-        # Extract trajectories
-        trajectories = self._extract_trajectories(landmark_frames)
+        if task_type == "finger_tapping":
+            # Extract finger/wrist trajectories for finger tapping
+            trajectories = self._extract_finger_trajectories(landmark_frames)
+            return self._generate_finger_tapping_data(trajectories)
+        else:
+            # Extract full body trajectories for gait
+            trajectories = self._extract_trajectories(landmark_frames)
+            return self._generate_gait_data(trajectories, gait_analysis)
 
-        # Generate each chart's data
-        joint_angles = self._generate_joint_angles(trajectories)
-        symmetry = self._generate_symmetry_data(trajectories, gait_analysis)
-        gait_cycles = self._generate_gait_cycle_data(gait_analysis)
-        speed_profile = self._generate_speed_profile(trajectories)
-
-        return {
-            "joint_angles": joint_angles,
-            "symmetry": symmetry,
-            "gait_cycles": gait_cycles,
-            "speed_profile": speed_profile
-        }
-
-    def _empty_data(self) -> Dict:
+    def _empty_data(self, task_type: str = "gait") -> Dict:
         """Return empty data structure"""
         return {
+            "task_type": task_type,
             "joint_angles": [],
             "symmetry": [],
             "gait_cycles": [],
             "speed_profile": []
         }
 
+    def _extract_finger_trajectories(self, landmark_frames: List[Dict]) -> Dict:
+        """Extract finger/wrist trajectories for finger tapping analysis"""
+        trajectories = {
+            'timestamps': [],
+            'left_wrist': [],
+            'right_wrist': [],
+            'left_index': [],
+            'right_index': [],
+            'left_thumb': [],
+            'right_thumb': [],
+        }
+
+        # MediaPipe Hand landmark IDs (for Pose model, using wrist approximation)
+        # Pose model: 15=left_wrist, 16=right_wrist, 17=left_pinky, 18=right_pinky
+        # 19=left_index, 20=right_index, 21=left_thumb, 22=right_thumb
+        landmark_ids = {
+            'left_wrist': 15,
+            'right_wrist': 16,
+            'left_index': 19,
+            'right_index': 20,
+            'left_thumb': 21,
+            'right_thumb': 22,
+        }
+
+        for frame in landmark_frames:
+            keypoints = frame.get('keypoints', frame.get('landmarks', []))
+            if not keypoints:
+                continue
+
+            kp_dict = {kp['id']: kp for kp in keypoints}
+
+            # Check for wrist landmarks (minimum requirement)
+            if not all(k in kp_dict for k in [15, 16]):
+                continue
+
+            ts = frame.get('timestamp', frame.get('frame', 0) / self.fps)
+            trajectories['timestamps'].append(ts)
+
+            for name, lid in landmark_ids.items():
+                if lid in kp_dict:
+                    trajectories[name].append([
+                        kp_dict[lid]['x'],
+                        kp_dict[lid]['y'],
+                        kp_dict[lid].get('z', 0)
+                    ])
+                else:
+                    last_val = trajectories[name][-1] if trajectories[name] else [0.5, 0.5, 0]
+                    trajectories[name].append(last_val)
+
+        # Convert to numpy
+        for key in trajectories:
+            trajectories[key] = np.array(trajectories[key])
+
+        return trajectories
+
     def _extract_trajectories(self, landmark_frames: List[Dict]) -> Dict:
-        """Extract joint trajectories from frames"""
+        """Extract joint trajectories from frames for gait analysis"""
         trajectories = {
             'timestamps': [],
             'left_hip': [], 'right_hip': [],
@@ -112,6 +163,241 @@ class VisualizationDataGenerator:
             trajectories[key] = np.array(trajectories[key])
 
         return trajectories
+
+    def _generate_finger_tapping_data(self, trajectories: Dict) -> Dict:
+        """Generate visualization data specific to finger tapping"""
+        return {
+            "task_type": "finger_tapping",
+            "joint_angles": self._generate_tapping_amplitude(trajectories),
+            "symmetry": self._generate_finger_symmetry(trajectories),
+            "gait_cycles": self._generate_tapping_rhythm(trajectories),
+            "speed_profile": self._generate_tapping_speed(trajectories)
+        }
+
+    def _generate_gait_data(self, trajectories: Dict, gait_analysis: Optional[Dict]) -> Dict:
+        """Generate visualization data specific to gait"""
+        return {
+            "task_type": "gait",
+            "joint_angles": self._generate_joint_angles(trajectories),
+            "symmetry": self._generate_symmetry_data(trajectories, gait_analysis),
+            "gait_cycles": self._generate_gait_cycle_data(gait_analysis),
+            "speed_profile": self._generate_speed_profile(trajectories)
+        }
+
+    # ==================== FINGER TAPPING SPECIFIC METHODS ====================
+
+    def _generate_tapping_amplitude(self, trajectories: Dict) -> List[Dict]:
+        """Generate tapping amplitude over time for AmplitudeChart"""
+        if len(trajectories['timestamps']) < 10:
+            return []
+
+        timestamps = trajectories['timestamps']
+        amplitude_data = []
+
+        # Calculate amplitude using index finger or wrist Y position
+        left_hand = trajectories.get('left_index', trajectories['left_wrist'])
+        right_hand = trajectories.get('right_index', trajectories['right_wrist'])
+
+        # Calculate rolling amplitude (peak-to-peak in sliding window)
+        window_size = max(5, int(self.fps * 0.2))  # 200ms window
+
+        for i in range(window_size, len(timestamps)):
+            left_window = left_hand[i-window_size:i, 1]  # Y axis
+            right_window = right_hand[i-window_size:i, 1]
+
+            left_amp = np.ptp(left_window) * 100  # Scale to percentage
+            right_amp = np.ptp(right_window) * 100
+
+            amplitude_data.append({
+                "frame": i,
+                "time": round(float(timestamps[i]), 2),
+                "leftAmplitude": round(float(left_amp), 1),
+                "rightAmplitude": round(float(right_amp), 1),
+                "avgAmplitude": round(float((left_amp + right_amp) / 2), 1)
+            })
+
+        # Subsample if too many frames
+        if len(amplitude_data) > 200:
+            step = len(amplitude_data) // 200
+            amplitude_data = amplitude_data[::step]
+
+        return amplitude_data
+
+    def _generate_finger_symmetry(self, trajectories: Dict) -> List[Dict]:
+        """Generate left/right hand symmetry data for finger tapping"""
+        if len(trajectories['timestamps']) < 30:
+            return []
+
+        symmetry_data = []
+        timestamps = trajectories['timestamps']
+        dt = np.diff(timestamps)
+        dt[dt <= 0] = 1.0 / self.fps
+
+        # Use wrist or index finger positions
+        left_hand = trajectories.get('left_index', trajectories['left_wrist'])
+        right_hand = trajectories.get('right_index', trajectories['right_wrist'])
+
+        # 1. Velocity symmetry (tapping speed)
+        if len(left_hand) > 1:
+            left_vel = np.linalg.norm(np.diff(left_hand, axis=0), axis=1) / dt
+            right_vel = np.linalg.norm(np.diff(right_hand, axis=0), axis=1) / dt
+
+            left_vel_med = np.median(left_vel)
+            right_vel_med = np.median(right_vel)
+            total_vel = left_vel_med + right_vel_med + 0.001
+
+            symmetry_data.append({
+                "metric": "탭핑 속도",
+                "left": round(left_vel_med / total_vel * 200, 1),
+                "right": round(right_vel_med / total_vel * 200, 1),
+                "normal": 100
+            })
+
+        # 2. Amplitude symmetry
+        left_amp = np.ptp(left_hand[:, 1])  # Y-axis range
+        right_amp = np.ptp(right_hand[:, 1])
+        total_amp = left_amp + right_amp + 0.001
+
+        symmetry_data.append({
+            "metric": "진폭",
+            "left": round(left_amp / total_amp * 200, 1),
+            "right": round(right_amp / total_amp * 200, 1),
+            "normal": 100
+        })
+
+        # 3. Rhythm regularity
+        # Detect tapping peaks for each hand
+        left_vel_smooth = savgol_filter(left_vel, min(15, len(left_vel) // 2 * 2 + 1), 3) if len(left_vel) > 15 else left_vel
+        right_vel_smooth = savgol_filter(right_vel, min(15, len(right_vel) // 2 * 2 + 1), 3) if len(right_vel) > 15 else right_vel
+
+        left_peaks, _ = find_peaks(left_vel_smooth, distance=int(self.fps * 0.15))
+        right_peaks, _ = find_peaks(right_vel_smooth, distance=int(self.fps * 0.15))
+
+        if len(left_peaks) > 2:
+            left_intervals = np.diff(timestamps[left_peaks])
+            left_regularity = 1.0 - min(1.0, np.std(left_intervals) / (np.mean(left_intervals) + 0.001))
+        else:
+            left_regularity = 0.5
+
+        if len(right_peaks) > 2:
+            right_intervals = np.diff(timestamps[right_peaks])
+            right_regularity = 1.0 - min(1.0, np.std(right_intervals) / (np.mean(right_intervals) + 0.001))
+        else:
+            right_regularity = 0.5
+
+        total_reg = left_regularity + right_regularity + 0.001
+        symmetry_data.append({
+            "metric": "리듬 규칙성",
+            "left": round(left_regularity / total_reg * 200, 1),
+            "right": round(right_regularity / total_reg * 200, 1),
+            "normal": 100
+        })
+
+        return symmetry_data
+
+    def _generate_tapping_rhythm(self, trajectories: Dict) -> List[Dict]:
+        """Generate tapping rhythm/interval data for RhythmChart"""
+        if len(trajectories['timestamps']) < 30:
+            return []
+
+        timestamps = trajectories['timestamps']
+        rhythm_data = []
+
+        # Use wrist velocity to detect taps
+        left_hand = trajectories.get('left_index', trajectories['left_wrist'])
+        right_hand = trajectories.get('right_index', trajectories['right_wrist'])
+
+        dt = np.diff(timestamps)
+        dt[dt <= 0] = 1.0 / self.fps
+
+        left_vel = np.linalg.norm(np.diff(left_hand, axis=0), axis=1) / dt
+        right_vel = np.linalg.norm(np.diff(right_hand, axis=0), axis=1) / dt
+
+        # Smooth velocities
+        if len(left_vel) > 15:
+            left_vel = savgol_filter(left_vel, min(15, len(left_vel) // 2 * 2 + 1), 3)
+            right_vel = savgol_filter(right_vel, min(15, len(right_vel) // 2 * 2 + 1), 3)
+
+        # Detect peaks (taps)
+        left_peaks, left_props = find_peaks(left_vel, distance=int(self.fps * 0.15), height=np.median(left_vel))
+        right_peaks, right_props = find_peaks(right_vel, distance=int(self.fps * 0.15), height=np.median(right_vel))
+
+        # Create rhythm data entries
+        tap_count = 0
+        for i, peak in enumerate(left_peaks):
+            if i > 0:
+                interval = (timestamps[peak] - timestamps[left_peaks[i-1]]) * 1000  # ms
+            else:
+                interval = 0
+            tap_count += 1
+            rhythm_data.append({
+                "tap": tap_count,
+                "time": round(float(timestamps[peak]), 2),
+                "interval": round(interval, 0),
+                "side": "L",
+                "amplitude": round(float(left_props['peak_heights'][i]) * 100, 1) if 'peak_heights' in left_props else 0
+            })
+
+        for i, peak in enumerate(right_peaks):
+            if i > 0:
+                interval = (timestamps[peak] - timestamps[right_peaks[i-1]]) * 1000  # ms
+            else:
+                interval = 0
+            tap_count += 1
+            rhythm_data.append({
+                "tap": tap_count,
+                "time": round(float(timestamps[peak]), 2),
+                "interval": round(interval, 0),
+                "side": "R",
+                "amplitude": round(float(right_props['peak_heights'][i]) * 100, 1) if 'peak_heights' in right_props else 0
+            })
+
+        # Sort by time and renumber
+        rhythm_data.sort(key=lambda x: x['time'])
+        for i, item in enumerate(rhythm_data):
+            item['tap'] = i + 1
+
+        return rhythm_data[:50]  # Limit to 50 taps
+
+    def _generate_tapping_speed(self, trajectories: Dict) -> List[Dict]:
+        """Generate tapping speed profile over time"""
+        if len(trajectories['timestamps']) < 30:
+            return []
+
+        timestamps = trajectories['timestamps']
+        speed_data = []
+
+        left_hand = trajectories.get('left_index', trajectories['left_wrist'])
+        right_hand = trajectories.get('right_index', trajectories['right_wrist'])
+
+        dt = np.diff(timestamps)
+        dt[dt <= 0] = 1.0 / self.fps
+
+        # Calculate instantaneous speeds
+        left_vel = np.linalg.norm(np.diff(left_hand, axis=0), axis=1) / dt
+        right_vel = np.linalg.norm(np.diff(right_hand, axis=0), axis=1) / dt
+
+        # Smooth
+        if len(left_vel) > 15:
+            left_vel = savgol_filter(left_vel, min(15, len(left_vel) // 2 * 2 + 1), 3)
+            right_vel = savgol_filter(right_vel, min(15, len(right_vel) // 2 * 2 + 1), 3)
+
+        for i in range(len(left_vel)):
+            speed_data.append({
+                "time": round(float(timestamps[i+1]), 2),
+                "leftSpeed": round(float(left_vel[i]) * 10, 2),  # Scale for visibility
+                "rightSpeed": round(float(right_vel[i]) * 10, 2),
+                "avgSpeed": round(float((left_vel[i] + right_vel[i]) / 2) * 10, 2)
+            })
+
+        # Subsample if too many points
+        if len(speed_data) > 100:
+            step = len(speed_data) // 100
+            speed_data = speed_data[::step]
+
+        return speed_data
+
+    # ==================== GAIT SPECIFIC METHODS ====================
 
     def _generate_joint_angles(self, trajectories: Dict) -> List[Dict]:
         """Generate joint angle data for JointAngleChart"""
@@ -462,7 +748,8 @@ class EventDetector:
             events.extend(self._detect_asymmetry_events(trajectories, gait_analysis))
         elif task_type == "finger_tapping":
             events.extend(self._detect_fatigue(trajectories))
-            events.extend(self._detect_pauses(trajectories))
+            events.extend(self._detect_finger_pauses(trajectories))
+            events.extend(self._detect_rhythm_breaks(trajectories))
 
         # Sort by timestamp
         events.sort(key=lambda x: x['timestamp'])
@@ -516,7 +803,7 @@ class EventDetector:
         return events[:5]  # Limit to 5 events
 
     def _detect_pauses(self, trajectories: Dict) -> List[Dict]:
-        """Detect movement pauses (very low velocity for extended period)"""
+        """Detect movement pauses (very low velocity for extended period) - Gait"""
         events = []
 
         if len(trajectories['timestamps']) < 30:
@@ -563,6 +850,54 @@ class EventDetector:
 
         return events[:5]  # Limit to 5 events
 
+    def _detect_finger_pauses(self, trajectories: Dict) -> List[Dict]:
+        """Detect tapping pauses for finger tapping task"""
+        events = []
+
+        if len(trajectories['timestamps']) < 30:
+            return events
+
+        timestamps = trajectories['timestamps']
+        left_hand = trajectories.get('left_index', trajectories.get('left_wrist', np.array([])))
+        right_hand = trajectories.get('right_index', trajectories.get('right_wrist', np.array([])))
+
+        if len(left_hand) < 2 or len(right_hand) < 2:
+            return events
+
+        dt = np.diff(timestamps)
+        dt[dt <= 0] = 1.0 / self.fps
+
+        # Calculate combined hand velocities
+        left_vel = np.linalg.norm(np.diff(left_hand, axis=0), axis=1) / dt
+        right_vel = np.linalg.norm(np.diff(right_hand, axis=0), axis=1) / dt
+        combined_vel = (left_vel + right_vel) / 2
+
+        # Find baseline (median)
+        baseline = np.median(combined_vel)
+        pause_threshold = baseline * 0.15  # 15% of baseline
+        min_pause_frames = int(self.fps * 0.3)  # At least 0.3 seconds
+
+        pause_start = None
+        pause_count = 0
+
+        for i, vel in enumerate(combined_vel):
+            if vel < pause_threshold:
+                if pause_start is None:
+                    pause_start = i
+                pause_count += 1
+            else:
+                if pause_count >= min_pause_frames and pause_start is not None:
+                    pause_duration = pause_count / self.fps
+                    events.append({
+                        "timestamp": round(float(timestamps[pause_start+1]), 2),
+                        "type": "pause",
+                        "description": f"탭핑 멈춤 ({pause_duration:.1f}초)"
+                    })
+                pause_start = None
+                pause_count = 0
+
+        return events[:5]
+
     def _detect_fatigue(self, trajectories: Dict) -> List[Dict]:
         """Detect amplitude fatigue (progressive decrease in movement range)"""
         events = []
@@ -573,8 +908,11 @@ class EventDetector:
         timestamps = trajectories['timestamps']
 
         # Use wrist movement for finger tapping
-        left_wrist = trajectories['left_wrist']
-        right_wrist = trajectories['right_wrist']
+        left_wrist = trajectories.get('left_wrist', np.array([]))
+        right_wrist = trajectories.get('right_wrist', np.array([]))
+
+        if len(left_wrist) < 30 or len(right_wrist) < 30:
+            return events
 
         # Calculate amplitude over time (sliding window)
         window_frames = int(self.fps * 1.0)  # 1 second window
@@ -609,6 +947,54 @@ class EventDetector:
 
         return events
 
+    def _detect_rhythm_breaks(self, trajectories: Dict) -> List[Dict]:
+        """Detect rhythm irregularities in finger tapping"""
+        events = []
+
+        if len(trajectories['timestamps']) < 60:
+            return events
+
+        timestamps = trajectories['timestamps']
+        left_hand = trajectories.get('left_index', trajectories.get('left_wrist', np.array([])))
+        right_hand = trajectories.get('right_index', trajectories.get('right_wrist', np.array([])))
+
+        if len(left_hand) < 30:
+            return events
+
+        dt = np.diff(timestamps)
+        dt[dt <= 0] = 1.0 / self.fps
+
+        # Analyze both hands
+        for hand, side in [(left_hand, "왼손"), (right_hand, "오른손")]:
+            if len(hand) < 30:
+                continue
+
+            vel = np.linalg.norm(np.diff(hand, axis=0), axis=1) / dt
+
+            if len(vel) > 15:
+                vel = savgol_filter(vel, min(15, len(vel) // 2 * 2 + 1), 3)
+
+            # Detect peaks (taps)
+            peaks, _ = find_peaks(vel, distance=int(self.fps * 0.15), height=np.median(vel))
+
+            if len(peaks) < 5:
+                continue
+
+            # Calculate intervals
+            intervals = np.diff(timestamps[peaks])
+            mean_interval = np.mean(intervals)
+
+            # Find rhythm breaks (>50% deviation from mean)
+            for i, interval in enumerate(intervals):
+                if abs(interval - mean_interval) / mean_interval > 0.5:
+                    events.append({
+                        "timestamp": round(float(timestamps[peaks[i+1]]), 2),
+                        "type": "rhythm_break",
+                        "description": f"{side} 리듬 불규칙 (간격 {interval*1000:.0f}ms, 평균 {mean_interval*1000:.0f}ms)"
+                    })
+
+        return events[:5]
+
     def _detect_asymmetry_events(self, trajectories: Dict, gait_analysis: Optional[Dict]) -> List[Dict]:
         """Detect significant asymmetry events"""
         events = []
@@ -639,7 +1025,8 @@ class EventDetector:
 
 def generate_visualization_data(landmark_frames: List[Dict],
                                 gait_analysis: Optional[Dict] = None,
-                                fps: float = 30.0) -> Dict:
+                                fps: float = 30.0,
+                                task_type: str = "gait") -> Dict:
     """
     Convenience function to generate visualization data
 
@@ -647,12 +1034,13 @@ def generate_visualization_data(landmark_frames: List[Dict],
         landmark_frames: List of frame data with landmarks
         gait_analysis: Optional pre-computed gait analysis
         fps: Video frame rate
+        task_type: 'gait' or 'finger_tapping'
 
     Returns:
         Dict with visualization data
     """
     generator = VisualizationDataGenerator(fps=fps)
-    return generator.generate(landmark_frames, gait_analysis)
+    return generator.generate(landmark_frames, gait_analysis, task_type)
 
 
 def detect_events(landmark_frames: List[Dict],
@@ -672,7 +1060,11 @@ def detect_events(landmark_frames: List[Dict],
         List of detected events
     """
     generator = VisualizationDataGenerator(fps=fps)
-    trajectories = generator._extract_trajectories(landmark_frames)
+
+    if task_type == "finger_tapping":
+        trajectories = generator._extract_finger_trajectories(landmark_frames)
+    else:
+        trajectories = generator._extract_trajectories(landmark_frames)
 
     detector = EventDetector(fps=fps)
     return detector.detect_events(trajectories, gait_analysis, task_type)

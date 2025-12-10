@@ -65,91 +65,76 @@ export function SOAPNote({ taskType, metrics, updrsScore, aiInterpretation, pati
     const updrsItem = UPDRS_ITEMS[normalizedType] || 'Motor Assessment'
     const date = analysisDate ? new Date(analysisDate).toLocaleDateString('ko-KR') : new Date().toLocaleDateString('ko-KR')
 
-    // Generate Objective section
+    // Generate Objective section - concise 3 lines
     const generateObjective = (): string => {
         const lines: string[] = []
 
-        if (metrics) {
-            // Key metrics with reference ranges
-            for (const [key, ref] of Object.entries(refs)) {
-                const value = metrics[key]
-                if (value !== undefined) {
-                    const refRange = `(ref: ${ref.mean}±${ref.std})`
-                    const status = Math.abs(value - ref.mean) > ref.std * 1.5 ? ' *' : ''
-                    lines.push(`${ref.name}: ${value.toFixed(2)}${ref.unit} ${refRange}${status}`)
-                }
-            }
-
-            // Add any other metrics not in reference
-            for (const [key, value] of Object.entries(metrics)) {
-                if (!refs[key] && typeof value === 'number') {
-                    const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-                    lines.push(`${formattedKey}: ${value.toFixed(2)}`)
-                }
-            }
+        // Line 1: UPDRS Score
+        if (updrsScore) {
+            lines.push(`UPDRS-III ${updrsItem}: ${updrsScore.score}/4`)
         }
 
-        // UPDRS Score
-        if (updrsScore) {
-            lines.push(`MDS-UPDRS Part III ${updrsItem}: ${updrsScore.score}/4`)
-            if (updrsScore.confidence) {
-                lines.push(`Model confidence: ${(updrsScore.confidence * 100).toFixed(0)}%`)
+        // Line 2-3: Top 2 key metrics only
+        if (metrics) {
+            const keyMetrics: string[] = []
+
+            if (normalizedType === 'finger_tapping') {
+                // Finger tapping: speed and fatigue are most important
+                if (metrics.tapping_speed !== undefined) {
+                    keyMetrics.push(`Tap ${metrics.tapping_speed.toFixed(1)}Hz`)
+                }
+                if (metrics.amplitude_mean !== undefined) {
+                    keyMetrics.push(`Amp ${metrics.amplitude_mean.toFixed(2)}`)
+                }
+                if (metrics.fatigue_rate !== undefined) {
+                    keyMetrics.push(`Fatigue ${metrics.fatigue_rate.toFixed(0)}%`)
+                }
+            } else {
+                // Gait: velocity and stride are most important
+                if (metrics.velocity_mean !== undefined) {
+                    keyMetrics.push(`Vel ${metrics.velocity_mean.toFixed(2)}m/s`)
+                }
+                if (metrics.stride_length !== undefined) {
+                    keyMetrics.push(`Stride ${metrics.stride_length.toFixed(2)}m`)
+                }
+                if (metrics.cadence !== undefined) {
+                    keyMetrics.push(`Cad ${metrics.cadence.toFixed(0)}/min`)
+                }
+            }
+
+            if (keyMetrics.length > 0) {
+                lines.push(keyMetrics.slice(0, 3).join(', '))
             }
         }
 
         return lines.join('\n')
     }
 
-    // Generate Assessment section
+    // Generate Assessment section - concise 2 lines
     const generateAssessment = (): string => {
         const lines: string[] = []
 
+        // Line 1: Severity
         if (updrsScore) {
-            // Severity interpretation
             const severityTerm = SEVERITY_TERMS[updrsScore.severity] || updrsScore.severity
             lines.push(severityTerm)
-
-            // Score-specific findings
-            if (updrsScore.score === 0) {
-                lines.push('No evidence of parkinsonian motor signs')
-            } else if (updrsScore.score === 1) {
-                lines.push('Subtle slowing, may be normal for age')
-            } else if (updrsScore.score === 2) {
-                lines.push('Definite slowing with intermittent hesitation')
-            } else if (updrsScore.score >= 3) {
-                lines.push('Significant motor impairment requiring intervention')
-            }
         }
 
-        // Add key findings from metrics
+        // Line 2: Key findings (max 2)
         if (metrics) {
             const findings: string[] = []
 
-            // Finger tapping specific
             if (normalizedType === 'finger_tapping') {
-                if (metrics.fatigue_rate && metrics.fatigue_rate > 20) {
-                    findings.push('Notable fatigue pattern')
-                }
-                if (metrics.rhythm_variability && metrics.rhythm_variability > 10) {
-                    findings.push('Increased rhythm variability')
-                }
-                if (metrics.hesitation_count && metrics.hesitation_count > 2) {
-                    findings.push('Frequent hesitations observed')
-                }
-            }
-
-            // Gait specific
-            if (normalizedType === 'gait') {
-                if (metrics.stride_variability && metrics.stride_variability > 5) {
-                    findings.push('Increased gait variability')
-                }
-                if (metrics.arm_swing_asymmetry && metrics.arm_swing_asymmetry > 10) {
-                    findings.push('Asymmetric arm swing')
-                }
+                if (metrics.fatigue_rate && metrics.fatigue_rate > 20) findings.push('fatigue(+)')
+                if (metrics.rhythm_variability && metrics.rhythm_variability > 10) findings.push('rhythm var(+)')
+                if (metrics.hesitation_count && metrics.hesitation_count > 2) findings.push('hesitation(+)')
+            } else {
+                if (metrics.stride_variability && metrics.stride_variability > 5) findings.push('gait var(+)')
+                if (metrics.arm_swing_asymmetry && metrics.arm_swing_asymmetry > 10) findings.push('arm asym(+)')
             }
 
             if (findings.length > 0) {
-                lines.push(findings.join('; '))
+                lines.push(findings.slice(0, 2).join(', '))
             }
         }
 
@@ -160,35 +145,18 @@ export function SOAPNote({ taskType, metrics, updrsScore, aiInterpretation, pati
     const generateSOAPNote = (): string => {
         const objective = generateObjective()
         const assessment = generateAssessment()
+        const taskName = normalizedType === 'finger_tapping' ? 'FT' : 'Gait'
 
         if (format === 'compact') {
             // Compact single-line format for EMR
-            const taskName = normalizedType === 'finger_tapping' ? 'Finger Tapping' : 'Gait'
             const score = updrsScore?.score ?? '-'
-            const severity = updrsScore?.severity ?? '-'
-            return `[${taskName}] UPDRS ${score}/4 (${severity}). ${assessment.split('\n')[0]}`
+            return `[${taskName}] UPDRS ${score}/4. ${objective.split('\n').slice(1).join(', ')}. ${assessment.split('\n')[0]}`
         }
 
-        // Full format
-        return `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MOTOR ASSESSMENT - ${date}
-Task: ${normalizedType === 'finger_tapping' ? 'Finger Tapping' : 'Gait Analysis'}
-${patientId ? `Patient ID: ${patientId}` : ''}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[O] OBJECTIVE
-${objective}
-
-[A] ASSESSMENT
-${assessment}
-
-[P] PLAN
-- Continue monitoring
-- Follow-up assessment recommended
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Generated by HawkEye AI Motor Analysis
-`
+        // Full format - still concise
+        return `[${date}] ${taskName} Assessment
+[O] ${objective.replace(/\n/g, ' | ')}
+[A] ${assessment.replace(/\n/g, ' | ')}`
     }
 
     const handleCopy = async () => {
