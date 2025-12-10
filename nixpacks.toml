@@ -3,7 +3,14 @@
 nixPkgs = ["python311Full", "ffmpeg"]
 
 [phases.install]
-cmds = ["python3 -m ensurepip", "pip3 install --upgrade pip", "cd backend && pip3 install -r requirements.txt"]
+cmds = [
+  "python3 -m venv /opt/venv",
+  "/opt/venv/bin/pip install --upgrade pip",
+  "/opt/venv/bin/pip install -r backend/requirements.txt"
+]
 
 [start]
-cmd = "cd backend && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300"
+cmd = "cd backend && /opt/venv/bin/gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300"
+
+[variables]
+PATH = "/opt/venv/bin:${PATH}"

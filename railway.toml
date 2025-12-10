@@ -1,9 +1,9 @@
 [build]
 builder = "nixpacks"
-buildCommand = "cd backend && pip3 install -r requirements.txt"
+buildCommand = "/opt/venv/bin/pip install -r backend/requirements.txt"
 
 [deploy]
-startCommand = "cd backend && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300"
+startCommand = "cd backend && /opt/venv/bin/gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
