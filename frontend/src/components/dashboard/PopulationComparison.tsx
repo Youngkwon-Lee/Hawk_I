@@ -362,7 +362,6 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
                                     <th className="text-left py-2 px-3 font-medium">지표</th>
                                     <th className="text-center py-2 px-3 font-medium text-green-600">정상 (Score 0)</th>
                                     <th className="text-center py-2 px-3 font-medium text-red-500">중등 (Score 3-4)</th>
-                                    <th className="text-center py-2 px-3 font-medium">변화율</th>
                                     {patientMetrics && (
                                         <th className="text-center py-2 px-3 font-medium text-blue-500">환자</th>
                                     )}
@@ -418,10 +417,6 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
                                                 <span className="text-muted-foreground text-xs ml-1">
                                                     ±{score34Std.toFixed(2)}
                                                 </span>
-                                            </td>
-                                            <td className={`text-center py-2 px-3 font-medium ${changePercent > 0 ? 'text-red-500' : 'text-green-600'
-                                                }`}>
-                                                {changePercent > 0 ? '+' : ''}{changePercent.toFixed(1)}%
                                             </td>
                                             {patientMetrics && (
                                                 <td className="text-center py-2 px-3 font-medium text-blue-500">

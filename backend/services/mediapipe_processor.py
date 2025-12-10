@@ -67,7 +67,8 @@ class MediaPipeProcessor:
         output_video_path: Optional[str] = None,
         frame_skip: int = 1,
         skip_video_generation: bool = False,
-        max_duration: Optional[float] = None
+        max_duration: Optional[float] = None,
+        resize_width: Optional[int] = 720
     ) -> List[LandmarkFrame]:
         """
         Process video and extract landmarks for all frames
@@ -79,6 +80,8 @@ class MediaPipeProcessor:
             frame_skip: Process every Nth frame (1=all frames, 2=every other, etc.)
             skip_video_generation: Skip skeleton video generation for faster processing
             max_duration: Maximum duration to process in seconds (None = entire video)
+            resize_width: Resize frames to this width for faster processing (None = no resize)
+                         Default 720px for ~2x speedup with minimal accuracy loss
 
         Returns:
             List of LandmarkFrame objects
@@ -92,13 +95,27 @@ class MediaPipeProcessor:
         frame_count = 0
         landmark_frames = []
 
+        # Calculate resize dimensions (maintain aspect ratio)
+        resize_scale = 1.0
+        if resize_width and frame_width > resize_width:
+            resize_scale = resize_width / frame_width
+            resized_height = int(frame_height * resize_scale)
+            print(f"  [MediaPipe] Resolution: {frame_width}x{frame_height} → {resize_width}x{resized_height} (scale: {resize_scale:.2f})")
+        else:
+            resize_width = frame_width
+            resized_height = frame_height
+
         # Initialize video writer if output path is provided
         video_writer = None
         if output_video_path and not skip_video_generation:
             # Use mp4v codec first (avoids OpenH264 issues), then convert to H.264 with ffmpeg
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            output_width = roi[2] if roi else frame_width
-            output_height = roi[3] if roi else frame_height
+            # Output at resized resolution
+            output_width = roi[2] if roi else resize_width
+            output_height = roi[3] if roi else resized_height
+            if roi and resize_scale != 1.0:
+                output_width = int(roi[2] * resize_scale)
+                output_height = int(roi[3] * resize_scale)
             video_writer = cv2.VideoWriter(
                 output_video_path,
                 fourcc,
@@ -129,6 +146,10 @@ class MediaPipeProcessor:
             if roi:
                 x, y, w, h = roi
                 frame = frame[y:y+h, x:x+w]
+
+            # Resize frame for faster processing (if resize_scale != 1.0)
+            if resize_scale != 1.0:
+                frame = cv2.resize(frame, None, fx=resize_scale, fy=resize_scale, interpolation=cv2.INTER_AREA)
 
             # Frame sampling: only process MediaPipe on selected frames
             should_process_mediapipe = (frame_count % frame_skip == 0)

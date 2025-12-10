@@ -24,12 +24,12 @@ import { GaitCycleChart } from "@/components/dashboard/GaitCycleChart"
 import { SpeedProfileChart } from "@/components/dashboard/SpeedProfileChart"
 import { SOAPNote } from "@/components/dashboard/SOAPNote"
 
-// Mock Data - Gait
+// Mock Data - Gait (PD4T 기준)
 const GAIT_METRICS: MetricRow[] = [
-    { label: "보행 속도", value: "0.8 m/s", unit: "", change: "-2%", status: "neutral", normalRange: "0.8-1.2" },
-    { label: "보행률 (Cadence)", value: "102", unit: "steps/min", change: "+1%", status: "good", normalRange: "100-120" },
-    { label: "보폭 길이", value: "0.98", unit: "m", change: "-8%", status: "bad", normalRange: "0.6-0.8" },
-    { label: "팔 흔들기 비대칭", value: "15", unit: "%", change: "+5%", status: "bad", normalRange: "<20" },
+    { label: "보행 속도", value: "0.75 m/s", unit: "", change: "-2%", status: "good", normalRange: "0.55-0.95" },
+    { label: "보행률 (Cadence)", value: "140", unit: "steps/min", change: "+1%", status: "good", normalRange: "120-160" },
+    { label: "보폭 길이", value: "0.33", unit: "(정규화)", change: "-8%", status: "good", normalRange: "0.25-0.45" },
+    { label: "팔 흔들기 비대칭", value: "12", unit: "%", change: "+5%", status: "good", normalRange: "<20" },
 ]
 
 // Mock Data - Finger
@@ -117,34 +117,40 @@ function convertFingerMetricsToRows(metrics: FingerTappingMetrics): MetricRow[] 
 }
 
 function convertGaitMetricsToRows(metrics: GaitMetrics): MetricRow[] {
-    // Determine status based on clinical normal ranges
+    // Status based on PD4T dataset (Score 0 = normal)
+    // walking_speed: 0.76 ± 0.13, cadence: 140 ± 11, stride_length: 0.33 ± 0.05
     const getSpeedStatus = (speed: number) => {
-        if (speed >= 0.8 && speed <= 1.2) return "good"
-        if (speed >= 0.6 && speed < 0.8) return "warning"
+        // PD4T normal: 0.76 ± 0.13 (range ~0.55-0.95)
+        if (speed >= 0.55 && speed <= 0.95) return "good"
+        if (speed >= 0.40 && speed < 0.55) return "warning"
         return "bad"
     }
 
     const getCadenceStatus = (cadence: number) => {
-        if (cadence >= 100 && cadence <= 120) return "good"
-        if ((cadence >= 80 && cadence < 100) || (cadence > 120 && cadence <= 140)) return "warning"
+        // PD4T normal: 140 ± 11 (range ~120-160)
+        if (cadence >= 120 && cadence <= 160) return "good"
+        if ((cadence >= 100 && cadence < 120) || (cadence > 160 && cadence <= 180)) return "warning"
         return "bad"
     }
 
     const getStrideLengthStatus = (stride: number) => {
-        if (stride >= 0.6 && stride <= 0.8) return "good"
-        if ((stride >= 0.5 && stride < 0.6) || (stride > 0.8 && stride <= 0.9)) return "warning"
+        // PD4T normal: 0.33 ± 0.05 (range ~0.25-0.45) - normalized units
+        if (stride >= 0.25 && stride <= 0.45) return "good"
+        if ((stride >= 0.18 && stride < 0.25) || (stride > 0.45 && stride <= 0.55)) return "warning"
         return "bad"
     }
 
     const getVariabilityStatus = (variability: number) => {
-        if (variability < 10) return "good"
-        if (variability < 20) return "warning"
+        // PD4T normal: 26.4 ± 3.9 (higher is worse)
+        if (variability < 30) return "good"
+        if (variability < 35) return "warning"
         return "bad"
     }
 
     const getAsymmetryStatus = (asymmetry: number) => {
+        // PD4T normal: 11.7 ± 8.4
         if (asymmetry < 20) return "good"
-        if (asymmetry < 40) return "warning"
+        if (asymmetry < 35) return "warning"
         return "bad"
     }
 
@@ -153,21 +159,21 @@ function convertGaitMetricsToRows(metrics: GaitMetrics): MetricRow[] {
             label: "보행 속도",
             value: metrics.walking_speed.toFixed(2),
             unit: "m/s",
-            normalRange: "0.8-1.2",
+            normalRange: "0.55-0.95",
             status: getSpeedStatus(metrics.walking_speed)
         },
         {
             label: "보행률 (Cadence)",
             value: metrics.cadence.toFixed(0),
             unit: "steps/min",
-            normalRange: "100-120",
+            normalRange: "120-160",
             status: getCadenceStatus(metrics.cadence)
         },
         {
             label: "보폭 길이",
             value: metrics.stride_length.toFixed(2),
-            unit: "m",
-            normalRange: "0.6-0.8",
+            unit: "(정규화)",
+            normalRange: "0.25-0.45",
             status: getStrideLengthStatus(metrics.stride_length)
         },
         {
@@ -502,13 +508,13 @@ function ResultContent() {
                             warnings.push("후반부 피로 징후가 감지되었습니다.");
                         }
                     } else {
-                        // Gait warnings
+                        // Gait warnings (PD4T 기준)
                         const gaitMetrics = analysisResult?.metrics as { walking_speed?: number; cadence?: number; arm_swing_asymmetry?: number } | undefined;
-                        if (gaitMetrics?.walking_speed && gaitMetrics.walking_speed < 0.8) {
-                            warnings.push(`보행 속도가 ${gaitMetrics.walking_speed.toFixed(2)} m/s로 정상 범위(0.8-1.2)보다 낮습니다.`);
+                        if (gaitMetrics?.walking_speed && gaitMetrics.walking_speed < 0.55) {
+                            warnings.push(`보행 속도가 ${gaitMetrics.walking_speed.toFixed(2)} m/s로 정상 범위(0.55-0.95)보다 낮습니다.`);
                         }
-                        if (gaitMetrics?.cadence && gaitMetrics.cadence < 100) {
-                            warnings.push(`보행률이 ${Math.round(gaitMetrics.cadence)} steps/min으로 정상 범위(100-120)보다 낮습니다.`);
+                        if (gaitMetrics?.cadence && gaitMetrics.cadence < 120) {
+                            warnings.push(`보행률이 ${Math.round(gaitMetrics.cadence)} steps/min으로 정상 범위(120-160)보다 낮습니다.`);
                         }
                         if (gaitMetrics?.arm_swing_asymmetry && gaitMetrics.arm_swing_asymmetry > 20) {
                             warnings.push(`팔 흔들기 비대칭이 ${gaitMetrics.arm_swing_asymmetry.toFixed(1)}%로 기준치(20%)를 초과합니다.`);

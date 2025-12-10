@@ -37,6 +37,7 @@ CORS(app, resources={
 
 # Configuration
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB max file size
+app.config['JSON_AS_ASCII'] = False  # Enable Korean characters in JSON responses
 upload_dir = os.getenv('UPLOAD_FOLDER', './uploads')
 if not os.path.isabs(upload_dir):
     upload_dir = os.path.abspath(upload_dir)
