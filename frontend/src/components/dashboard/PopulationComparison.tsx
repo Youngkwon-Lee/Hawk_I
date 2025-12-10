@@ -88,6 +88,11 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
 
                 const result = await response.json()
                 if (result.success) {
+                    // If fallback data (total_samples = 0), don't show component
+                    if (result.is_fallback || result.data.total_samples === 0) {
+                        setError('실제 데이터를 불러올 수 없습니다 (CSV 파일 없음)')
+                        return
+                    }
                     setStats(result.data)
                 } else {
                     throw new Error(result.error || 'Unknown error')
@@ -111,15 +116,8 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
     }
 
     if (error || !stats) {
-        return (
-            <Card>
-                <CardContent className="p-6">
-                    <p className="text-muted-foreground text-center">
-                        통계 데이터를 불러올 수 없습니다: {error}
-                    </p>
-                </CardContent>
-            </Card>
-        )
+        // Don't render anything if data is not available (fallback or error)
+        return null
     }
 
     // Prepare bar chart data
@@ -304,6 +302,8 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
                                 <PolarRadiusAxis
                                     angle={30}
                                     domain={[0, 1]}
+                                    // @ts-expect-error recharts ticks type issue
+                                    ticks={[0, 0.25, 0.5, 0.75, 1]}
                                     tick={{ fontSize: 9, fill: '#6b7280' }}
                                     stroke="#374151"
                                     axisLine={false}
@@ -333,10 +333,10 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
                                 )}
                                 <Legend />
                                 <Tooltip
-                                    formatter={(value: number, name: string, props: any) => {
+                                    formatter={(value: number, name: string, props: { payload?: Record<string, number> }) => {
                                         const rawKey = name === '정상 (Score 0)' ? 'rawScore0'
                                             : name === '중등 (Score 3-4)' ? 'rawScore34' : 'rawPatient'
-                                        const rawValue = props.payload[rawKey]
+                                        const rawValue = props.payload?.[rawKey]
                                         return [rawValue?.toFixed(2) || 'N/A', name]
                                     }}
                                 />

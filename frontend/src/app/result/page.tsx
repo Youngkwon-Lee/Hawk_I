@@ -202,7 +202,7 @@ function ResultContent() {
         const urlId = searchParams.get("id") || searchParams.get("analysisId")
 
         // Check if we need to fetch: URL has id AND (no result OR result id doesn't match)
-        const storedId = (analysisResult as any)?.id || (analysisResult as any)?.video_id
+        const storedId = analysisResult?.id || analysisResult?.video_id
         const needsFetch = urlId && (!analysisResult || (storedId && storedId !== urlId))
 
         if (needsFetch) {
@@ -244,7 +244,7 @@ function ResultContent() {
 
     // Determine type from sessionStorage or URL
     const type = analysisResult?.video_type || searchParams.get("type") || "gait"
-    const isFinger = type === "finger_tapping" || type === "finger" || type === "hand_movement"
+    const isFinger = type === "finger_tapping" || type === "finger"  // hand_movement not implemented yet
 
     // Use real metrics from backend if available, otherwise fall back to mock
     let metrics: MetricRow[] = isFinger ? FINGER_METRICS : GAIT_METRICS
@@ -273,7 +273,7 @@ function ResultContent() {
     // Use actual uploaded video from backend if available
     const hasBackendVideo = !!analysisResult?.skeleton_data?.skeleton_video_url
     const videoSrc = hasBackendVideo
-        ? `http://localhost:5000${analysisResult.skeleton_data.skeleton_video_url}`
+        ? `http://localhost:5000${analysisResult?.skeleton_data?.skeleton_video_url}`
         : (isFinger ? "/videos/finger_sample.mp4" : "/videos/12-104704.mp4")
 
     // Log video source for debugging
@@ -494,24 +494,24 @@ function ResultContent() {
 
                     if (isFinger) {
                         // Finger tapping warnings
-                        const metrics = analysisResult?.metrics;
-                        if (metrics?.decrement_ratio && metrics.decrement_ratio > 20) {
-                            warnings.push(`진폭 감소율이 ${metrics.decrement_ratio.toFixed(1)}%로 측정되었습니다.`);
+                        const ftMetrics = analysisResult?.metrics as { decrement_ratio?: number; fatigue_index?: number } | undefined;
+                        if (ftMetrics?.decrement_ratio && ftMetrics.decrement_ratio > 20) {
+                            warnings.push(`진폭 감소율이 ${ftMetrics.decrement_ratio.toFixed(1)}%로 측정되었습니다.`);
                         }
-                        if (metrics?.fatigue_index && metrics.fatigue_index > 0.3) {
+                        if (ftMetrics?.fatigue_index && ftMetrics.fatigue_index > 0.3) {
                             warnings.push("후반부 피로 징후가 감지되었습니다.");
                         }
                     } else {
                         // Gait warnings
-                        const metrics = analysisResult?.metrics;
-                        if (metrics?.walking_speed && metrics.walking_speed < 0.8) {
-                            warnings.push(`보행 속도가 ${metrics.walking_speed.toFixed(2)} m/s로 정상 범위(0.8-1.2)보다 낮습니다.`);
+                        const gaitMetrics = analysisResult?.metrics as { walking_speed?: number; cadence?: number; arm_swing_asymmetry?: number } | undefined;
+                        if (gaitMetrics?.walking_speed && gaitMetrics.walking_speed < 0.8) {
+                            warnings.push(`보행 속도가 ${gaitMetrics.walking_speed.toFixed(2)} m/s로 정상 범위(0.8-1.2)보다 낮습니다.`);
                         }
-                        if (metrics?.cadence && metrics.cadence < 100) {
-                            warnings.push(`보행률이 ${Math.round(metrics.cadence)} steps/min으로 정상 범위(100-120)보다 낮습니다.`);
+                        if (gaitMetrics?.cadence && gaitMetrics.cadence < 100) {
+                            warnings.push(`보행률이 ${Math.round(gaitMetrics.cadence)} steps/min으로 정상 범위(100-120)보다 낮습니다.`);
                         }
-                        if (metrics?.arm_swing_asymmetry && metrics.arm_swing_asymmetry > 20) {
-                            warnings.push(`팔 흔들기 비대칭이 ${metrics.arm_swing_asymmetry.toFixed(1)}%로 기준치(20%)를 초과합니다.`);
+                        if (gaitMetrics?.arm_swing_asymmetry && gaitMetrics.arm_swing_asymmetry > 20) {
+                            warnings.push(`팔 흔들기 비대칭이 ${gaitMetrics.arm_swing_asymmetry.toFixed(1)}%로 기준치(20%)를 초과합니다.`);
                         }
                     }
 
@@ -620,8 +620,7 @@ function ResultContent() {
                             <div>
                                 <TrendChart
                                     data={MOCK_TREND_DATA}
-                                    title="점수 추세"
-                                    description="최근 5개월 UPDRS 점수 변화"
+                                    label="점수 추세"
                                     dataKey="score"
                                     color="#3b82f6"
                                 />
@@ -630,8 +629,7 @@ function ResultContent() {
                             <div>
                                 <TrendChart
                                     data={MOCK_TREND_DATA}
-                                    title={isFinger ? "진폭 추세" : "보폭 길이 추세"}
-                                    description={isFinger ? "최근 5개월 진폭 변화" : "최근 5개월 보폭 변화"}
+                                    label={isFinger ? "진폭 추세" : "보폭 길이 추세"}
                                     dataKey="stride"
                                     color="#10b981"
                                 />
@@ -671,7 +669,7 @@ function ResultContent() {
                                     </CardHeader>
                                     <CardContent className="space-y-4">
                                         {markers.length > 0 ? (
-                                            markers.map((m: any, i: number) => (
+                                            markers.map((m, i) => (
                                                 <div key={i} className="flex items-center justify-between text-sm">
                                                     <span className={m.type === "warning" ? "text-yellow-500" : ""}>
                                                         {`00:0${Math.floor(m.time)} - ${m.label}`}
@@ -799,17 +797,125 @@ function ResultContent() {
 
                         </div>
 
-                        {/* Row 2: Chart-based visualizations */}
-                        <div className="grid md:grid-cols-2 gap-6">
-                            <JointAngleChart data={analysisResult.visualization_data?.joint_angles} />
-                            <SymmetryChart data={analysisResult.visualization_data?.symmetry} />
-                        </div>
-
-                        {/* Row 3: Gait cycle and speed profile */}
-                        <div className="grid md:grid-cols-2 gap-6">
-                            <GaitCycleChart data={analysisResult.visualization_data?.gait_cycles} />
-                            <SpeedProfileChart data={analysisResult.visualization_data?.speed_profile} />
-                        </div>
+                        {/* Row 2: Chart-based visualizations - Task Type Specific */}
+                        {isFinger ? (
+                            <>
+                                {/* Finger Tapping Charts - 진폭 분석과 리듬 분석만 표시 */}
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    {/* 탭핑 진폭 분석 */}
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle className="text-sm">탭핑 진폭 분석</CardTitle>
+                                            <CardDescription>시간에 따른 탭핑 진폭 변화</CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            {analysisResult?.visualization_data?.joint_angles &&
+                                             (analysisResult.visualization_data.joint_angles as unknown as Array<{leftAmplitude?: number, rightAmplitude?: number}>).length > 0 ? (
+                                                <div className="space-y-4">
+                                                    {(() => {
+                                                        const ampData = analysisResult.visualization_data.joint_angles as unknown as Array<{time?: number, leftAmplitude?: number, rightAmplitude?: number, avgAmplitude?: number}>
+                                                        const avgAmplitudes = ampData.filter(d => d.avgAmplitude != null).map(d => d.avgAmplitude!)
+                                                        const avgAmp = avgAmplitudes.length > 0 ? avgAmplitudes.reduce((a, b) => a + b, 0) / avgAmplitudes.length : 0
+                                                        const maxAmp = avgAmplitudes.length > 0 ? Math.max(...avgAmplitudes) : 0
+                                                        const minAmp = avgAmplitudes.length > 0 ? Math.min(...avgAmplitudes) : 0
+                                                        return (
+                                                            <div className="grid grid-cols-3 gap-2 text-center">
+                                                                <div className="bg-slate-800/50 rounded p-2">
+                                                                    <div className="text-xs text-muted-foreground">평균 진폭</div>
+                                                                    <div className="font-bold text-blue-400">{avgAmp.toFixed(1)}%</div>
+                                                                </div>
+                                                                <div className="bg-slate-800/50 rounded p-2">
+                                                                    <div className="text-xs text-muted-foreground">최대</div>
+                                                                    <div className="font-bold text-green-400">{maxAmp.toFixed(1)}%</div>
+                                                                </div>
+                                                                <div className="bg-slate-800/50 rounded p-2">
+                                                                    <div className="text-xs text-muted-foreground">최소</div>
+                                                                    <div className="font-bold text-red-400">{minAmp.toFixed(1)}%</div>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })()}
+                                                    <p className="text-xs text-muted-foreground text-center">
+                                                        {(analysisResult.visualization_data.joint_angles as unknown as Array<unknown>).length}개 샘플 분석됨
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="h-32 flex items-center justify-center">
+                                                    <p className="text-sm text-muted-foreground">진폭 데이터 없음</p>
+                                                </div>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                    {/* 탭핑 리듬 분석 */}
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle className="text-sm">탭핑 리듬 분석</CardTitle>
+                                            <CardDescription>탭핑 간격 및 규칙성</CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            {analysisResult?.visualization_data?.gait_cycles &&
+                                             (analysisResult.visualization_data.gait_cycles as unknown as Array<{tap?: number, interval?: number}>).length > 0 ? (
+                                                <div className="space-y-4">
+                                                    {(() => {
+                                                        const rhythmData = analysisResult.visualization_data.gait_cycles as unknown as Array<{tap?: number, interval?: number, side?: string}>
+                                                        const intervals = rhythmData.filter(d => d.interval != null && d.interval > 0).map(d => d.interval!)
+                                                        const avgInterval = intervals.length > 0 ? intervals.reduce((a, b) => a + b, 0) / intervals.length : 0
+                                                        const leftTaps = rhythmData.filter(d => d.side === 'L').length
+                                                        const rightTaps = rhythmData.filter(d => d.side === 'R').length
+                                                        return (
+                                                            <>
+                                                                <div className="text-center">
+                                                                    <p className="text-3xl font-bold text-primary">{rhythmData.length}</p>
+                                                                    <p className="text-sm text-muted-foreground">회 탭핑 감지</p>
+                                                                </div>
+                                                                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                                                    <div className="bg-slate-800/50 rounded p-2">
+                                                                        <div className="text-muted-foreground">평균 간격</div>
+                                                                        <div className="font-bold">{avgInterval.toFixed(0)}ms</div>
+                                                                    </div>
+                                                                    <div className="bg-slate-800/50 rounded p-2">
+                                                                        <div className="text-muted-foreground">왼손</div>
+                                                                        <div className="font-bold">{leftTaps}회</div>
+                                                                    </div>
+                                                                    <div className="bg-slate-800/50 rounded p-2">
+                                                                        <div className="text-muted-foreground">오른손</div>
+                                                                        <div className="font-bold">{rightTaps}회</div>
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        )
+                                                    })()}
+                                                </div>
+                                            ) : (
+                                                <div className="h-32 flex items-center justify-center">
+                                                    <p className="text-sm text-muted-foreground">리듬 데이터 없음</p>
+                                                </div>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                </div>
+                                {/* 탭핑 속도 프로파일 */}
+                                <SpeedProfileChart
+                                    data={analysisResult?.visualization_data?.speed_profile as unknown as Parameters<typeof SpeedProfileChart>[0]['data']}
+                                    taskType="finger"
+                                />
+                            </>
+                        ) : (
+                            <>
+                                {/* Gait Charts */}
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    <JointAngleChart data={analysisResult?.visualization_data?.joint_angles as unknown as Parameters<typeof JointAngleChart>[0]['data']} />
+                                    <SymmetryChart data={analysisResult?.visualization_data?.symmetry as unknown as Parameters<typeof SymmetryChart>[0]['data']} />
+                                </div>
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    <GaitCycleChart data={analysisResult?.visualization_data?.gait_cycles as unknown as Parameters<typeof GaitCycleChart>[0]['data']} />
+                                    <SpeedProfileChart
+                                        data={analysisResult?.visualization_data?.speed_profile as unknown as Parameters<typeof SpeedProfileChart>[0]['data']}
+                                        taskType="gait"
+                                    />
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -823,7 +929,7 @@ function ResultContent() {
                     <div className="animate-in fade-in slide-in-from-bottom-2">
                         <PopulationComparison
                             taskType={type}
-                            patientScore={analysisResult?.updrs_score?.total_score ?? analysisResult?.updrs_score?.score}
+                            patientScore={analysisResult?.updrs_score?.total_score ?? analysisResult?.updrs_score?.score ?? undefined}
                             patientMetrics={analysisResult?.metrics as Record<string, number> | undefined}
                         />
                     </div>
@@ -840,8 +946,8 @@ function ResultContent() {
                         <SOAPNote
                             taskType={type}
                             metrics={analysisResult?.metrics as Record<string, number> | undefined}
-                            updrsScore={analysisResult?.updrs_score}
-                            aiInterpretation={analysisResult?.ai_interpretation}
+                            updrsScore={analysisResult?.updrs_score ?? undefined}
+                            aiInterpretation={analysisResult?.ai_interpretation?.summary}
                             patientId={analysisResult?.patient_id}
                             analysisDate={new Date().toISOString()}
                         />

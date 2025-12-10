@@ -8,23 +8,16 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { PageLayout } from "@/components/layout/PageLayout"
 import { ChatInterface } from "@/components/ui/ChatInterface"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
-import { Activity, CheckCircle2, Loader2 } from 'lucide-react'
+import { Card, CardContent } from "@/components/ui/Card"
+import { Activity } from 'lucide-react'
 
-type AnalysisStep = {
-  id: string
-  label: string
-  status: 'pending' | 'in_progress' | 'completed' | 'error'
-  resultUrl?: string
-}
-
-export default function AnalyzingPage() {
+function AnalyzingContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const videoId = searchParams.get('videoId')
 
   // Zustand store actions
-  const { setResult, setAnalyzing, setError, clearResult } = useAnalysisStore()
+  const { setResult, setError, clearResult } = useAnalysisStore()
 
   // Simple progress state
   const [progress, setProgress] = useState(0)
@@ -141,7 +134,7 @@ export default function AnalyzingPage() {
       clearInterval(pollInterval)
       clearInterval(progressInterval)
     }
-  }, [videoId, router])
+  }, [videoId, router, clearResult, setResult, setError])
 
   return (
     <PageLayout agentPanel={<ChatInterface initialMessages={[{
@@ -222,5 +215,13 @@ export default function AnalyzingPage() {
         `}</style>
       </div>
     </PageLayout>
+  )
+}
+
+export default function AnalyzingPage() {
+  return (
+    <React.Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+      <AnalyzingContent />
+    </React.Suspense>
   )
 }

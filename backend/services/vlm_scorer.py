@@ -29,41 +29,44 @@ class VLMScorer:
     def _get_prompt(self, task_type: str) -> str:
         """Generate task-specific prompt for GPT-4V"""
         criteria = {
-            "finger_tapping": "손가락 태핑의 속도, 진폭, 망설임, 멈춤, 진폭 감소를 평가하세요.",
-            "hand_movement": "손 열고 닫기의 속도, 진폭, 망설임, 멈춤, 진폭 감소를 평가하세요.",
-            "leg_agility": "발 구르기의 속도, 진폭, 망설임, 멈춤, 진폭 감소를 평가하세요.",
-            "gait": "걸음걸이의 보폭, 속도, 발 들어올림 높이, 뒤꿈치 착지, 회전, 팔 흔들림을 평가하세요."
+            "finger_tapping": "Evaluate: tapping speed, amplitude, hesitations, arrests, and amplitude decrement over repetitions.",
+            "hand_movement": "Evaluate: hand opening/closing speed, amplitude, hesitations, arrests, and amplitude decrement.",
+            "leg_agility": "Evaluate: foot tapping speed, amplitude, hesitations, arrests, and amplitude decrement.",
+            "gait": "Evaluate: stride length, walking speed, foot clearance, heel strike pattern, arm swing, and turning ability."
         }
 
-        task_criteria = criteria.get(task_type, "움직임의 질과 파킨슨병 징후를 평가하세요.")
-        task_name_kr = {
-            "finger_tapping": "손가락 태핑",
-            "hand_movement": "손 움직임",
-            "leg_agility": "다리 민첩성",
-            "gait": "보행"
+        task_criteria = criteria.get(task_type, "Evaluate: movement quality, speed, amplitude, and rhythm patterns.")
+        task_name_display = {
+            "finger_tapping": "Finger Tapping",
+            "hand_movement": "Hand Movement",
+            "leg_agility": "Leg Agility",
+            "gait": "Gait/Walking"
         }.get(task_type, task_type)
 
-        prompt = f"""당신은 파킨슨병 전문 신경과 의사입니다.
-환자가 '{task_name_kr}' 검사를 수행하는 영상 프레임들을 분석하세요.
+        prompt = f"""You are a computer vision research assistant analyzing movement patterns in video frames for an academic research project on motor assessment.
+
+CONTEXT: This is a research study analyzing '{task_name_display}' movement patterns using the MDS-UPDRS research framework. The images show a research participant performing standardized movement tasks. This analysis is for educational and research purposes only, not clinical diagnosis.
+
+TASK: Analyze the movement characteristics visible in these frames.
 {task_criteria}
 
-MDS-UPDRS 척도로 운동 장애 심각도를 평가하세요:
-0: 정상 (문제 없음)
-1: 경미 (약간의 느림/작은 진폭, 감소 없음)
-2: 가벼움 (가벼운 느림/진폭, 약간의 감소나 망설임)
-3: 중등도 (중등도의 느림/진폭, 빈번한 망설임/멈춤)
-4: 심각 (심한 장애, 거의 수행 불가)
+RESEARCH SCORING FRAMEWORK (MDS-UPDRS-based movement quality scale):
+0: Normal movement pattern (no observable irregularities)
+1: Slight variations (minor slowness or reduced amplitude, no decrement)
+2: Mild variations (mild slowness/amplitude reduction, slight hesitations)
+3: Moderate variations (moderate slowness, frequent hesitations/interruptions)
+4: Significant variations (severe movement difficulties observed)
 
-반드시 아래 JSON 형식으로만 출력하세요:
+OUTPUT FORMAT - Respond ONLY with this JSON structure:
 {{
-  "score": <0-4 정수>,
-  "confidence": <0.0-1.0 확신도>,
+  "score": <integer 0-4>,
+  "confidence": <float 0.0-1.0>,
   "findings": [
-    "<관찰된 특징 1>",
-    "<관찰된 특징 2>",
-    "<관찰된 특징 3>"
+    "<observed movement characteristic 1>",
+    "<observed movement characteristic 2>",
+    "<observed movement characteristic 3>"
   ],
-  "reasoning": "<점수 부여 근거 설명>"
+  "reasoning": "<explanation of movement pattern observations>"
 }}
 """
         return prompt

@@ -65,51 +65,28 @@ class TaskClassifier:
         print(f"Motion Area Ratio: {motion_area_ratio:.1%}")
         print(f"ROI Size Ratio: {roi_size_ratio:.1%}")
 
-        # IMPROVED Classification logic using motion_area_ratio
+        # SIMPLIFIED Classification logic (v3)
+        # Currently only finger_tapping and gait are fully implemented
+        # hand_movement and leg_agility are planned for future
         if body_part == "hand":
-            # Hand detected → Finger Tapping vs Hand Movement
-            # Use motion_area_ratio instead of ROI size for better accuracy
-            if motion_area_ratio < 0.05:
-                # Small motion area (< 5%) → Finger Tapping
-                task_type = "finger_tapping"
-                confidence = 0.90
-                reasoning = (
-                    f"Hand detected with small motion area ({motion_area_ratio:.1%}). "
-                    f"Classified as finger_tapping."
-                )
-                print(f"  → Hand + Small Motion Area ({motion_area_ratio:.1%}) → Finger Tapping")
-
-            else:
-                # Larger motion area (≥ 5%) → Hand Movement (Pronation-Supination)
-                task_type = "hand_movement"  # pronation-supination
-                confidence = 0.85
-                reasoning = (
-                    f"Hand detected with larger motion area ({motion_area_ratio:.1%}). "
-                    f"Classified as hand_movement (pronation-supination)."
-                )
-                print(f"  → Hand + Larger Motion Area ({motion_area_ratio:.1%}) → Hand Movement")
+            # Hand detected → Always Finger Tapping (hand_movement not implemented yet)
+            task_type = "finger_tapping"
+            confidence = 0.90
+            reasoning = (
+                f"Hand detected with motion area ({motion_area_ratio:.1%}). "
+                f"Classified as finger_tapping."
+            )
+            print(f"  → Hand detected → Finger Tapping")
 
         elif body_part == "foot":
-            # Foot detected → Gait vs Leg Agility
-            if motion_area_ratio > 0.10:
-                # Large motion area (> 10%) → Gait
-                task_type = "gait"
-                confidence = 0.90
-                reasoning = (
-                    f"Foot motion with large area ({motion_area_ratio:.1%}). "
-                    f"Classified as gait."
-                )
-                print(f"  → Foot + Large Motion Area → Gait")
-
-            else:
-                # Small motion area (< 10%) → Leg Agility
-                task_type = "leg_agility"
-                confidence = 0.90
-                reasoning = (
-                    f"Localized foot motion with small area ({motion_area_ratio:.1%}). "
-                    f"Classified as leg_agility."
-                )
-                print(f"  → Foot + Small Motion Area → Leg Agility")
+            # Foot detected → Always Gait (leg_agility not implemented yet)
+            task_type = "gait"
+            confidence = 0.90
+            reasoning = (
+                f"Foot motion detected with area ({motion_area_ratio:.1%}). "
+                f"Classified as gait."
+            )
+            print(f"  → Foot detected → Gait")
 
         elif body_part == "fullbody" or motion_pattern == "global":
             # Fullbody or global motion → Gait

@@ -5,9 +5,210 @@ Supports both Gait and Finger Tapping tasks with dynamic visualization
 """
 
 import numpy as np
+import pandas as pd
+import os
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 from scipy.signal import savgol_filter, find_peaks
+
+
+class PopulationStatsLoader:
+    """
+    Load and compute population statistics from PD4T training data.
+    These statistics are used to set adaptive thresholds for event detection.
+    """
+
+    _instance = None
+    _stats_cache = {}
+
+    # Path to feature files (relative to project root)
+    FEATURES_DIR = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "data", "processed", "features"
+    )
+
+    @classmethod
+    def get_instance(cls):
+        """Singleton pattern for caching stats"""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def __init__(self):
+        self._load_stats()
+
+    def _load_stats(self):
+        """Load statistics from training data"""
+        try:
+            # Load gait features
+            gait_path = os.path.join(self.FEATURES_DIR, "gait_train_features_stratified.csv")
+            if os.path.exists(gait_path):
+                gait_df = pd.read_csv(gait_path)
+                self._stats_cache['gait'] = self._compute_stats(gait_df, task_type='gait')
+            else:
+                self._stats_cache['gait'] = self._default_gait_stats()
+
+            # Load finger tapping features
+            ft_path = os.path.join(self.FEATURES_DIR, "finger_tapping_train_features_stratified.csv")
+            if os.path.exists(ft_path):
+                ft_df = pd.read_csv(ft_path)
+                self._stats_cache['finger_tapping'] = self._compute_stats(ft_df, task_type='finger_tapping')
+            else:
+                self._stats_cache['finger_tapping'] = self._default_finger_stats()
+
+        except Exception as e:
+            print(f"Warning: Could not load population stats: {e}")
+            self._stats_cache['gait'] = self._default_gait_stats()
+            self._stats_cache['finger_tapping'] = self._default_finger_stats()
+
+    def _compute_stats(self, df: pd.DataFrame, task_type: str) -> Dict:
+        """Compute percentile-based thresholds from training data"""
+        stats = {}
+
+        if task_type == 'gait':
+            # Speed statistics (for pause detection)
+            if 'walking_speed' in df.columns:
+                speeds = df['walking_speed'].dropna()
+                stats['speed_median'] = float(speeds.median())
+                stats['speed_p25'] = float(speeds.quantile(0.25))
+                stats['speed_p10'] = float(speeds.quantile(0.10))  # Slow threshold
+                stats['speed_std'] = float(speeds.std())
+
+            # Asymmetry statistics (for asymmetry event detection)
+            for col in ['step_length_asymmetry', 'swing_time_asymmetry', 'arm_swing_asymmetry']:
+                if col in df.columns:
+                    vals = df[col].dropna().abs()
+                    stats[f'{col}_median'] = float(vals.median())
+                    stats[f'{col}_p75'] = float(vals.quantile(0.75))  # "Abnormal" threshold
+                    stats[f'{col}_p90'] = float(vals.quantile(0.90))  # "High" threshold
+
+            # Variability statistics
+            if 'stride_variability' in df.columns:
+                vals = df['stride_variability'].dropna()
+                stats['variability_median'] = float(vals.median())
+                stats['variability_p75'] = float(vals.quantile(0.75))
+
+            # Score-based statistics (different thresholds for different severity)
+            for score in range(5):
+                score_df = df[df['score'] == score]
+                if len(score_df) > 5:
+                    stats[f'score_{score}_speed_median'] = float(score_df['walking_speed'].median()) if 'walking_speed' in score_df.columns else None
+                    stats[f'score_{score}_asymmetry_median'] = float(score_df['step_length_asymmetry'].abs().median()) if 'step_length_asymmetry' in score_df.columns else None
+
+        elif task_type == 'finger_tapping':
+            # Amplitude statistics (for fatigue detection)
+            if 'amplitude_mean' in df.columns:
+                vals = df['amplitude_mean'].dropna()
+                stats['amplitude_median'] = float(vals.median())
+                stats['amplitude_p25'] = float(vals.quantile(0.25))
+                stats['amplitude_std'] = float(vals.std())
+
+            # Fatigue rate statistics
+            if 'fatigue_rate' in df.columns:
+                vals = df['fatigue_rate'].dropna()
+                stats['fatigue_rate_median'] = float(vals.median())
+                stats['fatigue_rate_p75'] = float(vals.quantile(0.75))  # Abnormal fatigue threshold
+                stats['fatigue_rate_p90'] = float(vals.quantile(0.90))
+
+            # Amplitude decrement (related to fatigue)
+            if 'amplitude_decrement' in df.columns:
+                vals = df['amplitude_decrement'].dropna()
+                stats['amplitude_decrement_median'] = float(vals.median())
+                stats['amplitude_decrement_p75'] = float(vals.quantile(0.75))
+
+            # Rhythm variability statistics
+            if 'rhythm_variability' in df.columns:
+                vals = df['rhythm_variability'].dropna()
+                stats['rhythm_variability_median'] = float(vals.median())
+                stats['rhythm_variability_p75'] = float(vals.quantile(0.75))  # Rhythm break threshold
+                stats['rhythm_variability_p90'] = float(vals.quantile(0.90))
+
+            # Velocity statistics (for pause detection)
+            if 'peak_velocity_mean' in df.columns:
+                vals = df['peak_velocity_mean'].dropna()
+                stats['velocity_median'] = float(vals.median())
+                stats['velocity_p25'] = float(vals.quantile(0.25))
+                stats['velocity_std'] = float(vals.std())
+
+            # Hesitation/halt statistics (for pause detection)
+            for col in ['hesitation_count', 'halt_count', 'freeze_episodes']:
+                if col in df.columns:
+                    vals = df[col].dropna()
+                    stats[f'{col}_mean'] = float(vals.mean())
+                    stats[f'{col}_p75'] = float(vals.quantile(0.75))
+
+            # Score-based statistics
+            for score in range(5):
+                score_df = df[df['score'] == score]
+                if len(score_df) > 5:
+                    stats[f'score_{score}_fatigue_median'] = float(score_df['fatigue_rate'].median()) if 'fatigue_rate' in score_df.columns else None
+                    stats[f'score_{score}_variability_median'] = float(score_df['rhythm_variability'].median()) if 'rhythm_variability' in score_df.columns else None
+
+        return stats
+
+    def _default_gait_stats(self) -> Dict:
+        """Default gait statistics if training data not available"""
+        return {
+            'speed_median': 0.8,
+            'speed_p25': 0.6,
+            'speed_p10': 0.4,
+            'speed_std': 0.15,
+            'step_length_asymmetry_median': 5.0,
+            'step_length_asymmetry_p75': 10.0,
+            'step_length_asymmetry_p90': 20.0,
+            'swing_time_asymmetry_median': 8.0,
+            'swing_time_asymmetry_p75': 15.0,
+            'swing_time_asymmetry_p90': 25.0,
+            'variability_median': 25.0,
+            'variability_p75': 35.0,
+        }
+
+    def _default_finger_stats(self) -> Dict:
+        """Default finger tapping statistics if training data not available"""
+        return {
+            'amplitude_median': 1.2,
+            'amplitude_p25': 0.9,
+            'amplitude_std': 0.3,
+            'fatigue_rate_median': 1.0,
+            'fatigue_rate_p75': 2.5,
+            'fatigue_rate_p90': 5.0,
+            'amplitude_decrement_median': 10.0,
+            'amplitude_decrement_p75': 20.0,
+            'rhythm_variability_median': 15.0,
+            'rhythm_variability_p75': 25.0,
+            'rhythm_variability_p90': 40.0,
+            'velocity_median': 20.0,
+            'velocity_p25': 15.0,
+            'velocity_std': 5.0,
+        }
+
+    def get_stats(self, task_type: str) -> Dict:
+        """Get statistics for a task type"""
+        if task_type == 'finger_tapping':
+            return self._stats_cache.get('finger_tapping', self._default_finger_stats())
+        else:
+            return self._stats_cache.get('gait', self._default_gait_stats())
+
+    def get_threshold(self, task_type: str, metric: str, level: str = 'p75') -> float:
+        """
+        Get a specific threshold value.
+
+        Args:
+            task_type: 'gait' or 'finger_tapping'
+            metric: e.g., 'fatigue_rate', 'rhythm_variability', 'step_length_asymmetry'
+            level: 'median', 'p75', 'p90', etc.
+
+        Returns:
+            Threshold value
+        """
+        stats = self.get_stats(task_type)
+        key = f'{metric}_{level}'
+        if key in stats:
+            return stats[key]
+        elif metric in stats:
+            return stats[metric]
+        else:
+            return None
 
 
 @dataclass
@@ -723,14 +924,26 @@ class VisualizationDataGenerator:
 
 
 class EventDetector:
-    """Detect clinically relevant events from gait/movement data"""
+    """Detect clinically relevant events from gait/movement data - Enhanced Version with Population Stats"""
 
-    def __init__(self, fps: float = 30.0):
+    def __init__(self, fps: float = 30.0, min_confidence: float = 0.5, use_population_stats: bool = True):
         self.fps = fps
+        self.min_confidence = min_confidence  # Minimum confidence to report event
+        self.baseline = {}  # Adaptive baseline from early video
+        self.use_population_stats = use_population_stats
+        self.population_stats = None
+
+        # Load population stats if enabled
+        if use_population_stats:
+            try:
+                self.population_stats = PopulationStatsLoader.get_instance()
+            except Exception as e:
+                print(f"Warning: Could not load population stats: {e}")
+                self.use_population_stats = False
 
     def detect_events(self, trajectories: Dict, gait_analysis: Optional[Dict] = None, task_type: str = "gait") -> List[Dict]:
         """
-        Detect events based on task type
+        Detect events based on task type with confidence scoring
 
         Args:
             trajectories: Joint trajectory data
@@ -738,9 +951,12 @@ class EventDetector:
             task_type: 'gait' or 'finger_tapping'
 
         Returns:
-            List of detected events with timestamp, type, description
+            List of detected events with timestamp, type, description, confidence
         """
         events = []
+
+        # Step 1: Calculate adaptive baseline from early frames (first 1-2 seconds)
+        self._calculate_baseline(trajectories, task_type)
 
         if task_type == "gait":
             events.extend(self._detect_speed_drops(trajectories))
@@ -751,13 +967,112 @@ class EventDetector:
             events.extend(self._detect_finger_pauses(trajectories))
             events.extend(self._detect_rhythm_breaks(trajectories))
 
+        # Step 2: Filter by confidence
+        events = [e for e in events if e.get('confidence', 1.0) >= self.min_confidence]
+
+        # Step 3: Temporal filtering - merge nearby events of same type
+        events = self._merge_nearby_events(events, min_gap=0.5)
+
         # Sort by timestamp
         events.sort(key=lambda x: x['timestamp'])
 
         return events
 
+    def _calculate_baseline(self, trajectories: Dict, task_type: str):
+        """Calculate adaptive baseline from early video frames (first 1-2 seconds)"""
+        if len(trajectories.get('timestamps', [])) < 30:
+            return
+
+        timestamps = trajectories['timestamps']
+        baseline_end = min(int(self.fps * 1.5), len(timestamps) // 3)  # First 1.5s or 1/3 of video
+
+        if task_type == "finger_tapping":
+            left_hand = trajectories.get('left_index', trajectories.get('left_wrist', np.array([])))
+            right_hand = trajectories.get('right_index', trajectories.get('right_wrist', np.array([])))
+
+            if len(left_hand) > baseline_end and len(right_hand) > baseline_end:
+                dt = np.diff(timestamps[:baseline_end])
+                dt[dt <= 0] = 1.0 / self.fps
+
+                left_vel = np.linalg.norm(np.diff(left_hand[:baseline_end], axis=0), axis=1) / dt
+                right_vel = np.linalg.norm(np.diff(right_hand[:baseline_end], axis=0), axis=1) / dt
+
+                self.baseline['velocity_median'] = np.median(np.concatenate([left_vel, right_vel]))
+                self.baseline['velocity_std'] = np.std(np.concatenate([left_vel, right_vel]))
+                self.baseline['amplitude_left'] = np.ptp(left_hand[:baseline_end, 1])
+                self.baseline['amplitude_right'] = np.ptp(right_hand[:baseline_end, 1])
+
+        else:  # gait
+            left_hip = trajectories.get('left_hip', np.array([]))
+            right_hip = trajectories.get('right_hip', np.array([]))
+
+            if len(left_hip) > baseline_end:
+                hip_center = (left_hip[:baseline_end] + right_hip[:baseline_end]) / 2
+                dt = np.diff(timestamps[:baseline_end])
+                dt[dt <= 0] = 1.0 / self.fps
+
+                speeds = np.linalg.norm(np.diff(hip_center, axis=0), axis=1) / dt
+                self.baseline['speed_median'] = np.median(speeds)
+                self.baseline['speed_std'] = np.std(speeds)
+
+    def _merge_nearby_events(self, events: List[Dict], min_gap: float = 0.5) -> List[Dict]:
+        """Merge events of the same type that are close in time"""
+        if len(events) <= 1:
+            return events
+
+        # Sort by type, then by timestamp
+        events.sort(key=lambda x: (x['type'], x['timestamp']))
+
+        merged = []
+        i = 0
+
+        while i < len(events):
+            current = events[i].copy()
+            j = i + 1
+
+            # Find consecutive events of same type within min_gap
+            while j < len(events):
+                if events[j]['type'] != current['type']:
+                    break
+                if events[j]['timestamp'] - events[j-1]['timestamp'] > min_gap:
+                    break
+
+                # Merge: keep highest confidence, update description
+                if events[j].get('confidence', 0) > current.get('confidence', 0):
+                    current['confidence'] = events[j]['confidence']
+                j += 1
+
+            # If multiple events were merged, update description
+            if j - i > 1:
+                current['description'] += f" (x{j-i})"
+
+            merged.append(current)
+            i = j
+
+        return merged
+
+    def _calculate_confidence(self, deviation_ratio: float, min_ratio: float = 0.3, max_ratio: float = 1.0) -> float:
+        """
+        Calculate confidence score based on deviation from baseline
+
+        Args:
+            deviation_ratio: How much the value deviates (e.g., 0.5 = 50% deviation)
+            min_ratio: Minimum deviation for non-zero confidence
+            max_ratio: Deviation for maximum confidence
+
+        Returns:
+            Confidence score between 0 and 1
+        """
+        if deviation_ratio < min_ratio:
+            return 0.0
+        if deviation_ratio >= max_ratio:
+            return 1.0
+
+        # Linear interpolation
+        return (deviation_ratio - min_ratio) / (max_ratio - min_ratio)
+
     def _detect_speed_drops(self, trajectories: Dict) -> List[Dict]:
-        """Detect sudden speed drops (>30% decrease)"""
+        """Detect sudden speed drops with adaptive threshold and confidence"""
         events = []
 
         if len(trajectories['timestamps']) < 30:
@@ -781,29 +1096,46 @@ class EventDetector:
         # Smooth speeds
         speeds = savgol_filter(speeds, min(15, len(speeds) // 2 * 2 + 1), 3)
 
-        # Calculate rolling average
-        window = int(self.fps * 0.5)  # 0.5 second window
+        # Use adaptive baseline if available, else use median
+        baseline_speed = self.baseline.get('speed_median', np.median(speeds))
+        baseline_std = self.baseline.get('speed_std', np.std(speeds))
 
-        for i in range(window, len(speeds) - window):
+        # Adaptive threshold: minimum 20%, maximum 50% drop
+        min_drop_threshold = 20  # Minimum % drop to consider
+        high_confidence_drop = 40  # % drop for high confidence
+
+        window = int(self.fps * 0.5)  # 0.5 second window
+        i = window
+
+        while i < len(speeds) - window:
             prev_avg = np.mean(speeds[i-window:i])
             curr_avg = np.mean(speeds[i:i+window])
 
             if prev_avg > 0.01:  # Avoid division by zero
                 drop_percent = (prev_avg - curr_avg) / prev_avg * 100
 
-                if drop_percent > 30:  # 30% speed drop threshold
+                if drop_percent > min_drop_threshold:
+                    # Calculate confidence based on drop magnitude
+                    confidence = self._calculate_confidence(
+                        drop_percent / 100,
+                        min_ratio=min_drop_threshold / 100,
+                        max_ratio=high_confidence_drop / 100
+                    )
+
                     events.append({
                         "timestamp": round(float(timestamps[i+1]), 2),
                         "type": "speed_drop",
-                        "description": f"속도 급감 ({int(drop_percent)}% 감소)"
+                        "description": f"속도 급감 ({int(drop_percent)}% 감소)",
+                        "confidence": round(confidence, 2)
                     })
                     # Skip ahead to avoid duplicate detections
                     i += window
+            i += 1
 
         return events[:5]  # Limit to 5 events
 
     def _detect_pauses(self, trajectories: Dict) -> List[Dict]:
-        """Detect movement pauses (very low velocity for extended period) - Gait"""
+        """Detect movement pauses with adaptive threshold and confidence - Gait"""
         events = []
 
         if len(trajectories['timestamps']) < 30:
@@ -824,10 +1156,14 @@ class EventDetector:
         if len(speeds) < 10:
             return events
 
-        # Find baseline speed (median)
-        baseline_speed = np.median(speeds)
-        pause_threshold = baseline_speed * 0.1  # 10% of baseline = pause
-        min_pause_frames = int(self.fps * 0.5)  # At least 0.5 seconds
+        # Use adaptive baseline if available
+        baseline_speed = self.baseline.get('speed_median', np.median(speeds))
+
+        # Adaptive threshold based on baseline
+        pause_threshold = baseline_speed * 0.15  # 15% of baseline = pause
+        min_pause_duration = 0.4  # At least 0.4 seconds
+        high_confidence_duration = 1.0  # 1 second pause = high confidence
+        min_pause_frames = int(self.fps * min_pause_duration)
 
         pause_start = None
         pause_count = 0
@@ -840,10 +1176,19 @@ class EventDetector:
             else:
                 if pause_count >= min_pause_frames and pause_start is not None:
                     pause_duration = pause_count / self.fps
+
+                    # Confidence based on pause duration
+                    confidence = self._calculate_confidence(
+                        pause_duration,
+                        min_ratio=min_pause_duration,
+                        max_ratio=high_confidence_duration
+                    )
+
                     events.append({
                         "timestamp": round(float(timestamps[pause_start+1]), 2),
                         "type": "pause",
-                        "description": f"멈춤 감지 ({pause_duration:.1f}초)"
+                        "description": f"멈춤 감지 ({pause_duration:.1f}초)",
+                        "confidence": round(confidence, 2)
                     })
                 pause_start = None
                 pause_count = 0
@@ -851,7 +1196,7 @@ class EventDetector:
         return events[:5]  # Limit to 5 events
 
     def _detect_finger_pauses(self, trajectories: Dict) -> List[Dict]:
-        """Detect tapping pauses for finger tapping task"""
+        """Detect tapping pauses with adaptive threshold and confidence"""
         events = []
 
         if len(trajectories['timestamps']) < 30:
@@ -872,10 +1217,14 @@ class EventDetector:
         right_vel = np.linalg.norm(np.diff(right_hand, axis=0), axis=1) / dt
         combined_vel = (left_vel + right_vel) / 2
 
-        # Find baseline (median)
-        baseline = np.median(combined_vel)
-        pause_threshold = baseline * 0.15  # 15% of baseline
-        min_pause_frames = int(self.fps * 0.3)  # At least 0.3 seconds
+        # Use adaptive baseline if available
+        baseline = self.baseline.get('velocity_median', np.median(combined_vel))
+
+        # Adaptive thresholds
+        pause_threshold = baseline * 0.2  # 20% of baseline (more lenient)
+        min_pause_duration = 0.3  # At least 0.3 seconds
+        high_confidence_duration = 0.8  # 0.8 second pause = high confidence
+        min_pause_frames = int(self.fps * min_pause_duration)
 
         pause_start = None
         pause_count = 0
@@ -888,10 +1237,19 @@ class EventDetector:
             else:
                 if pause_count >= min_pause_frames and pause_start is not None:
                     pause_duration = pause_count / self.fps
+
+                    # Confidence based on pause duration
+                    confidence = self._calculate_confidence(
+                        pause_duration,
+                        min_ratio=min_pause_duration,
+                        max_ratio=high_confidence_duration
+                    )
+
                     events.append({
                         "timestamp": round(float(timestamps[pause_start+1]), 2),
                         "type": "pause",
-                        "description": f"탭핑 멈춤 ({pause_duration:.1f}초)"
+                        "description": f"탭핑 멈춤 ({pause_duration:.1f}초)",
+                        "confidence": round(confidence, 2)
                     })
                 pause_start = None
                 pause_count = 0
@@ -899,7 +1257,7 @@ class EventDetector:
         return events[:5]
 
     def _detect_fatigue(self, trajectories: Dict) -> List[Dict]:
-        """Detect amplitude fatigue (progressive decrease in movement range)"""
+        """Detect amplitude fatigue with adaptive threshold and confidence (uses population stats)"""
         events = []
 
         if len(trajectories['timestamps']) < 60:  # Need enough data
@@ -916,6 +1274,17 @@ class EventDetector:
 
         # Calculate amplitude over time (sliding window)
         window_frames = int(self.fps * 1.0)  # 1 second window
+
+        # Get thresholds from population stats if available
+        if self.use_population_stats and self.population_stats:
+            stats = self.population_stats.get_stats('finger_tapping')
+            # Use p75 as the "moderate" threshold and p90 as "high confidence"
+            min_fatigue_percent = stats.get('amplitude_decrement_median', 10.0)
+            high_confidence_fatigue = stats.get('amplitude_decrement_p75', 20.0)
+        else:
+            # Fallback to hardcoded thresholds
+            min_fatigue_percent = 20  # Minimum 20% decrease to consider
+            high_confidence_fatigue = 40  # 40% decrease = high confidence
 
         # Check both hands
         for wrist, side in [(left_wrist, "왼손"), (right_wrist, "오른손")]:
@@ -938,17 +1307,25 @@ class EventDetector:
             if first_third > 0.01:
                 fatigue_percent = (first_third - last_third) / first_third * 100
 
-                if fatigue_percent > 30:  # 30% amplitude decrease
+                if fatigue_percent > min_fatigue_percent:
+                    # Calculate confidence
+                    confidence = self._calculate_confidence(
+                        fatigue_percent / 100,
+                        min_ratio=min_fatigue_percent / 100,
+                        max_ratio=high_confidence_fatigue / 100
+                    )
+
                     events.append({
                         "timestamp": round(float(timestamps[len(timestamps)//2]), 2),
                         "type": "fatigue",
-                        "description": f"피로 감지 - {side} 진폭 {int(fatigue_percent)}% 감소"
+                        "description": f"피로 감지 - {side} 진폭 {int(fatigue_percent)}% 감소",
+                        "confidence": round(confidence, 2)
                     })
 
         return events
 
     def _detect_rhythm_breaks(self, trajectories: Dict) -> List[Dict]:
-        """Detect rhythm irregularities in finger tapping"""
+        """Detect rhythm irregularities with adaptive threshold and confidence (uses population stats)"""
         events = []
 
         if len(trajectories['timestamps']) < 60:
@@ -963,6 +1340,21 @@ class EventDetector:
 
         dt = np.diff(timestamps)
         dt[dt <= 0] = 1.0 / self.fps
+
+        # Get thresholds from population stats if available
+        if self.use_population_stats and self.population_stats:
+            stats = self.population_stats.get_stats('finger_tapping')
+            # Rhythm variability from population data
+            # Convert to deviation ratio (rhythm_variability is in %, we need ratio)
+            median_variability = stats.get('rhythm_variability_median', 15.0)
+            p75_variability = stats.get('rhythm_variability_p75', 25.0)
+            # A rhythm break is when local variability exceeds the p75 of population
+            min_deviation = median_variability / 100.0  # Convert to ratio
+            high_confidence_deviation = p75_variability / 100.0
+        else:
+            # Fallback to hardcoded thresholds
+            min_deviation = 0.4  # 40% deviation minimum
+            high_confidence_deviation = 0.8  # 80% deviation = high confidence
 
         # Analyze both hands
         for hand, side in [(left_hand, "왼손"), (right_hand, "오른손")]:
@@ -983,41 +1375,83 @@ class EventDetector:
             # Calculate intervals
             intervals = np.diff(timestamps[peaks])
             mean_interval = np.mean(intervals)
+            std_interval = np.std(intervals)
 
-            # Find rhythm breaks (>50% deviation from mean)
+            # Find rhythm breaks (deviation from mean)
             for i, interval in enumerate(intervals):
-                if abs(interval - mean_interval) / mean_interval > 0.5:
+                deviation_ratio = abs(interval - mean_interval) / (mean_interval + 0.001)
+
+                if deviation_ratio > min_deviation:
+                    # Calculate confidence based on deviation magnitude
+                    confidence = self._calculate_confidence(
+                        deviation_ratio,
+                        min_ratio=min_deviation,
+                        max_ratio=high_confidence_deviation
+                    )
+
                     events.append({
                         "timestamp": round(float(timestamps[peaks[i+1]]), 2),
                         "type": "rhythm_break",
-                        "description": f"{side} 리듬 불규칙 (간격 {interval*1000:.0f}ms, 평균 {mean_interval*1000:.0f}ms)"
+                        "description": f"{side} 리듬 불규칙 ({interval*1000:.0f}ms, 평균 {mean_interval*1000:.0f}ms)",
+                        "confidence": round(confidence, 2)
                     })
 
         return events[:5]
 
     def _detect_asymmetry_events(self, trajectories: Dict, gait_analysis: Optional[Dict]) -> List[Dict]:
-        """Detect significant asymmetry events"""
+        """Detect significant asymmetry events with confidence (uses population stats)"""
         events = []
+
+        # Get thresholds from population stats if available
+        if self.use_population_stats and self.population_stats:
+            stats = self.population_stats.get_stats('gait')
+            # Use median as minimum and p75 as "high confidence"
+            min_asymmetry = stats.get('step_length_asymmetry_median', 5.0)
+            high_confidence_asymmetry = stats.get('step_length_asymmetry_p75', 10.0)
+        else:
+            # Fallback to hardcoded thresholds
+            min_asymmetry = 10  # 10% minimum to consider
+            high_confidence_asymmetry = 25  # 25% = high confidence
 
         if gait_analysis:
             asym = gait_analysis.get('asymmetry_percent', {})
 
             # Check step length asymmetry
             step_asym = abs(asym.get('step_length', 0))
-            if step_asym > 15:  # >15% asymmetry is clinically significant
+            if step_asym > min_asymmetry:
+                confidence = self._calculate_confidence(
+                    step_asym / 100,
+                    min_ratio=min_asymmetry / 100,
+                    max_ratio=high_confidence_asymmetry / 100
+                )
                 events.append({
                     "timestamp": 0.0,
                     "type": "asymmetry",
-                    "description": f"보폭 비대칭 {int(step_asym)}%"
+                    "description": f"보폭 비대칭 {int(step_asym)}%",
+                    "confidence": round(confidence, 2)
                 })
 
-            # Check swing time asymmetry
+            # Check swing time asymmetry (use separate thresholds if available)
             swing_asym = abs(asym.get('swing_time', 0))
-            if swing_asym > 15:
+            if self.use_population_stats and self.population_stats:
+                stats = self.population_stats.get_stats('gait')
+                swing_min = stats.get('swing_time_asymmetry_median', min_asymmetry)
+                swing_high = stats.get('swing_time_asymmetry_p75', high_confidence_asymmetry)
+            else:
+                swing_min = min_asymmetry
+                swing_high = high_confidence_asymmetry
+
+            if swing_asym > swing_min:
+                confidence = self._calculate_confidence(
+                    swing_asym / 100,
+                    min_ratio=swing_min / 100,
+                    max_ratio=swing_high / 100
+                )
                 events.append({
                     "timestamp": 0.0,
                     "type": "asymmetry",
-                    "description": f"스윙 시간 비대칭 {int(swing_asym)}%"
+                    "description": f"스윙 시간 비대칭 {int(swing_asym)}%",
+                    "confidence": round(confidence, 2)
                 })
 
         return events
@@ -1046,7 +1480,8 @@ def generate_visualization_data(landmark_frames: List[Dict],
 def detect_events(landmark_frames: List[Dict],
                   gait_analysis: Optional[Dict] = None,
                   fps: float = 30.0,
-                  task_type: str = "gait") -> List[Dict]:
+                  task_type: str = "gait",
+                  use_population_stats: bool = True) -> List[Dict]:
     """
     Convenience function to detect events
 
@@ -1055,6 +1490,7 @@ def detect_events(landmark_frames: List[Dict],
         gait_analysis: Optional pre-computed gait analysis
         fps: Video frame rate
         task_type: 'gait' or 'finger_tapping'
+        use_population_stats: Whether to use population-based thresholds from training data
 
     Returns:
         List of detected events
@@ -1066,5 +1502,33 @@ def detect_events(landmark_frames: List[Dict],
     else:
         trajectories = generator._extract_trajectories(landmark_frames)
 
-    detector = EventDetector(fps=fps)
+    detector = EventDetector(fps=fps, use_population_stats=use_population_stats)
     return detector.detect_events(trajectories, gait_analysis, task_type)
+
+
+def get_population_stats_info(task_type: str = "gait") -> Dict:
+    """
+    Get information about the population statistics being used for event detection.
+    Useful for debugging and transparency.
+
+    Args:
+        task_type: 'gait' or 'finger_tapping'
+
+    Returns:
+        Dict with threshold information
+    """
+    try:
+        loader = PopulationStatsLoader.get_instance()
+        stats = loader.get_stats(task_type)
+        return {
+            "source": "training_data" if stats else "defaults",
+            "task_type": task_type,
+            "thresholds": stats
+        }
+    except Exception as e:
+        return {
+            "source": "defaults",
+            "task_type": task_type,
+            "error": str(e),
+            "thresholds": {}
+        }

@@ -9,7 +9,8 @@ interface SOAPNoteProps {
     taskType: string
     metrics?: Record<string, number>
     updrsScore?: {
-        score: number
+        score?: number
+        total_score?: number
         severity: string
         confidence?: number
     }
@@ -39,9 +40,9 @@ const REFERENCE_RANGES: Record<string, Record<string, { mean: number; std: numbe
 // UPDRS item mapping
 const UPDRS_ITEMS: Record<string, string> = {
     finger_tapping: '3.4 Finger Tapping',
-    hand_movement: '3.5 Hand Movements',
+    // hand_movement: '3.5 Hand Movements',  // Not implemented yet
     gait: '3.10 Gait',
-    leg_agility: '3.8 Leg Agility'
+    // leg_agility: '3.8 Leg Agility'  // Not implemented yet
 }
 
 // Medical terminology for severity
@@ -71,7 +72,8 @@ export function SOAPNote({ taskType, metrics, updrsScore, aiInterpretation, pati
 
         // Line 1: UPDRS Score
         if (updrsScore) {
-            lines.push(`UPDRS-III ${updrsItem}: ${updrsScore.score}/4`)
+            const scoreValue = updrsScore.total_score ?? updrsScore.score ?? '-'
+            lines.push(`UPDRS-III ${updrsItem}: ${scoreValue}/4`)
         }
 
         // Line 2-3: Top 2 key metrics only

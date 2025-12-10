@@ -61,7 +61,7 @@ export function ReasoningLogViewer({ logs, className }: ReasoningLogViewerProps)
             {logs.map((log, index) => (
               <div key={index} className="flex gap-3 text-sm animate-in slide-in-from-left-2 fade-in duration-300" style={{ animationDelay: `${index * 50}ms` }}>
                 <div className="flex flex-col items-center gap-1 mt-0.5">
-                  <div className={cn("p-1.5 rounded-full border", getAgentColor(log.agent))}>
+                  <div className={cn("p-1.5 rounded-full border", getAgentColor(log.agent || ""))}>
                     {getAgentIcon(log.agent || log.step || "")}
                   </div>
                   {index < logs.length - 1 && (
@@ -71,7 +71,7 @@ export function ReasoningLogViewer({ logs, className }: ReasoningLogViewerProps)
                 <div className="flex-1 space-y-1 pb-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full border", getAgentColor(log.agent))}>
+                      <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full border", getAgentColor(log.agent || ""))}>
                         {(log.agent || 'UNKNOWN').toUpperCase()}
                       </span>
                       <span className="font-medium text-slate-200">{log.step}</span>

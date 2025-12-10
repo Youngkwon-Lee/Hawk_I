@@ -1,11 +1,14 @@
 import os
 import re
+import glob
 from openai import OpenAI
 from typing import List, Dict, Any, Tuple, Optional
 from services.vlm_scorer import VLMScorer
 
 
 class ChatService:
+    # Default upload folder
+    UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
     # VLM trigger keywords
     VLM_KEYWORDS = [
         "vlm", "gpt-4v", "gpt4v", "비전", "vision",
@@ -66,14 +69,18 @@ class ChatService:
         # Get video path and task type from context
         video_path = context.get("video_path")
         task_type = context.get("video_type") or context.get("task_type")
-        ml_score = context.get("updrs_score", {}).get("score")
+        ml_score = context.get("updrs_score", {}).get("score") if context.get("updrs_score") else None
         video_id = context.get("id") or context.get("video_id")
+
+        # If video_path is not provided, try to find it using video_id
+        if not video_path and video_id:
+            video_path = self._find_video_path(video_id)
 
         if not video_path:
             return "죄송합니다. 분석할 영상 정보가 없습니다. 먼저 영상 분석을 진행해주세요.", None
 
         if not os.path.exists(video_path):
-            return f"죄송합니다. 원본 영상 파일을 찾을 수 없습니다.", None
+            return f"죄송합니다. 원본 영상 파일을 찾을 수 없습니다: {video_path}", None
 
         if not task_type:
             return "죄송합니다. 검사 유형을 알 수 없습니다.", None
@@ -87,6 +94,37 @@ class ChatService:
         else:
             error_msg = result.get("error", "알 수 없는 오류")
             return f"VLM 분석 중 오류가 발생했습니다: {error_msg}", None
+
+    def _find_video_path(self, video_id: str) -> Optional[str]:
+        """
+        Find video path using video_id.
+        Videos are saved with pattern: {video_id}_{original_filename}
+        """
+        if not video_id:
+            return None
+
+        # Check if upload folder exists
+        if not os.path.exists(self.UPLOAD_FOLDER):
+            print(f"Upload folder not found: {self.UPLOAD_FOLDER}")
+            return None
+
+        # Search for video files matching the video_id pattern
+        video_extensions = ['*.mp4', '*.avi', '*.mov', '*.webm', '*.mkv']
+
+        for ext in video_extensions:
+            # Pattern: video_id_*.ext (e.g., 12-105182_r_1765329945_*.mp4)
+            pattern = os.path.join(self.UPLOAD_FOLDER, f"{video_id}*{ext[1:]}")
+            matches = glob.glob(pattern)
+
+            # Filter out result files, skeleton videos, etc.
+            for match in matches:
+                basename = os.path.basename(match).lower()
+                if not any(x in basename for x in ['_result', '_skeleton', '_heatmap', '_temporal']):
+                    print(f"Found video for VLM analysis: {match}")
+                    return match
+
+        print(f"No video found for video_id: {video_id}")
+        return None
 
     def _get_chat_response(self, message: str, context: Dict[str, Any] = None) -> str:
         """Get regular chat response"""

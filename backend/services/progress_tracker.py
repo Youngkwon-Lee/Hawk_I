@@ -58,13 +58,16 @@ def init_analysis(video_id: str, task_type: str = "gait"):
         "status": "in_progress",
         "task_type": task_type,
         "steps": {
-            "skeleton": {"status": "pending", "result_url": None},
             "roi_detection": {"status": "pending", "result_url": None},
+            "skeleton": {"status": "pending", "result_url": None},
             "heatmap": {"status": "pending", "result_url": None},
             "temporal_map": {"status": "pending", "result_url": None},
             "attention_map": {"status": "pending", "result_url": None},
             "overlay_video": {"status": "pending", "result_url": None},
+            "metrics": {"status": "pending", "result_url": None},
             "updrs_calculation": {"status": "pending", "result_url": None},
+            "gait_cycle": {"status": "pending", "result_url": None},
+            "validation": {"status": "pending", "result_url": None},
             "ai_interpretation": {"status": "pending", "result_url": None}
         }
     }

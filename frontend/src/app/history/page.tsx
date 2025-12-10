@@ -33,8 +33,8 @@ const severityColors: Record<string, string> = {
 const taskTypeColors: Record<string, string> = {
   "finger_tapping": "#3b82f6",
   "gait": "#10b981",
-  "hand_movement": "#8b5cf6",
-  "leg_agility": "#f59e0b"
+  // "hand_movement": "#8b5cf6",  // Not implemented yet
+  // "leg_agility": "#f59e0b"  // Not implemented yet
 }
 
 const scoreColors = ["#10b981", "#3b82f6", "#f59e0b", "#f97316", "#ef4444"]
@@ -158,8 +158,8 @@ export default function HistoryPage() {
                       <option value="">전체</option>
                       <option value="finger_tapping">Finger Tapping</option>
                       <option value="gait">Gait</option>
-                      <option value="hand_movement">Hand Movement</option>
-                      <option value="leg_agility">Leg Agility</option>
+                      {/* <option value="hand_movement">Hand Movement</option> */}
+                      {/* <option value="leg_agility">Leg Agility</option> */}
                     </select>
                   </div>
                   <div>

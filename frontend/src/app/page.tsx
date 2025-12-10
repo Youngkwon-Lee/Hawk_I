@@ -12,13 +12,13 @@ export default function Home() {
         <div className="space-y-6 max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
           <div className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
             <span className="flex h-2 w-2 rounded-full bg-primary mr-2"></span>
-            AI-Powered Parkinson's Analysis
+            AI-Powered Parkinson&apos;s Analysis
           </div>
           <h1 className="text-4xl font-extrabold tracking-tight lg:text-6xl bg-gradient-to-r from-white via-white to-gray-400 bg-clip-text text-transparent">
             Track Your Movement Changes with Data
           </h1>
           <p className="text-lg text-muted-foreground md:text-xl max-w-2xl mx-auto">
-            Your personal AI assistant for tracking Parkinson's related movement patterns using just your smartphone camera.
+            Your personal AI assistant for tracking Parkinson&apos;s related movement patterns using just your smartphone camera.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
             <Link href="/test">

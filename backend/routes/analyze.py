@@ -25,7 +25,7 @@ from services.progress_tracker import init_analysis, update_step, complete_analy
 from services.visualization_data_generator import generate_visualization_data, detect_events
 from agents.orchestrator import OrchestratorAgent
 from domain.context import AnalysisContext
-from dataclasses import asdict
+# asdict no longer needed - clinical_scores already converted in ClinicalAgent
 
 bp = Blueprint('analyze', __name__, url_prefix='/api')
 
@@ -114,7 +114,7 @@ def process_video_background(video_path, video_id, patient_id, manual_test_type,
 
         # Prepare Response
         
-        # Convert objects to dicts
+        # clinical_scores is already a dict (converted in ClinicalAgent)
         updrs_dict = updrs_result if updrs_result else None
         
         ai_interpretation = None

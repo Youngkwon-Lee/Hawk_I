@@ -99,12 +99,13 @@ def compute_task_stats(df: pd.DataFrame, task_type: str) -> dict:
             'velocity_variability': '속도 변동성 (%)'
         }
     else:  # gait
+        # Map to actual CSV column names
         metrics = {
-            'walking_speed': 'velocity_mean' if 'velocity_mean' in df.columns else 'speed',
-            'stride_length': 'stride_length' if 'stride_length' in df.columns else 'step_length',
-            'cadence': 'cadence' if 'cadence' in df.columns else 'step_frequency',
-            'stride_variability': 'stride_variability' if 'stride_variability' in df.columns else 'cv_stride',
-            'arm_swing_asymmetry': 'arm_swing_asymmetry' if 'arm_swing_asymmetry' in df.columns else 'asymmetry'
+            'walking_speed': 'walking_speed',
+            'stride_length': 'stride_length',
+            'cadence': 'cadence',
+            'stride_variability': 'stride_variability',
+            'arm_swing_asymmetry': 'arm_swing_asymmetry'
         }
         display_names = {
             'walking_speed': '보행 속도 (m/s)',
@@ -263,7 +264,12 @@ def get_task_stats(task_type: str):
             'error': f'Unknown task type: {task_type}'
         }), 404
 
+    task_stats = stats[task_type_normalized]
+    # If total_samples is 0, it means fallback data is being used
+    is_fallback = task_stats.get('total_samples', 0) == 0
+    
     return jsonify({
         'success': True,
-        'data': stats[task_type_normalized]
+        'data': task_stats,
+        'is_fallback': is_fallback
     })

@@ -24,6 +24,8 @@ export interface GaitMetrics {
   arm_swing_asymmetry: number
   step_count: number
   duration: number
+  decrement_ratio?: number
+  fatigue_index?: number
 }
 
 export interface TimelineEvent {
@@ -34,6 +36,8 @@ export interface TimelineEvent {
 
 export interface AnalysisResult {
   success: boolean
+  id?: string
+  video_id?: string
   video_type: string
   confidence: number
   auto_detected: boolean
@@ -73,7 +77,14 @@ export interface AnalysisResult {
   } | null
   updrs_score?: {
     score: number
+    total_score?: number
     severity: string
+    method?: string
+    confidence?: number
+    details?: {
+      rule?: number
+      ml?: number
+    }
   } | null
   ai_interpretation?: {
     summary: string
@@ -90,6 +101,12 @@ export interface AnalysisResult {
     heatmap?: string
     temporal_map?: string
     attention_map?: string
+  } | null
+  visualization_data?: {
+    joint_angles?: Array<{ frame: number; angles: Record<string, number> }>
+    symmetry?: { left: number; right: number; ratio: number }
+    gait_cycles?: Array<{ cycle: number; stance: number; swing: number }>
+    speed_profile?: Array<{ frame: number; speed: number }>
   } | null
   events?: TimelineEvent[]
 }
@@ -237,9 +254,9 @@ export async function getAnalysisResult(videoId: string): Promise<AnalysisResult
 export function formatVideoType(videoType: string): string {
   const typeMap: Record<string, string> = {
     'finger_tapping': 'Finger Tapping',
-    'hand_movement': 'Hand Movement',
+    // 'hand_movement': 'Hand Movement',  // Not implemented yet
     'gait': 'Gait',
-    'leg_agility': 'Leg Agility',
+    // 'leg_agility': 'Leg Agility',  // Not implemented yet
     'pronation_supination': 'Pronation-Supination',
     'unknown': 'Unknown'
   }
@@ -253,9 +270,9 @@ export function formatVideoType(videoType: string): string {
 export function getVideoTypeColor(videoType: string): string {
   const colorMap: Record<string, string> = {
     'finger_tapping': 'blue',
-    'hand_movement': 'purple',
+    // 'hand_movement': 'purple',  // Not implemented yet
     'gait': 'green',
-    'leg_agility': 'orange',
+    // 'leg_agility': 'orange',  // Not implemented yet
     'pronation_supination': 'pink',
     'unknown': 'gray'
   }
