@@ -1,9 +1,9 @@
 # Nixpacks configuration for Railway
 [phases.setup]
-nixPkgs = ["python311", "ffmpeg"]
+nixPkgs = ["python311", "python311Packages.pip", "ffmpeg"]
 
 [phases.install]
-cmds = ["cd backend && pip install --upgrade pip && pip install -r requirements.txt"]
+cmds = ["cd backend && python -m pip install --upgrade pip && python -m pip install -r requirements.txt"]
 
 [start]
-cmd = "cd backend && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300"
+cmd = "cd backend && python -m gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300"
