@@ -72,7 +72,8 @@ export function SOAPNote({ taskType, metrics, updrsScore, aiInterpretation, pati
 
         // Line 1: UPDRS Score
         if (updrsScore) {
-            const scoreValue = updrsScore.total_score ?? updrsScore.score ?? '-'
+            const rawScore = updrsScore.total_score ?? updrsScore.score
+            const scoreValue = rawScore !== undefined ? Math.round(rawScore) : '-'
             lines.push(`UPDRS-III ${updrsItem}: ${scoreValue}/4`)
         }
 
@@ -151,7 +152,8 @@ export function SOAPNote({ taskType, metrics, updrsScore, aiInterpretation, pati
 
         if (format === 'compact') {
             // Compact single-line format for EMR
-            const score = updrsScore?.score ?? '-'
+            const rawScore = updrsScore?.total_score ?? updrsScore?.score
+            const score = rawScore !== undefined ? Math.round(rawScore) : '-'
             return `[${taskName}] UPDRS ${score}/4. ${objective.split('\n').slice(1).join(', ')}. ${assessment.split('\n')[0]}`
         }
 
