@@ -514,6 +514,7 @@ def main():
         scaler = GradScaler()
 
         best_mae = float('inf')
+        best_metrics = None
         patience_counter = 0
 
         for epoch in tqdm(range(Config.EPOCHS), desc=f"Fold {fold+1}"):
@@ -534,6 +535,11 @@ def main():
                 if patience_counter >= Config.PATIENCE:
                     print(f"  Early stopping at epoch {epoch+1}")
                     break
+
+        if best_metrics is None:
+            print("  Warning: No metrics computed, using last epoch")
+            preds, labels = evaluate(model, val_loader, device)
+            best_metrics = compute_metrics(preds, labels)
 
         fold_results.append(best_metrics)
         print(f"  Best MAE: {best_metrics['mae']:.3f}, Exact: {best_metrics['exact']*100:.1f}%, Pearson: {best_metrics['pearson']:.3f}")
