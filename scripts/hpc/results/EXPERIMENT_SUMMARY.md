@@ -1,5 +1,5 @@
 # Hawkeye HPC Training Experiments Summary
-Last Updated: 2025-12-22 (Gait CORAL Ordinal 완료 - 새로운 SOTA!)
+Last Updated: 2025-12-22 (CORAL + Enhanced 앙상블 실험 완료 - 중요 발견!)
 
 ## 🏆 Overall Rankings (Updated 2025-12-22)
 
@@ -288,27 +288,84 @@ Last Updated: 2025-12-22 (Gait CORAL Ordinal 완료 - 새로운 SOTA!)
   - Finger에서도 성능 향상 없었음 (0.580 vs Enhanced 0.609)
   - **결론**: Enhanced features (velocity, acceleration)가 충분히 효과적
 
+### 20. Ensemble: CORAL + Enhanced (Finger Tapping) ❌ FAILED
+- Date: 2025-12-22 19:26
+- Method: Test multiple weight combinations (CORAL + MSE-Enhanced)
+- Epochs: 200 per model, 5-Fold CV
+- Data: Enhanced features (703, 150, 123)
+- Weight combinations tested: 7 (0.0~1.0, step 0.1)
+- **Results**:
+  - CORAL Only: MAE 0.494, Exact 54.2%, Pearson 0.353
+  - MSE Only: MAE 0.622, Exact 48.9%, Pearson 0.359
+  - **Best Ensemble (0.5/0.5)**: MAE 0.541, Exact 55.6%, Pearson 0.410
+- **비교 (vs 개별 CORAL with Raw Skeleton)**:
+  - MAE: 0.370 → 0.494 (**33% 나빠짐!** ❌)
+  - Exact: 64.8% → 54.2% (**-10.6%p** ❌)
+  - Pearson: 0.555 → 0.353 (**-36% 하락!** ❌)
+- **분석**:
+  - **CORAL + Enhanced features 궁합 매우 나쁨**
+  - 앙상블도 개별 모델보다 나쁨
+  - **Gait와 동일한 문제** - CORAL은 raw skeleton에 최적화됨
+
+### 21. Ensemble: CORAL + Enhanced (Gait) ❌ FAILED
+- Date: 2025-12-22 19:26
+- Method: Test multiple weight combinations (CORAL + MSE-Enhanced)
+- Epochs: 200 per model, 5-Fold CV
+- Data: Enhanced features (426, 300, 210)
+- Weight combinations tested: 7 (0.0~1.0, step 0.1)
+- **Results**:
+  - CORAL Only: MAE 0.646, Exact 41.8%, Pearson 0.467
+  - MSE Only: MAE 0.771, Exact 38.3%, Pearson 0.388
+  - **Best Ensemble (0.7/0.3)**: MAE 0.664, Exact 42.0%, Pearson 0.516
+- **비교 (vs 개별 CORAL with Raw Skeleton)**:
+  - MAE: 0.241 → 0.646 (**2.7배 나빠짐!** ❌)
+  - Exact: 76.5% → 41.8% (**-34.7%p 폭락!** ❌)
+  - Pearson: 0.807 → 0.467 (**-42% 하락!** ❌)
+- **분석**:
+  - **CORAL + Enhanced features 완전 실패**
+  - **ALL metrics 대폭 하락** - 앙상블의 의미 없음
+  - **핵심 발견**: CORAL Ordinal은 raw skeleton data에서만 작동
+
 ## Key Insights
 
 1. **🏆🔥 Gait CORAL Ordinal = NEW SOTA!** - Pearson 0.807, MAE 0.241, Exact 76.5%
    - **모든 지표에서 최고 성능** (전례 없는 결과!)
    - 의료 AI 실용화 수준 초과 달성
-2. **CORAL Ordinal의 Task별 차이**:
-   - **Gait**: 모든 지표 개선 (MAE 28.1%↓, Exact 4.6%p↑, Pearson 0.4%↑)
-   - **Finger**: MAE/Exact만 개선, Pearson 감소 (트레이드오프)
+
+2. **🚨 CRITICAL: CORAL Ordinal + Enhanced Features = 완전 실패!**
+   - **Gait**: MAE 2.7배↑, Exact -34.7%p, Pearson -42% (실험 20, 21)
+   - **Finger**: MAE 33%↑, Exact -10.6%p, Pearson -36%
+   - **핵심 발견**: **CORAL은 raw skeleton data에서만 작동**
+   - Enhanced features (velocity, acceleration)와 궁합 매우 나쁨
+   - **앙상블도 효과 없음** - 오히려 성능 하락
+
+3. **CORAL Ordinal의 Task별 차이**:
+   - **Gait (raw skeleton)**: 모든 지표 개선 (MAE 28.1%↓, Exact 4.6%p↑, Pearson 0.4%↑)
+   - **Finger (raw skeleton)**: MAE/Exact만 개선, Pearson 감소 (트레이드오프)
    - **Gait가 Ordinal 접근에 더 적합**
-3. **Gait > Finger Tapping** - Gait task가 더 높은 성능 (전신 움직임 정보가 더 풍부)
-4. **모델 선택 기준**:
-   - **Gait**: CORAL Ordinal (모든 지표 최고)
+
+4. **Gait > Finger Tapping** - Gait task가 더 높은 성능 (전신 움직임 정보가 더 풍부)
+
+5. **모델 선택 기준**:
+   - **Gait**: CORAL Ordinal (**raw skeleton only!**) - 모든 지표 최고
    - **Finger (Pearson)**: Mamba + Enhanced (0.609)
-   - **Finger (MAE/Exact)**: CORAL Ordinal (0.370, 64.8%)
-5. **Feature engineering 효과**:
-   - Enhanced (velocity, acceleration): 효과적 ✅
-   - Advanced (IQR, entropy): 효과 없음/불안정 ❌
-6. **Clinical features는 도움 안됨** ❌
+   - **Finger (MAE/Exact)**: CORAL Ordinal (**raw skeleton only!**) - 0.370, 64.8%
+
+6. **Feature engineering 효과** (모델별로 다름!):
+   - **Mamba + MSE**: Enhanced features 효과적 ✅
+   - **CORAL Ordinal**: Enhanced features 사용 금지! ❌
+   - **Advanced (IQR, entropy)**: 모든 모델에서 효과 없음/불안정 ❌
+
+7. **Clinical features는 도움 안됨** ❌
    - Enhanced + Clinical (0.570) < Enhanced only (0.609)
-7. **State Space Models (Mamba)** outperform Transformers on skeleton time series
-8. **Within1 99.4%** - 거의 모든 예측이 정답 ±1 이내
+
+8. **State Space Models (Mamba)** outperform Transformers on skeleton time series
+
+9. **Within1 99.4%** - 거의 모든 예측이 정답 ±1 이내
+
+10. **Hand Movement, Leg Agility 전략**:
+    - **CORAL Ordinal 사용 시 → raw skeleton data만!**
+    - Feature engineering 제거 필수
 
 ## Best Model Selection
 
