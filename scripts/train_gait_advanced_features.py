@@ -446,18 +446,31 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # Load Gait data
-    gait_data_path = os.path.join(Config.DATA_DIR, "gait_skeleton_data.pkl")
-    if not os.path.exists(gait_data_path):
-        gait_data_path = "./data/gait_skeleton_data.pkl"
+    # Load Gait data (same as ordinal script)
+    data_paths = [
+        (os.path.join(Config.DATA_DIR, "gait_train.pkl"), os.path.join(Config.DATA_DIR, "gait_test.pkl")),
+        ("./gait_train.pkl", "./gait_test.pkl"),
+    ]
 
-    print(f"Loading Gait data from: {gait_data_path}")
+    train_path, test_path = None, None
+    for tp, vp in data_paths:
+        if os.path.exists(tp):
+            train_path, test_path = tp, vp
+            break
 
-    with open(gait_data_path, 'rb') as f:
-        data = pickle.load(f)
+    if train_path is None:
+        raise FileNotFoundError(f"Could not find gait data. Tried: {data_paths}")
 
-    X = np.array(data['sequences'])
-    y = np.array(data['labels'])
+    print(f"Loading Gait data from: {train_path}")
+
+    with open(train_path, 'rb') as f:
+        train_data = pickle.load(f)
+    with open(test_path, 'rb') as f:
+        test_data = pickle.load(f)
+
+    # Combine train and test for cross-validation
+    X = np.concatenate([train_data['X'], test_data['X']], axis=0)
+    y = np.concatenate([train_data['y'], test_data['y']], axis=0)
 
     print(f"Original data: {X.shape}")
 
