@@ -34,7 +34,7 @@ class Config:
 
     BATCH_SIZE = 32
     EPOCHS = 200
-    LEARNING_RATE = 0.0005
+    LEARNING_RATE = 0.0001  # Reduced from 0.0005 for numerical stability
     WEIGHT_DECAY = 0.02
     PATIENCE = 30
     N_FOLDS = 5
@@ -286,7 +286,8 @@ class MambaBlock(nn.Module):
 
         for t in range(T):
             # SSM state update: state = exp(-dt) * state + B * input
-            decay = torch.exp(-dt[:, t].mean(dim=-1, keepdim=True))  # Average decay
+            # Clamp to prevent overflow/underflow (numerical stability)
+            decay = torch.exp(torch.clamp(-dt[:, t].mean(dim=-1, keepdim=True), min=-10, max=10))
             state = state * decay + B_t[:, t] * D_t[:, t]  # Both (B, state_size)
             # Output: y = C * state
             y_t = (C_t[:, t] * state).sum(dim=-1, keepdim=True)  # (B, 1)
@@ -467,6 +468,9 @@ def train_epoch(model, loader, criterion, optimizer, scaler, device):
             loss = criterion(logits, y)
 
         scaler.scale(loss).backward()
+        # Gradient clipping to prevent explosion
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         scaler.step(optimizer)
         scaler.update()
 
