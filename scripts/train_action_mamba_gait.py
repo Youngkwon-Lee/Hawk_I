@@ -257,6 +257,7 @@ class MambaBlock(nn.Module):
         self.dt_proj = nn.Linear(expanded, expanded)
         self.B_proj = nn.Linear(expanded, state_size)
         self.C_proj = nn.Linear(expanded, state_size)
+        self.D_proj = nn.Linear(expanded, state_size)  # Project input to state dimension
 
         self.out_proj = nn.Linear(expanded, hidden_size)
         self.dropout = nn.Dropout(dropout)
@@ -275,19 +276,24 @@ class MambaBlock(nn.Module):
         x_conv = x_conv.transpose(1, 2)
         x_conv = F.silu(x_conv)
 
-        dt = F.softplus(self.dt_proj(x_conv))
-        B_t = self.B_proj(x_conv)
-        C_t = self.C_proj(x_conv)
+        dt = F.softplus(self.dt_proj(x_conv))  # (B, T, expanded)
+        B_t = self.B_proj(x_conv)  # (B, T, state_size)
+        C_t = self.C_proj(x_conv)  # (B, T, state_size)
+        D_t = self.D_proj(x_conv)  # (B, T, state_size) - project input to state dim
 
         state = torch.zeros(B, self.state_size, device=x.device)
         outputs = []
 
         for t in range(T):
-            state = state * torch.exp(-dt[:, t]) + B_t[:, t].unsqueeze(-1) * x_conv[:, t].unsqueeze(1)
-            y_t = (C_t[:, t].unsqueeze(1) @ state.unsqueeze(-1)).squeeze(-1)
+            # SSM state update: state = exp(-dt) * state + B * input
+            decay = torch.exp(-dt[:, t].mean(dim=-1, keepdim=True))  # Average decay
+            state = state * decay + B_t[:, t] * D_t[:, t]  # Both (B, state_size)
+            # Output: y = C * state
+            y_t = (C_t[:, t] * state).sum(dim=-1, keepdim=True)  # (B, 1)
             outputs.append(y_t)
 
-        y = torch.stack(outputs, dim=1)
+        y = torch.stack(outputs, dim=1)  # (B, T, 1)
+        y = y.expand(-1, -1, x_main.size(-1))  # Expand to match x_main
         y = y * F.silu(x_gate)
         y = self.out_proj(y)
         y = self.dropout(y)
