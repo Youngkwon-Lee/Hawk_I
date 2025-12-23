@@ -289,6 +289,8 @@ class MambaBlock(nn.Module):
             # Clamp to prevent overflow/underflow (numerical stability)
             decay = torch.exp(torch.clamp(-dt[:, t].mean(dim=-1, keepdim=True), min=-10, max=10))
             state = state * decay + B_t[:, t] * D_t[:, t]  # Both (B, state_size)
+            # Prevent state explosion
+            state = torch.clamp(state, min=-10, max=10)
             # Output: y = C * state
             y_t = (C_t[:, t] * state).sum(dim=-1, keepdim=True)  # (B, 1)
             outputs.append(y_t)
