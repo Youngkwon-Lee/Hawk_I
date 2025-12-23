@@ -181,6 +181,192 @@ python scripts/extract_features.py
 | `xgb_gait_scorer.pkl` | XGBoost (Gait) |
 | `*_scaler.pkl` | Feature Scaler |
 
+## Recent Model Training Results (2025-12-16 ~ 2025-12-23)
+
+### Best Performing Models (HPC Training)
+
+#### Gait Task
+| Model | MAE | Exact | Within1 | Pearson | Status |
+|-------|-----|-------|---------|---------|--------|
+| **CORAL Ordinal** | **0.241** | **76.5%** | **100%** | **0.807** | ✅ **Production** |
+| Mamba + Enhanced | 0.335 | 71.9% | 99.4% | 0.804 | ✅ Baseline |
+| ActionMamba (Mamba+GCN) | 0.342 | 69.7% | 98.8% | 0.699 | ❌ Unstable |
+
+**Decision**: Use **CORAL Ordinal** for Gait (best overall performance)
+
+#### Finger Tapping Task
+| Model | MAE | Exact | Within1 | Pearson | Status |
+|-------|-----|-------|---------|---------|--------|
+| **Mamba + Enhanced Features** | 0.444 | 63.0% | 97.9% | **0.609** | ✅ **Production** |
+| CORAL Ordinal | 0.370 | 64.8% | 98.4% | 0.555 | ✅ Best MAE/Exact |
+| ActionMamba (Mamba+GCN) | 0.380 | 64.3% | 97.9% | 0.507 | ❌ Worse |
+| Mamba + Clinical V1 | 0.454 | 63.7% | 98.2% | 0.578 | ⚠️ Worse |
+
+**Decision**: Use **Mamba + Enhanced Features** for Finger Tapping (best Pearson 0.609)
+
+#### Hand Movement Task
+| Model | MAE | Exact | Within1 | Pearson | Status |
+|-------|-----|-------|---------|---------|--------|
+| ActionMamba (Mamba+GCN) | 0.481 | 54.5% | 97.6% | 0.511 | ❌ **실패** |
+
+**Decision**: **ActionMamba 사용 불가** (낮은 성능)
+**Note**: Baseline CORAL/Mamba+Enhanced 결과 필요
+
+#### Leg Agility Task
+| Model | MAE | Exact | Within1 | Pearson | Status |
+|-------|-----|-------|---------|---------|--------|
+| ActionMamba (Mamba+GCN) | 0.486 | 55.7% | 96.4% | **0.195** | ❌ **완전 실패** |
+
+**Decision**: **ActionMamba 사용 불가** (Pearson 0.195 거의 랜덤 수준)
+**Note**: Baseline CORAL/Mamba+Enhanced 결과 필요
+
+### ActionMamba Architecture (Mamba + GCN Hybrid)
+
+**Implementation**: `scripts/train_action_mamba_{task}.py`
+
+**Architecture Components**:
+```
+Input (B, T, J, 3)
+  ↓
+ACE (Action Characteristic Encoder)
+  ├─ Spatial: GCN (Graph Convolution on skeleton)
+  └─ Temporal: MambaBlock (State Space Model)
+  ↓
+Fusion Layer (Learnable weights α, β)
+  ↓
+CORAL Ordinal Regression (K-1 binary classifiers)
+  ↓
+UPDRS Score (0-4)
+```
+
+**Key Features**:
+- **Spatial GCN**: Normalized adjacency matrix for skeleton topology
+- **Temporal Mamba**: Linear complexity O(T) for long sequences
+- **CORAL**: Ordinal regression treating 5-class as 4 binary problems
+- **Mixed Precision**: FP16 training with GradScaler
+
+**Reference**: Based on "ActionMamba: Hybrid GCN-Mamba for Skeleton Action Recognition" (2025)
+
+**Final Results Summary**:
+
+| Task | ActionMamba Pearson | Best Baseline | Winner | Notes |
+|------|-------------------|---------------|--------|-------|
+| **Gait** | 0.699 | 0.807 (CORAL) | ❌ Baseline | -13.4% worse |
+| **Finger** | 0.507 | 0.609 (Mamba+Enh) | ❌ Baseline | -16.7% worse |
+| **Hand** | 0.511 | TBD | ❌ **Failed** | 낮은 성능 |
+| **Leg** | **0.195** | TBD | ❌ **Failed** | 거의 랜덤 |
+
+**Conclusion**: **ActionMamba 전면 폐기 (4/4 Task 실패)**
+
+### 실패 원인
+1. **GCN + Mamba 조합 비효율**: Spatial GCN이 skeleton topology 활용 못함
+2. **CORAL loss 궁합 문제**: Raw skeleton에서만 효과적, complex features와 충돌
+3. **Task 특성 불일치**: Action recognition ≠ Medical scoring (UPDRS)
+4. **Overfitting**: 복잡한 아키텍처가 일반화 성능 저하
+
+### Lesson Learned
+- ❌ **복잡한 아키텍처 ≠ 높은 성능**: 단순한 모델(CORAL, Mamba+Enhanced)이 더 효과적
+- ❌ **SOTA 방법론 맹신**: 도메인 특성 무시하면 실패
+- ✅ **의료 AI 특수성**: 패턴 인식과 의료 평가는 다른 접근 필요
+- ✅ **Baseline 비교 필수**: 구현 전 baseline 결과 확보로 시간 낭비 방지
+
+### 권장 모델
+- **Gait**: CORAL Ordinal (Pearson 0.807)
+- **Finger**: Mamba + Enhanced Features (Pearson 0.609)
+- **Hand/Leg**: Baseline 테스트 후 결정
+
+### Known Issues and Solutions
+
+#### Issue 1: MambaBlock Gradient Explosion (loss=nan)
+
+**Problem**: Training fails with loss=nan at epoch 4-10
+**Root Cause**: SSM (State Space Model) state explosion in MambaBlock
+
+**Symptoms**:
+```
+Epoch 1: loss=0.686, mae=0.676 ✅
+Epoch 2: loss=0.557, mae=0.592 ✅
+Epoch 3: loss=0.422, mae=0.676 ✅
+Epoch 4: loss=nan, mae=0.676 ❌  <- Gradient explosion
+```
+
+**Solution** (4-layer fix applied to all ActionMamba scripts):
+
+1. **Exponential Clamping** (Line ~290):
+```python
+decay = torch.exp(torch.clamp(-dt[:, t].mean(dim=-1, keepdim=True), min=-10, max=10))
+```
+
+2. **State Clamping** (Line ~293):
+```python
+state = torch.clamp(state, min=-10, max=10)  # Prevent state explosion
+```
+
+3. **Gradient Clipping** (Line ~472):
+```python
+scaler.unscale_(optimizer)
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+```
+
+4. **Learning Rate Reduction**:
+```python
+LEARNING_RATE = 0.0001  # Reduced from 0.0005
+```
+
+**Result**: Loss=nan completely eliminated, training stable for 200 epochs
+
+**Git Commits**:
+- `76e8807`: Initial fix (exponential clamping + gradient clipping + LR reduction)
+- `2509406`: Final fix (state clamping added)
+
+#### Issue 2: Script Truncation Bug
+
+**Problem**: Hand/Finger scripts immediately exit without executing
+**Root Cause**: Scripts truncated at line 670, missing `if __name__ == "__main__"` block
+
+**Symptoms**:
+- Log file only shows "nohup: ignoring input" (22 bytes)
+- No training output or errors
+
+**Detection**:
+```bash
+wc -l train_action_mamba_hand.py    # 670 lines (incomplete)
+wc -l train_action_mamba_gait.py    # 697 lines (complete)
+grep -n "if __name__" train_action_mamba_hand.py  # Not found
+```
+
+**Solution**: Added missing 16 lines (671-686) including result saving and `if __name__ == "__main__": main()` call
+
+**Git Commit**: `adb6bce` - "fix: Add missing main() call to Hand/Finger scripts"
+
+#### Issue 3: Finger Tapping Unexpected Joint Count
+
+**Problem**: Expected 21 hand landmarks but loaded 41 joints
+**Possible Cause**: Combined MediaPipe Pose (10 keypoints) + Hand (21 landmarks) + extra features
+**Status**: Training proceeding normally, will evaluate results after completion
+
+### HPC Training Logs
+
+**Location**: `scripts/hpc/results/`
+
+**Recent Results**:
+- `mamba_enhanced_20251216_114405.txt` - Finger Tapping Mamba
+- `mamba_gait_enhanced_20251216_201238.txt` - Gait Mamba
+- `mamba_clinical_v1_20251216_185746.txt` - Clinical features experiment
+
+**HPC Deployment Scripts**:
+- `scripts/hpc/scripts/train_action_mamba_gait_hpc.sh`
+- `scripts/hpc/scripts/train_action_mamba_hand_hpc.sh`
+- `scripts/hpc/scripts/train_action_mamba_finger_hpc.sh`
+- `scripts/hpc/scripts/train_action_mamba_leg_hpc.sh`
+
+**Execution**:
+```bash
+# On HPC
+cd ~/hawkeye
+nohup bash scripts/hpc/scripts/train_action_mamba_{task}_hpc.sh > {task}_v2_$(date +%Y%m%d_%H%M%S).log 2>&1 &
+```
+
 ## Development Notes
 
 ### MDS-UPDRS Tasks

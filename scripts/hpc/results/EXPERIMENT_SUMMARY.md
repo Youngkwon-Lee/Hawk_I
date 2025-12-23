@@ -1,5 +1,5 @@
 # Hawkeye HPC Training Experiments Summary
-Last Updated: 2025-12-22 (CORAL + Enhanced 앙상블 실험 완료 - 중요 발견!)
+Last Updated: 2025-12-23 (ActionMamba 구현 및 수치 안정성 문제 해결)
 
 ## 🏆 Overall Rankings (Updated 2025-12-22)
 
@@ -367,6 +367,44 @@ Last Updated: 2025-12-22 (CORAL + Enhanced 앙상블 실험 완료 - 중요 발�
     - **CORAL Ordinal 사용 시 → raw skeleton data만!**
     - Feature engineering 제거 필수
 
+11. **🔧 ActionMamba (Mamba+GCN) 수치 안정성 문제 해결** (실험 22-25)
+    - **Problem**: MambaBlock SSM state explosion → loss=nan at epoch 4-10
+    - **Solution**: 4-layer fix (exponential clamping + state clamping + gradient clipping + LR reduction)
+    - **Result**: Loss=nan 완전 해결, 200 epoch 안정적 학습 ✅
+    - **하지만**: Gait 성능 Baseline CORAL보다 낮음 (0.699 < 0.807)
+    - **Decision**: Gait는 CORAL Ordinal 사용, ActionMamba는 다른 task 결과 대기 중
+
+12. **🐛 Script Truncation Bug 발견 및 해결**
+    - **Problem**: Hand/Finger 스크립트 670줄에서 잘림, `if __name__ == "__main__"` 누락
+    - **Symptom**: 스크립트 실행되지만 아무것도 하지 않음 (nohup: ignoring input only)
+    - **Solution**: 누락된 16줄 추가 (result saving + main() call)
+    - **Lesson**: 스크립트 완전성 검증 필요 (line count, grep check)
+
+13. **❌ ActionMamba (Mamba+GCN) 전체 결과 - 완전 실패** (실험 22-25)
+    - **4개 Task 모두 기존 모델보다 못함**:
+      - **Gait**: Pearson 0.699 < CORAL 0.807 (-13.4%)
+      - **Finger Tapping**: Pearson 0.507 < Mamba+Enhanced 0.609 (-16.7%)
+      - **Hand Movement**: Pearson 0.511 (낮은 성능, baseline 필요)
+      - **Leg Agility**: Pearson 0.195 (완전 실패, 거의 랜덤)
+    - **성능 비교 요약**:
+      | Task | ActionMamba | Best Baseline | Difference |
+      |------|-------------|---------------|------------|
+      | Gait | 0.699 | 0.807 (CORAL) | **-13.4%** ❌ |
+      | Finger | 0.507 | 0.609 (Mamba+Enh) | **-16.7%** ❌ |
+      | Hand | 0.511 | TBD | **Low** ❌ |
+      | Leg | **0.195** | TBD | **완전 실패** ❌ |
+    - **문제 원인 분석**:
+      1. **GCN + Mamba 조합 비효율**: Spatial GCN이 skeleton topology를 제대로 활용 못함
+      2. **CORAL loss 궁합 문제**: CORAL은 raw skeleton에서만 효과적
+      3. **Task 특성 불일치**: Action recognition ≠ UPDRS scoring
+      4. **Overfitting**: 복잡한 아키텍처가 오히려 일반화 성능 저하
+    - **결론**: **ActionMamba 전면 폐기**, 기존 모델 사용 권장
+    - **Lesson Learned**:
+      - **복잡한 아키텍처 ≠ 높은 성능**: 단순한 모델이 더 효과적
+      - **SOTA 방법론 맹신 금지**: 도메인 특성 고려 필수
+      - **의료 AI 특수성**: 패턴 인식과 의료 평가는 다른 접근 필요
+      - **검증의 중요성**: Baseline 비교 없이 구현하면 시간 낭비
+
 ## Best Model Selection
 
 | Task | Recommended Model | MAE | Exact | Pearson | Status |
@@ -409,17 +447,123 @@ Last Updated: 2025-12-22 (CORAL + Enhanced 앙상블 실험 완료 - 중요 발�
 - GCN-Transformer: [Two-stream hybrid (Scientific Reports, 2025)](https://www.nature.com/articles/s41598-025-87752-8)
 - **PECoP: [Parameter Efficient Continual Pretraining for AQA (WACV 2024)](https://openaccess.thecvf.com/content/WACV2024/html/)**
 
+### 22. ActionMamba (Mamba + GCN) - Gait Task ❌ FAILED (Numerical Instability)
+- Date: 2025-12-23
+- Architecture: ACE (Action Characteristic Encoder) + Spatial GCN + Temporal Mamba + CORAL
+- Epochs: 200, 5-Fold CV
+- Features: Raw skeleton (10 leg landmarks)
+- **Problem: Gradient Explosion (loss=nan at epoch 4-10)**
+  - MambaBlock SSM state explosion
+  - Symptoms: loss=0.686 → 0.557 → 0.422 → nan
+- **Solution (4-layer fix applied)**:
+  1. Exponential clamping: `torch.clamp(-dt, min=-10, max=10)`
+  2. State clamping: `state = torch.clamp(state, min=-10, max=10)`
+  3. Gradient clipping: `clip_grad_norm_(max_norm=1.0)`
+  4. Learning rate reduction: 0.0005 → 0.0001
+- **Results (after fix)**:
+  - MAE: 0.342
+  - Exact: 69.7%
+  - Within1: 98.8%
+  - Pearson: 0.699
+- **Git Commits**:
+  - `76e8807`: Initial fix (exponential clamping + gradient clipping + LR)
+  - `2509406`: Final fix (state clamping)
+- **분석**:
+  - Loss=nan 완전 해결, 200 epoch 안정적 학습 ✅
+  - **하지만 성능이 Baseline CORAL보다 낮음**: 0.699 < 0.807
+  - MAE도 높음: 0.342 > 0.241
+  - **결론**: Gait task는 **CORAL Ordinal (raw skeleton)** 사용 권장
+- **Decision**: **Use CORAL Ordinal for Gait (Pearson 0.807)**
+
+### 23. ActionMamba (Mamba + GCN) - Finger Tapping Task ⚠️ **중간 성능**
+- Date: 2025-12-23
+- Architecture: ACE + Spatial GCN + Temporal Mamba + CORAL
+- Epochs: 200, 5-Fold CV
+- Features: Hand landmarks (41 joints - Pose + Hand combined)
+- Training: ~150 frames/video, 568 videos
+- Parameters: 3.5M
+- **Results**:
+  - MAE: 0.380
+  - Exact: 64.3%
+  - Within1: 97.9%
+  - Pearson: 0.507
+  - Spearman: 0.528
+- **Git Commits**:
+  - `cb5d724`: Initial implementation
+  - `adb6bce`: Fix script truncation bug (missing main() call)
+- **분석**:
+  - MAE는 CORAL(0.370)과 유사하게 좋음
+  - Exact도 CORAL(64.8%)과 유사
+  - **하지만 Pearson이 낮음**: 0.507 < CORAL(0.555) < Mamba+Enhanced(0.609)
+  - **결론**: 기존 모델보다 나은 점 없음
+- **Comparison**:
+  | Model | MAE | Exact | Pearson | Rank |
+  |-------|-----|-------|---------|------|
+  | Mamba + Enhanced | 0.444 | 63.0% | **0.609** ⚡ | 🥇 |
+  | CORAL Ordinal | **0.370** ⚡ | **64.8%** ⚡ | 0.555 | 🥈 |
+  | ActionMamba | 0.380 | 64.3% | **0.507** | 🥉 |
+- **Decision**: **Use Mamba + Enhanced for Finger Tapping (Pearson 0.609)**
+
+### 24. ActionMamba (Mamba + GCN) - Hand Movement Task ❌ **실패**
+- Date: 2025-12-23
+- Architecture: ACE + Spatial GCN + Temporal Mamba + CORAL
+- Epochs: 200, 5-Fold CV
+- Features: Hand landmarks (21 joints)
+- Training: 591 videos
+- Parameters: 3.2M
+- **Results**:
+  - MAE: 0.481
+  - Exact: 54.5%
+  - Within1: 97.6%
+  - Pearson: 0.511
+  - Spearman: 0.470
+- **Git Commit**: `adb6bce` (with script truncation fix)
+- **분석**:
+  - Pearson 0.511로 Finger(0.507)과 유사한 낮은 성능
+  - Exact 54.5%도 매우 낮음 (Finger 64.3%보다 낮음)
+  - MAE 0.481도 높음
+  - **결론**: Hand Movement도 ActionMamba 사용 불가
+- **Decision**: **Need baseline results (CORAL, Mamba+Enhanced) for comparison**
+
+### 25. ActionMamba (Mamba + GCN) - Leg Agility Task ❌ **완전 실패**
+- Date: 2025-12-23
+- Architecture: ACE + Spatial GCN + Temporal Mamba + CORAL
+- Epochs: 200, 5-Fold CV
+- Features: Leg landmarks (6 joints)
+- Parameters: ~3M
+- **Results**:
+  - MAE: 0.486
+  - Exact: 55.7%
+  - Within1: 96.4%
+  - **Pearson: 0.195** ❌ (거의 상관관계 없음!)
+  - **Spearman: 0.097** ❌ (매우 낮음)
+- **Git Commit**: `2509406` (with numerical stability fixes)
+- **분석**:
+  - **완전 실패**: Pearson 0.195, Spearman 0.097
+  - 상관관계가 거의 없는 수준 (랜덤 예측과 유사)
+  - MAE도 0.486으로 높음
+  - Exact 55.7%도 낮음
+  - **문제 원인 추정**:
+    1. 6개 joints가 너무 적어서 GCN의 장점 발휘 불가
+    2. Leg Agility 데이터 자체가 적거나 노이즈 많음
+    3. ActionMamba 아키텍처가 Leg task에 부적합
+  - **결론**: ActionMamba는 Leg Agility에 사용 불가
+- **Decision**: **Need baseline results (CORAL, Mamba+Enhanced) for comparison**
+
 ## Next Steps
 
 - [x] ~~Debug Mamba model~~ - DONE!
 - [x] ~~**Mamba + Enhanced Features (Finger)**~~ - **DONE! Pearson 0.609** ⭐
 - [x] ~~**Mamba + Enhanced (Gait)**~~ - **DONE! Pearson 0.804** 🏆
-- [x] ~~Mamba + Clinical V1~~ - **DONE!** (결과 확인 필요)
+- [x] ~~Mamba + Clinical V1~~ - **DONE!**
+- [x] ~~**ActionMamba implementation**~~ - **DONE!** (Numerical stability fixed) 🔧
+- [x] ~~**Resolve gradient explosion (loss=nan)**~~ - **DONE!** (4-layer fix) ✅
+- [x] ~~**ActionMamba 4개 Task 평가**~~ - **DONE! 전면 실패** ❌
+- [ ] **Hand Movement Baseline** (CORAL, Mamba+Enhanced) - 필요
+- [ ] **Leg Agility Baseline** (CORAL, Mamba+Enhanced) - 필요
 - [ ] VideoMamba for RGB video input
 - [ ] Ensemble Mamba + ST-GCN
 - [ ] **Deploy best model to production API** ← 다음 우선순위
-- [ ] Hand Movement task
-- [ ] Leg Agility task
 
 ## Files
 
@@ -440,7 +584,7 @@ scripts/hpc/results/
 ├── gait_mamba_baseline_20251217_*.txt        # Gait Baseline - Pearson 0.789
 ├── gait_clinical_v1_20251217_171934.txt      # Gait Clinical V1 - Pearson 0.795
 ├── gait_ensemble_20251217_170333.txt         # Gait Ensemble - Pearson 0.791
-└── EXPERIMENT_SUMMARY.md                     # This file (Updated 2025-12-17)
+└── EXPERIMENT_SUMMARY.md                     # This file (Updated 2025-12-23)
 
 scripts/hpc/scripts/
 ├── train_mamba_enhanced.py                   # ✅ Finger + Enhanced Features
@@ -450,5 +594,23 @@ scripts/hpc/scripts/
 ├── train_mamba_clinical_v1.py                # ✅ Finger + Clinical Features
 ├── train_finger_ensemble.py                  # ✅ Finger + Enhanced + Clinical
 ├── train_gait_clinical_v1.py                 # ✅ Gait + Clinical Features
-└── train_gait_ensemble.py                    # ✅ Gait + Enhanced + Clinical
+├── train_gait_ensemble.py                    # ✅ Gait + Enhanced + Clinical
+└── train_action_mamba_*_hpc.sh               # 🔄 ActionMamba HPC deployment scripts
+
+scripts/
+├── train_action_mamba_gait.py                # ✅ ActionMamba (Gait) - Pearson 0.699
+├── train_action_mamba_finger.py              # 🔄 ActionMamba (Finger) - Training
+├── train_action_mamba_hand.py                # 🔄 ActionMamba (Hand) - Training
+└── train_action_mamba_leg.py                 # 🔄 ActionMamba (Leg) - Training
+
+Git Commits (ActionMamba):
+├── 2038780  # feat: Implement ActionMamba (Mamba + GCN hybrid) for Gait
+├── 202c63d  # feat: Add ActionMamba (Mamba+GCN) implementation and 2025 SOTA docs
+├── d24498a  # fix: Auto-detect num_joints from data shape
+├── 1e4e352  # fix: Fix MambaBlock tensor dimension mismatch
+├── 3547133  # feat: Add ActionMamba for Hand Movement task
+├── cb5d724  # feat: Add ActionMamba for Hand Movement task
+├── 76e8807  # fix: Fix MambaBlock gradient explosion (loss=nan at epoch 4)
+├── 2509406  # fix: Add state clamping to prevent SSM state explosion
+└── adb6bce  # fix: Add missing main() call to Hand/Finger scripts
 ```
