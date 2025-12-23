@@ -74,28 +74,46 @@ def ordinal_to_label(logits):
 # ============================================================
 # Graph Definition (MediaPipe Pose - 33 landmarks)
 # ============================================================
-def get_gait_graph():
-    """Define skeleton graph for gait analysis (MediaPipe Pose 33 landmarks)"""
-    num_nodes = 33
+def get_gait_graph(num_nodes=33):
+    """
+    Define skeleton graph for gait analysis
 
+    Args:
+        num_nodes: Number of joints (33 for full pose, 10 for legs only)
+    """
     # Self-connections
     edges = [(i, i) for i in range(num_nodes)]
 
-    # MediaPipe Pose topology
-    body_edges = [
-        # Face
-        (0, 1), (1, 2), (2, 3), (3, 7), (0, 4), (4, 5), (5, 6), (6, 8),
-        # Torso
-        (9, 10), (11, 12), (11, 23), (12, 24), (23, 24),
-        # Left arm
-        (11, 13), (13, 15), (15, 17), (15, 19), (15, 21), (17, 19),
-        # Right arm
-        (12, 14), (14, 16), (16, 18), (16, 20), (16, 22), (18, 20),
-        # Left leg
-        (23, 25), (25, 27), (27, 29), (27, 31), (29, 31),
-        # Right leg
-        (24, 26), (26, 28), (28, 30), (28, 32), (30, 32),
-    ]
+    if num_nodes == 33:
+        # MediaPipe Pose topology (full body)
+        body_edges = [
+            # Face
+            (0, 1), (1, 2), (2, 3), (3, 7), (0, 4), (4, 5), (5, 6), (6, 8),
+            # Torso
+            (9, 10), (11, 12), (11, 23), (12, 24), (23, 24),
+            # Left arm
+            (11, 13), (13, 15), (15, 17), (15, 19), (15, 21), (17, 19),
+            # Right arm
+            (12, 14), (14, 16), (16, 18), (16, 20), (16, 22), (18, 20),
+            # Left leg
+            (23, 25), (25, 27), (27, 29), (27, 31), (29, 31),
+            # Right leg
+            (24, 26), (26, 28), (28, 30), (28, 32), (30, 32),
+        ]
+    elif num_nodes == 10:
+        # Leg-only topology (assume: Hip, Knee, Ankle, Heel, Toe for each side)
+        # Indices: 0-4 = Left leg, 5-9 = Right leg
+        body_edges = [
+            # Left leg chain: Hip-Knee-Ankle-Heel-Toe
+            (0, 1), (1, 2), (2, 3), (3, 4),
+            # Right leg chain
+            (5, 6), (6, 7), (7, 8), (8, 9),
+            # Cross connections
+            (0, 5),  # Left Hip - Right Hip
+        ]
+    else:
+        # Default: Fully connected graph for unknown configurations
+        body_edges = [(i, j) for i in range(num_nodes) for j in range(i+1, num_nodes)]
 
     edges.extend(body_edges)
     edges.extend([(j, i) for i, j in body_edges])  # Bidirectional
@@ -329,8 +347,8 @@ class ActionMamba(nn.Module):
                  hidden_size=256, num_mamba_layers=4, dropout=0.4):
         super().__init__()
 
-        # Graph adjacency matrix
-        self.A = get_gait_graph()
+        # Graph adjacency matrix (auto-detect topology based on num_joints)
+        self.A = get_gait_graph(num_joints)
 
         # 1. Action Characteristic Encoder (ACE)
         self.ace = ActionCharacteristicEncoder(
@@ -479,11 +497,13 @@ def kfold_cv(X, y, config, device):
     if len(X.shape) == 3:
         # Assume X is (B, T, J*C), reshape to (B, T, J, C)
         B, T, feat = X.shape
-        # For gait: 33 joints * 3 coords = 99 features
-        J = 33
-        C = feat // J
+        # Auto-detect joints from features (always 3 coords: x, y, z)
+        C = 3
+        J = feat // C
+        if feat % C != 0:
+            raise ValueError(f"Features ({feat}) not divisible by 3. Expected J*3 format.")
         X = X.reshape(B, T, J, C)
-        print(f"Reshaped input: {X.shape} (B, T, J, C)")
+        print(f"Reshaped input: {X.shape} (B, T={T}, J={J}, C={C})")
 
     skf = StratifiedKFold(n_splits=config.N_FOLDS, shuffle=True, random_state=42)
     y_binned = np.clip(y, 0, 3).astype(int)
