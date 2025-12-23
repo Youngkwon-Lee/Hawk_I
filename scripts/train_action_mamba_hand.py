@@ -667,3 +667,19 @@ def main():
     # Save results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     result_file = os.path.join(config.RESULT_DIR, f"action_mamba_hand_{timestamp}.txt")
+
+    with open(result_file, 'w') as f:
+        f.write("="*60 + "\n")
+        f.write("ActionMamba: Mamba + GCN Hybrid (Hand Movement)\n")
+        f.write("="*60 + "\n\n")
+        f.write(f"MAE: {results['mae']:.3f}\n")
+        f.write(f"Exact: {results['exact']:.1f}%\n")
+        f.write(f"Within1: {results['within1']:.1f}%\n")
+        f.write(f"Pearson: {results['pearson']:.3f}\n")
+        f.write(f"Spearman: {results['spearman']:.3f}\n")
+
+    print(f"\nSaved: {result_file}")
+
+
+if __name__ == "__main__":
+    main()
