@@ -401,6 +401,10 @@ def kfold_cv(X, y, config, device):
 
 def load_data(config):
     for train_path, test_path in [
+        # Try v2 files first (new improved version with side info)
+        (os.path.join(config.DATA_DIR, "leg_agility_train_v2.pkl"), os.path.join(config.DATA_DIR, "leg_agility_test_v2.pkl")),
+        ("data/leg_agility_train_v2.pkl", "data/leg_agility_test_v2.pkl"),
+        # Fallback to original files
         (os.path.join(config.DATA_DIR, "leg_agility_train.pkl"), os.path.join(config.DATA_DIR, "leg_agility_test.pkl")),
         ("./leg_agility_train.pkl", "./leg_agility_test.pkl"),
     ]:
