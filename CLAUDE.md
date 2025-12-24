@@ -207,18 +207,19 @@ python scripts/extract_features.py
 #### Hand Movement Task
 | Model | MAE | Exact | Within1 | Pearson | Status |
 |-------|-----|-------|---------|---------|--------|
-| ActionMamba (Mamba+GCN) | 0.481 | 54.5% | 97.6% | 0.511 | ❌ **실패** |
+| **CORAL Ordinal** | **0.431** | **59.1%** | **97.8%** | **0.593** | ✅ **Production** |
+| ActionMamba (Mamba+GCN) | 0.481 | 54.5% | 97.6% | 0.511 | ❌ Worse |
 
-**Decision**: **ActionMamba 사용 불가** (낮은 성능)
-**Note**: Baseline CORAL/Mamba+Enhanced 결과 필요
+**Decision**: Use **CORAL Ordinal** for Hand Movement (Pearson 0.593)
 
 #### Leg Agility Task
 | Model | MAE | Exact | Within1 | Pearson | Status |
 |-------|-----|-------|---------|---------|--------|
-| ActionMamba (Mamba+GCN) | 0.486 | 55.7% | 96.4% | **0.195** | ❌ **완전 실패** |
+| CORAL Ordinal | **0.462** | **59.5%** | **96.0%** | **0.221** | ⚠️ **낮은 성능** |
+| ActionMamba (Mamba+GCN) | 0.486 | 55.7% | 96.4% | 0.195 | ❌ **완전 실패** |
 
-**Decision**: **ActionMamba 사용 불가** (Pearson 0.195 거의 랜덤 수준)
-**Note**: Baseline CORAL/Mamba+Enhanced 결과 필요
+**Decision**: **Leg Agility Task는 두 모델 모두 실패** (Pearson 0.221/0.195 거의 랜덤)
+**Note**: 데이터 자체에 문제 있을 가능성 높음 (작은 샘플, 노이즈, 또는 feature 부족)
 
 ### ActionMamba Architecture (Mamba + GCN Hybrid)
 
@@ -253,8 +254,8 @@ UPDRS Score (0-4)
 |------|-------------------|---------------|--------|-------|
 | **Gait** | 0.699 | 0.807 (CORAL) | ❌ Baseline | -13.4% worse |
 | **Finger** | 0.507 | 0.609 (Mamba+Enh) | ❌ Baseline | -16.7% worse |
-| **Hand** | 0.511 | TBD | ❌ **Failed** | 낮은 성능 |
-| **Leg** | **0.195** | TBD | ❌ **Failed** | 거의 랜덤 |
+| **Hand** | 0.511 | **0.593 (CORAL)** | ❌ Baseline | -13.8% worse |
+| **Leg** | 0.195 | **0.221 (CORAL)** | ❌ Baseline | -11.8% worse (both failed) |
 
 **Conclusion**: **ActionMamba 전면 폐기 (4/4 Task 실패)**
 
@@ -270,10 +271,11 @@ UPDRS Score (0-4)
 - ✅ **의료 AI 특수성**: 패턴 인식과 의료 평가는 다른 접근 필요
 - ✅ **Baseline 비교 필수**: 구현 전 baseline 결과 확보로 시간 낭비 방지
 
-### 권장 모델
-- **Gait**: CORAL Ordinal (Pearson 0.807)
-- **Finger**: Mamba + Enhanced Features (Pearson 0.609)
-- **Hand/Leg**: Baseline 테스트 후 결정
+### 권장 모델 (Production)
+- **Gait**: CORAL Ordinal (Pearson 0.807) ✅
+- **Finger**: Mamba + Enhanced Features (Pearson 0.609) ✅
+- **Hand**: CORAL Ordinal (Pearson 0.593) ✅
+- **Leg**: CORAL Ordinal (Pearson 0.221) ⚠️ **사용 주의** (낮은 성능, 데이터 개선 필요)
 
 ### Known Issues and Solutions
 
@@ -393,6 +395,33 @@ pip install -r requirements.txt
 cd frontend
 npm install
 ```
+
+## HPC Deployment Notes ⚠️
+
+### Git on HPC
+**IMPORTANT**: `git pull origin main` **does NOT work on HPC**
+- Reason: SSH port 22 blocked, git clone not initialized
+- **Solution**: Use `wget` to download individual files from GitHub raw URLs
+
+**HPC Deployment Workflow**:
+```bash
+# On Local
+git add . && git commit -m "message" && git push origin main
+
+# On HPC - Use wget for individual files
+cd ~/hawkeye/scripts
+wget -O train_hand_ordinal.py "https://raw.githubusercontent.com/Youngkwon-Lee/Hawk_I/main/scripts/train_hand_ordinal.py"
+
+# Or download multiple files
+for file in train_hand_ordinal.py train_leg_ordinal.py; do
+  wget -O $file "https://raw.githubusercontent.com/Youngkwon-Lee/Hawk_I/main/scripts/$file"
+done
+```
+
+### Data Files on HPC
+- **Already uploaded**: `hand_movement_train.pkl`, `hand_movement_test.pkl`, `leg_agility_train.pkl`, `leg_agility_test.pkl`
+- **Location**: `~/hawkeye/` and `~/hawkeye/data/`
+- **No need to re-upload** unless data changes
 
 ## Custom Commands (Claude Code)
 
