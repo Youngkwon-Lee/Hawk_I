@@ -1,13 +1,22 @@
 """Verify leg_agility v2 extraction results"""
 import pickle
 import numpy as np
+import os
+from pathlib import Path
+
+# Auto-detect base path (works on both Windows and Linux)
+script_dir = Path(__file__).resolve().parent
+base_dir = script_dir.parent.parent
+data_dir = base_dir / 'data'
 
 # Load train
-with open('C:/Users/YK/tulip/Hawkeye/data/leg_agility_train_v2.pkl', 'rb') as f:
+train_path = data_dir / 'leg_agility_train_v2.pkl'
+with open(train_path, 'rb') as f:
     train_data = pickle.load(f)
 
 # Load test
-with open('C:/Users/YK/tulip/Hawkeye/data/leg_agility_test_v2.pkl', 'rb') as f:
+test_path = data_dir / 'leg_agility_test_v2.pkl'
+with open(test_path, 'rb') as f:
     test_data = pickle.load(f)
 
 print("="*60)
