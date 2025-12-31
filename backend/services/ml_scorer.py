@@ -257,6 +257,45 @@ class MLScorer:
             logger.warning(f"LSTM prediction failed: {e}")
             return None
 
+    def predict_coral(self, skeleton_sequence: np.ndarray, task_type: str) -> Optional[MLPrediction]:
+        """
+        Predict UPDRS score using CORAL Mamba model (K-Fold trained)
+
+        Best performing model for all tasks:
+        - Gait: Pearson 0.790
+        - Finger: Pearson 0.553
+        - Hand: Pearson 0.598
+        - Leg: Pearson 0.238
+
+        Args:
+            skeleton_sequence: numpy array of shape (T, F) - raw skeleton
+            task_type: 'gait', 'finger_tapping', 'hand_movement', 'leg_agility'
+
+        Returns:
+            MLPrediction or None if CORAL not available
+        """
+        try:
+            from models.coral_scorer import get_coral_scorer
+
+            scorer = get_coral_scorer()
+            if not scorer.is_loaded():
+                scorer.load_models()
+
+            result = scorer.predict(skeleton_sequence, task_type)
+
+            if result is None:
+                return None
+
+            return MLPrediction(
+                score=result.score,
+                confidence=result.confidence,
+                raw_prediction=result.expected_score,
+                model_type='coral_mamba'
+            )
+        except Exception as e:
+            logger.warning(f"CORAL prediction failed: {e}")
+            return None
+
 
 def get_ml_scorer() -> MLScorer:
     return MLScorer()
