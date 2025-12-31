@@ -213,7 +213,7 @@ class CORALScorer:
             path = os.path.join(model_dir, filename)
             if os.path.exists(path):
                 try:
-                    checkpoint = torch.load(path, map_location=device)
+                    checkpoint = torch.load(path, map_location=device, weights_only=False)
                     config = checkpoint['config']
 
                     model = MambaCoralModel(
