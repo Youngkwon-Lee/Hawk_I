@@ -102,3 +102,14 @@ nul
 # ============ Debug/Test Outputs ============
 test_output*.txt
 debug_*.txt
+results/
+scripts/analysis/output/
+hawkeye_test_samples_*.json
+
+# ============ Claude / Playwright ============
+.claude/settings.local.json
+.playwright-cli/
+.playwright-mcp/
+
+# ============ Benchmark Data ============
+benchmark/data/
