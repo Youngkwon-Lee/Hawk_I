@@ -109,6 +109,49 @@ export interface AnalysisResult {
     speed_profile?: Array<{ frame: number; speed: number }>
   } | null
   events?: TimelineEvent[]
+  // Gait Cycle Analysis V2 data (from GaitCycleAgent)
+  gait_cycle_analysis?: {
+    summary?: {
+      total_cycles: number
+      num_cycles_left: number
+      num_cycles_right: number
+      analysis_duration_sec: number
+      overall_confidence: number
+      detection_method: string
+      camera_view: string
+      is_partial: boolean
+      partial_reason: string
+    }
+    timing?: {
+      cycle_time_mean_sec: number
+      cycle_time_std_sec: number
+      cycle_time_cv_percent: number
+    }
+    cycles?: {
+      left: Array<{
+        cycle_number: number
+        confidence: number
+        durations_sec: { stance: number; swing: number; total: number }
+        phase_percent: { stance: number; swing: number }
+        spatial_meters: { step_length: number }
+      }>
+      right: Array<{
+        cycle_number: number
+        confidence: number
+        durations_sec: { stance: number; swing: number; total: number }
+        phase_percent: { stance: number; swing: number }
+        spatial_meters: { step_length: number }
+      }>
+    }
+    events?: Array<{
+      frame: number
+      time: number
+      type: string
+      side: string
+      confidence: number
+      method: string
+    }>
+  } | null
 }
 
 export interface HealthStatus {
@@ -187,6 +230,15 @@ export interface AnalysisStartResponse {
 }
 
 /**
+ * Scoring methods for UPDRS prediction
+ * - 'coral': CORAL Ordinal Regression with Mamba (Best performance - Gait: 0.790, Finger: 0.553, Hand: 0.598)
+ * - 'rule': Rule-based scoring with PD4T-calibrated thresholds
+ * - 'ml': ML scoring (RF/XGBoost on kinematic features)
+ * - 'ensemble': Rule + ML average
+ */
+export type ScoringMethod = 'coral' | 'rule' | 'ml' | 'ensemble'
+
+/**
  * Upload video and start analysis (with progress callback)
  * Returns the video ID to track progress
  */
@@ -194,7 +246,8 @@ export async function analyzeVideoWithProgress(
   videoFile: File,
   patientId?: string,
   onProgress?: (progress: number) => void,
-  manualTestType?: string
+  manualTestType?: string,
+  scoringMethod: ScoringMethod = 'coral'
 ): Promise<AnalysisStartResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -229,6 +282,7 @@ export async function analyzeVideoWithProgress(
     if (manualTestType) {
       formData.append('test_type', manualTestType)
     }
+    formData.append('scoring_method', scoringMethod)
 
     xhr.open('POST', `${API_BASE_URL}/api/analyze`)
     xhr.send(formData)

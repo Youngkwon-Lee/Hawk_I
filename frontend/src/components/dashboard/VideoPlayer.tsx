@@ -11,10 +11,26 @@ export interface Marker {
     type: "warning" | "info" | "good"
 }
 
+// Backend keypoint format (from MediaPipe)
+interface BackendKeypoint {
+    x: number
+    y: number
+    z?: number
+    visibility?: number
+}
+
+interface BackendFrameData {
+    frame: number
+    timestamp: number
+    keypoints: BackendKeypoint[]
+}
+
 interface VideoPlayerProps {
     className?: string
     videoSrc?: string
     skeletonSrc?: string
+    keypointsData?: BackendFrameData[]  // Direct keypoints data from API
+    keypointsFps?: number  // FPS for keypoints sync
     taskType?: "gait" | "finger"
     markers?: Marker[]
 }
@@ -35,6 +51,8 @@ export function VideoPlayer({
     className,
     videoSrc = "/videos/gait_sample.mp4",
     skeletonSrc,
+    keypointsData,
+    keypointsFps = 30,
     taskType = "gait",
     markers = []
 }: VideoPlayerProps) {
@@ -45,21 +63,92 @@ export function VideoPlayer({
     const [duration, setDuration] = React.useState(0)
     const [skeletonData, setSkeletonData] = React.useState<FrameData[]>([])
     const [isLoadingData, setIsLoadingData] = React.useState(true)
-    const [videoFps, setVideoFps] = React.useState(30) // Default to 30fps
+    const [videoFps, setVideoFps] = React.useState(keypointsFps) // Use provided FPS
     const [videoReady, setVideoReady] = React.useState(false)
 
     const videoRef = React.useRef<HTMLVideoElement>(null)
     const canvasRef = React.useRef<HTMLCanvasElement>(null)
 
+    // Convert backend keypoints format to frontend format
+    const convertedKeypointsData = React.useMemo(() => {
+        if (!keypointsData || keypointsData.length === 0) return []
+
+        return keypointsData.map((frame): FrameData => ({
+            frame: frame.frame,
+            keypoints: frame.keypoints.map((kp, idx): Keypoint => ({
+                id: idx,
+                x: kp.x,
+                y: kp.y,
+                score: kp.visibility ?? 1.0
+            }))
+        }))
+    }, [keypointsData])
+
     // Create indexed skeleton map for O(1) lookup
+    // Use timestamp-based lookup for better accuracy
     const skeletonMap = React.useMemo(() => {
         const map = new Map<number, FrameData>()
-        skeletonData.forEach(frame => map.set(frame.frame, frame))
+        const dataToUse = convertedKeypointsData.length > 0 ? convertedKeypointsData : skeletonData
+        dataToUse.forEach(frame => map.set(frame.frame, frame))
         return map
-    }, [skeletonData])
+    }, [skeletonData, convertedKeypointsData])
 
-    // Load Skeleton Data (only if skeletonSrc is provided)
+    // Create timestamp-based lookup for better video sync
+    const timestampMap = React.useMemo(() => {
+        if (!keypointsData || keypointsData.length === 0) return null
+
+        // Sort by timestamp for binary search
+        const sorted = [...keypointsData].sort((a, b) => a.timestamp - b.timestamp)
+        return sorted
+    }, [keypointsData])
+
+    // Find nearest frame by timestamp
+    const findNearestFrame = React.useCallback((currentTime: number): FrameData | null => {
+        if (timestampMap && timestampMap.length > 0) {
+            // Binary search for nearest timestamp
+            let left = 0, right = timestampMap.length - 1
+            while (left < right) {
+                const mid = Math.floor((left + right) / 2)
+                if (timestampMap[mid].timestamp < currentTime) {
+                    left = mid + 1
+                } else {
+                    right = mid
+                }
+            }
+
+            // Check which is closer: left or left-1
+            const idx = left > 0 &&
+                Math.abs(timestampMap[left - 1].timestamp - currentTime) <
+                Math.abs(timestampMap[left].timestamp - currentTime)
+                ? left - 1 : left
+
+            const frame = timestampMap[idx]
+            return {
+                frame: frame.frame,
+                keypoints: frame.keypoints.map((kp, i): Keypoint => ({
+                    id: i,
+                    x: kp.x,
+                    y: kp.y,
+                    score: kp.visibility ?? 1.0
+                }))
+            }
+        }
+
+        // Fallback to frame-based lookup
+        const frameNum = Math.floor(currentTime * videoFps)
+        return skeletonMap.get(frameNum) || null
+    }, [timestampMap, skeletonMap, videoFps])
+
+    // Load Skeleton Data (only if skeletonSrc is provided and no direct keypoints)
     React.useEffect(() => {
+        // If direct keypoints data provided, use that instead
+        if (keypointsData && keypointsData.length > 0) {
+            console.log('Using direct keypoints data:', keypointsData.length, 'frames')
+            setIsLoadingData(false)
+            setShowSkeleton(true)
+            return
+        }
+
         if (!skeletonSrc) {
             console.log('No skeleton data source provided - using plain video player')
             setIsLoadingData(false)
@@ -83,7 +172,7 @@ export function VideoPlayer({
                 console.error("Failed to load skeleton data", err)
                 setIsLoadingData(false)
             })
-    }, [skeletonSrc])
+    }, [skeletonSrc, keypointsData])
 
     // Draw Overlay
     React.useEffect(() => {
@@ -110,12 +199,12 @@ export function VideoPlayer({
             // Clear canvas
             ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
 
-            // Calculate current frame using actual FPS
-            const currentFrame = Math.floor(videoRef.current.currentTime * videoFps)
-            const frameData = skeletonMap.get(currentFrame)
+            // Find nearest frame using timestamp for better sync
+            const frameData = findNearestFrame(videoRef.current.currentTime)
 
             if (showSkeleton && frameData) {
-                console.log('Drawing skeleton for frame:', currentFrame)
+                // Debug: log occasionally (not every frame to avoid console spam)
+                // console.log('Drawing skeleton for time:', videoRef.current.currentTime.toFixed(2))
                 ctx.lineWidth = 2.5
                 ctx.lineCap = "round"
                 ctx.lineJoin = "round"
@@ -220,7 +309,7 @@ export function VideoPlayer({
         return () => {
             if (animationFrameId) cancelAnimationFrame(animationFrameId)
         }
-    }, [showSkeleton, showHeatmap, currentTime, skeletonMap, taskType, videoFps, videoReady])
+    }, [showSkeleton, showHeatmap, currentTime, skeletonMap, taskType, videoFps, videoReady, findNearestFrame, keypointsData])
 
     const togglePlay = () => {
         if (videoRef.current) {
@@ -284,14 +373,16 @@ export function VideoPlayer({
                     onPause={onPause}
                     onEnded={onPause}
                     onError={(e) => {
-                        console.error('Video error:', e)
                         const video = e.currentTarget
-                        console.error('Video error details:', {
-                            error: video.error,
-                            networkState: video.networkState,
-                            readyState: video.readyState,
-                            src: video.src
-                        })
+                        const mediaError = video.error
+                        console.error('=== VIDEO LOAD ERROR ===')
+                        console.error('Video src:', video.src)
+                        console.error('Prop videoSrc:', videoSrc)
+                        console.error('MediaError code:', mediaError?.code)
+                        console.error('MediaError message:', mediaError?.message)
+                        console.error('Network state:', video.networkState,
+                            ['NETWORK_EMPTY', 'NETWORK_IDLE', 'NETWORK_LOADING', 'NETWORK_NO_SOURCE'][video.networkState])
+                        console.error('Ready state:', video.readyState)
                     }}
                     onCanPlayThrough={() => {
                         console.log('Video can play through')
@@ -299,10 +390,9 @@ export function VideoPlayer({
                     }}
                     muted
                     playsInline
-                    crossOrigin="anonymous"
                 />
-                {/* Only render Canvas if skeleton data source is provided */}
-                {skeletonSrc && (
+                {/* Render Canvas if skeleton data is available (from URL or direct keypoints) */}
+                {(skeletonSrc || (keypointsData && keypointsData.length > 0)) && (
                     <canvas
                         ref={canvasRef}
                         className="absolute inset-0 pointer-events-none w-full h-full"
