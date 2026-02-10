@@ -17,7 +17,7 @@ often show:
 
 from agents.base_agent import BaseAgent
 from domain.context import AnalysisContext
-from services.gait_cycle_analyzer import GaitCycleAnalyzer, GaitCycleAnalysis
+from services.gait_cycle_analyzer_v2 import GaitCycleAnalyzerV2, GaitCycleAnalysis
 from typing import Dict, Any, Optional
 import traceback
 
@@ -74,16 +74,26 @@ class GaitCycleAgent(BaseAgent):
                 ctx.log("gait_cycle", f"Insufficient frames for gait analysis: {len(landmarks)}")
                 return ctx
 
-            ctx.log("gait_cycle", "Starting detailed gait cycle analysis...")
+            ctx.log("gait_cycle", "Starting detailed gait cycle analysis (V2)...")
 
-            # Initialize analyzer with video FPS
+            # Initialize V2 analyzer with video FPS
             fps = ctx.vision_meta.get("fps", 30.0)
-            self.analyzer = GaitCycleAnalyzer(fps=fps)
+            self.analyzer = GaitCycleAnalyzerV2(fps=fps, verbose=False)
 
-            # Run analysis
+            # Run analysis with partial results allowed
             try:
-                analysis = self.analyzer.analyze(landmarks)
+                analysis = self.analyzer.analyze(
+                    landmarks,
+                    min_events=2,  # Lower threshold for partial analysis
+                    allow_partial=True  # Allow partial results
+                )
                 analysis_dict = self.analyzer.to_dict(analysis)
+
+                # Check if partial analysis
+                if analysis.is_partial:
+                    ctx.log("gait_cycle",
+                        f"Partial analysis: {analysis.partial_reason}",
+                        meta={'is_partial': True, 'reason': analysis.partial_reason})
             except ValueError as e:
                 ctx.log("gait_cycle", f"Analysis failed: {str(e)}")
                 # Not a critical error - continue without gait cycle data
@@ -102,16 +112,24 @@ class GaitCycleAgent(BaseAgent):
 
             ctx.log("gait_cycle",
                 f"Detected {summary['total_cycles']} cycles "
-                f"(L:{summary['num_cycles_left']}, R:{summary['num_cycles_right']})")
+                f"(L:{summary['num_cycles_left']}, R:{summary['num_cycles_right']}) "
+                f"[{summary.get('detection_method', 'unknown')}]")
 
             ctx.log("gait_cycle",
-                f"Cycle time: {timing['cycle_time_mean_sec']:.3f}s, "
-                f"CV: {timing['cycle_time_cv_percent']:.1f}%",
-                meta={
-                    'cycle_time_mean': timing['cycle_time_mean_sec'],
-                    'cycle_time_cv': timing['cycle_time_cv_percent'],
-                    'total_cycles': summary['total_cycles']
-                })
+                f"Confidence: {summary.get('overall_confidence', 0):.2f}, "
+                f"Camera: {summary.get('camera_view', 'unknown')}")
+
+            if summary['total_cycles'] > 0:
+                ctx.log("gait_cycle",
+                    f"Cycle time: {timing['cycle_time_mean_sec']:.3f}s, "
+                    f"CV: {timing['cycle_time_cv_percent']:.1f}%",
+                    meta={
+                        'cycle_time_mean': timing['cycle_time_mean_sec'],
+                        'cycle_time_cv': timing['cycle_time_cv_percent'],
+                        'total_cycles': summary['total_cycles'],
+                        'confidence': summary.get('overall_confidence', 0),
+                        'detection_method': summary.get('detection_method', 'unknown')
+                    })
 
             # Log PD indicators
             severity = pd_indicators.get('overall_severity', 'unknown')

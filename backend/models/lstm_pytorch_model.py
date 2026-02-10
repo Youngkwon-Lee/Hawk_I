@@ -97,7 +97,9 @@ class FingerTappingLSTMScorer:
             cls._instance._lstm_model = None
             cls._instance._rf_model = None
             cls._instance._norm_params = None
-            cls._instance._device = 'cpu'
+            # Auto-detect device
+            cls._instance._device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            logger.info(f"Using device: {cls._instance._device}")
         return cls._instance
 
     def load_models(self, model_dir: str = ML_MODEL_DIR) -> bool:
@@ -115,7 +117,8 @@ class FingerTappingLSTMScorer:
         # Load LSTM model
         if os.path.exists(lstm_path):
             try:
-                checkpoint = torch.load(lstm_path, map_location='cpu')
+                # Load map_location based on device
+                checkpoint = torch.load(lstm_path, map_location=self._device)
 
                 self._lstm_model = AttentionLSTM(
                     input_size=checkpoint['input_size'],
@@ -124,10 +127,11 @@ class FingerTappingLSTMScorer:
                     dropout=checkpoint['dropout']
                 )
                 self._lstm_model.load_state_dict(checkpoint['model_state_dict'])
+                self._lstm_model.to(self._device) # Move model to device
                 self._lstm_model.eval()
 
                 self._norm_params = checkpoint['norm_params']
-                logger.info(f"Loaded LSTM model from {lstm_path}")
+                logger.info(f"Loaded LSTM model from {lstm_path} on {self._device}")
 
             except Exception as e:
                 logger.error(f"Failed to load LSTM model: {e}")

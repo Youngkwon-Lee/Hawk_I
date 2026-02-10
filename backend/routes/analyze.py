@@ -110,6 +110,10 @@ def process_video_background(video_path, video_id, patient_id, manual_test_type,
         else:
             # Fallback to original video if skeleton not available
             skeleton_video_url = f"/files/{os.path.basename(video_path)}"
+
+        # Original video URL (for canvas overlay mode)
+        original_video_url = f"/files/{os.path.basename(video_path)}"
+
         update_step(video_id, "overlay_video", "completed", result_url=skeleton_video_url)
 
         # Prepare Response
@@ -194,7 +198,10 @@ def process_video_background(video_path, video_id, patient_id, manual_test_type,
                 "total_frames": len(landmarks),
                 "detection_rate": 0, # Calculate if needed
                 "mode": "pose" if ctx.task_type in ["gait", "leg_agility"] else "hand",
-                "skeleton_video_url": skeleton_video_url
+                "skeleton_video_url": skeleton_video_url,
+                "original_video_url": original_video_url,  # For canvas overlay mode
+                "keypoints": frames_data,  # For frontend canvas overlay
+                "fps": ctx.vision_meta.get("fps", 30.0)  # For video sync
             },
             "scoring_method": ctx.scoring_method,
             "ml_model_type": ctx.ml_model_type,
@@ -277,10 +284,13 @@ def start_analysis():
         # Get optional parameters
         patient_id = request.form.get('patient_id', 'unknown')
         manual_test_type = request.form.get('test_type', None)
-        # Feature mismatch fixed (2024-12-09): 27 features correctly configured
-        # Ensemble scoring now available: combines Rule-based + ML predictions
-        scoring_method = request.form.get('scoring_method', 'ensemble')  # rule, ml, ensemble
-        ml_model_type = request.form.get('ml_model_type', 'rf')  # rf or xgb
+        # Scoring methods:
+        # - 'coral': CORAL Ordinal Regression with Mamba (Best: Gait 0.790, Finger 0.553, Hand 0.598)
+        # - 'rule': Rule-based scoring with PD4T-calibrated thresholds
+        # - 'ml': ML scoring (RF/XGBoost on kinematic features)
+        # - 'ensemble': Rule + ML average
+        scoring_method = request.form.get('scoring_method', 'coral')  # coral (default), rule, ml, ensemble
+        ml_model_type = request.form.get('ml_model_type', 'rf')  # rf or xgb (for 'ml' method)
         
         # Start background thread
         thread = threading.Thread(

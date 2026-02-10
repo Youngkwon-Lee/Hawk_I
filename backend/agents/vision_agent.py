@@ -111,12 +111,31 @@ class VisionAgent(BaseAgent):
             video_basename = os.path.splitext(os.path.basename(video_path))[0]
             skeleton_video_path = os.path.join(video_dir, f"{video_basename}_skeleton.mp4")
 
-            # Speed optimization: analyze only first 5 seconds of video
-            # This ensures consistent processing time regardless of video length
+            # Get video FPS for frame_skip optimization (cv2 already imported at top)
+            cap = cv2.VideoCapture(video_path)
+            video_fps = cap.get(cv2.CAP_PROP_FPS)
+            cap.release()
+
+            # Task-specific optimization settings - Balance speed and accuracy
+            resize_width = 480  # Higher resolution for better skeleton accuracy
+            use_square = False  # Keep original aspect ratio
+            skip_video = False  # Generate skeleton video on backend (reliable)
+
+            # Frame skip for high FPS videos (60fps -> ~20fps processing)
+            frame_skip = 3 if video_fps > 35 else 1
+
+            self._log(f"Processing: {resize_width}px, fps={video_fps:.0f}, skip={frame_skip}, no_video={skip_video}")
+
+            # Process full video - skip_video=True makes this fast enough
+            # (no video encoding, only keypoint extraction)
             landmarks = processor.process_video(
                 video_path,
-                output_video_path=skeleton_video_path,
-                max_duration=7.0  # Analyze only first 7 seconds
+                output_video_path=skeleton_video_path if not skip_video else None,
+                max_duration=None,  # Process full video for complete canvas overlay
+                resize_width=resize_width,
+                use_mediapipe_optimal=use_square,
+                frame_skip=frame_skip,
+                skip_video_generation=skip_video
             )
             self._log(f"Skeleton extraction complete: {len(landmarks)} frames", time.time() - t0)
 

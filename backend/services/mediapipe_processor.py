@@ -51,7 +51,8 @@ class MediaPipeProcessor:
             self.mp_pose = mp.solutions.pose
             self.pose = self.mp_pose.Pose(
                 static_image_mode=False,
-                model_complexity=1,
+                model_complexity=1,  # 0=lite, 1=full (accurate), 2=heavy
+                enable_segmentation=False,  # Disable for speed
                 min_detection_confidence=0.5,
                 min_tracking_confidence=0.5
             )
@@ -68,7 +69,8 @@ class MediaPipeProcessor:
         frame_skip: int = 1,
         skip_video_generation: bool = False,
         max_duration: Optional[float] = None,
-        resize_width: Optional[int] = 720
+        resize_width: Optional[int] = 256,
+        use_mediapipe_optimal: bool = True
     ) -> List[LandmarkFrame]:
         """
         Process video and extract landmarks for all frames
@@ -80,8 +82,9 @@ class MediaPipeProcessor:
             frame_skip: Process every Nth frame (1=all frames, 2=every other, etc.)
             skip_video_generation: Skip skeleton video generation for faster processing
             max_duration: Maximum duration to process in seconds (None = entire video)
-            resize_width: Resize frames to this width for faster processing (None = no resize)
-                         Default 720px for ~2x speedup with minimal accuracy loss
+            resize_width: Resize frames to this width for faster processing
+                         Default 256px (MediaPipe optimal resolution for ~3x speedup)
+            use_mediapipe_optimal: If True, resize to 256x256 square for MediaPipe (fastest)
 
         Returns:
             List of LandmarkFrame objects
@@ -95,27 +98,40 @@ class MediaPipeProcessor:
         frame_count = 0
         landmark_frames = []
 
-        # Calculate resize dimensions (maintain aspect ratio)
+        # Calculate resize dimensions
         resize_scale = 1.0
-        if resize_width and frame_width > resize_width:
+        use_square_resize = use_mediapipe_optimal and resize_width == 256
+
+        if use_square_resize:
+            # MediaPipe optimal: resize to 256x256 square (fastest)
+            target_size = 256
+            resized_width = target_size
+            resized_height = target_size
+            print(f"  [MediaPipe] Resolution: {frame_width}x{frame_height} → {target_size}x{target_size} (optimal square)")
+        elif resize_width and frame_width > resize_width:
+            # Aspect ratio preserving resize
             resize_scale = resize_width / frame_width
+            resized_width = resize_width
             resized_height = int(frame_height * resize_scale)
-            print(f"  [MediaPipe] Resolution: {frame_width}x{frame_height} → {resize_width}x{resized_height} (scale: {resize_scale:.2f})")
+            print(f"  [MediaPipe] Resolution: {frame_width}x{frame_height} → {resized_width}x{resized_height} (scale: {resize_scale:.2f})")
         else:
-            resize_width = frame_width
+            resized_width = frame_width
             resized_height = frame_height
 
         # Initialize video writer if output path is provided
+        # Output video at ORIGINAL resolution for quality (not resized)
         video_writer = None
         if output_video_path and not skip_video_generation:
             # Use mp4v codec first (avoids OpenH264 issues), then convert to H.264 with ffmpeg
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            # Output at resized resolution
-            output_width = roi[2] if roi else resize_width
-            output_height = roi[3] if roi else resized_height
-            if roi and resize_scale != 1.0:
-                output_width = int(roi[2] * resize_scale)
-                output_height = int(roi[3] * resize_scale)
+            # Output at ORIGINAL resolution (not resized)
+            if roi:
+                output_width = roi[2]
+                output_height = roi[3]
+            else:
+                output_width = frame_width
+                output_height = frame_height
+            print(f"  [MediaPipe] Output video: {output_width}x{output_height} (original quality)")
             video_writer = cv2.VideoWriter(
                 output_video_path,
                 fourcc,
@@ -147,23 +163,29 @@ class MediaPipeProcessor:
                 x, y, w, h = roi
                 frame = frame[y:y+h, x:x+w]
 
-            # Resize frame for faster processing (if resize_scale != 1.0)
-            if resize_scale != 1.0:
-                frame = cv2.resize(frame, None, fx=resize_scale, fy=resize_scale, interpolation=cv2.INTER_AREA)
+            # Keep original frame for output video (high quality)
+            original_frame = frame.copy()
+
+            # Resize frame for faster MediaPipe processing
+            if use_square_resize:
+                # Resize to 256x256 square (MediaPipe optimal)
+                frame_for_mediapipe = cv2.resize(frame, (256, 256), interpolation=cv2.INTER_AREA)
+            elif resize_scale != 1.0:
+                frame_for_mediapipe = cv2.resize(frame, None, fx=resize_scale, fy=resize_scale, interpolation=cv2.INTER_AREA)
+            else:
+                frame_for_mediapipe = frame
 
             # Frame sampling: only process MediaPipe on selected frames
             should_process_mediapipe = (frame_count % frame_skip == 0)
 
             if should_process_mediapipe:
-                # Convert to RGB
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # Convert resized frame to RGB for MediaPipe
+                frame_rgb = cv2.cvtColor(frame_for_mediapipe, cv2.COLOR_BGR2RGB)
 
-                # Process frame
-                result = self._process_frame(frame_rgb)
+                # Process frame with MediaPipe (fast, 256x256) - returns landmarks AND raw results
+                landmarks, world_landmarks, mp_results = self._process_frame_with_results(frame_rgb)
 
-                # _process_frame now returns a tuple (landmarks, world_landmarks) or None
-                if result:
-                    landmarks, world_landmarks = result
+                if landmarks:
                     timestamp = frame_count / fps
                     landmark_frame = LandmarkFrame(
                         frame_number=frame_count,
@@ -173,18 +195,19 @@ class MediaPipeProcessor:
                     )
                     landmark_frames.append(landmark_frame)
 
-                    # Draw skeleton on frame if video writer is enabled
+                    # Draw skeleton on ORIGINAL frame using cached results (no re-processing!)
+                    # MediaPipe landmarks are normalized (0-1), so they work at any resolution
                     if video_writer:
-                        frame_with_skeleton = self._draw_skeleton(frame.copy(), frame_rgb)
+                        frame_with_skeleton = self._draw_skeleton_with_results(original_frame.copy(), mp_results)
                         video_writer.write(frame_with_skeleton)
                 else:
                     # Write original frame if no landmarks detected
                     if video_writer:
-                        video_writer.write(frame)
+                        video_writer.write(original_frame)
             else:
                 # For skipped frames, just write original to video
                 if video_writer:
-                    video_writer.write(frame)
+                    video_writer.write(original_frame)
 
             frame_count += 1
 
@@ -242,13 +265,162 @@ class MediaPipeProcessor:
             Tuple(landmarks, world_landmarks) or None if no detection
         """
         if self.mode == "hand":
-            return self._process_hand_frame(frame_rgb)
+            result = self._process_hand_frame(frame_rgb)
+            return (result[0], result[1]) if result else None
         elif self.mode == "pose":
-            return self._process_pose_frame(frame_rgb)
+            result = self._process_pose_frame(frame_rgb)
+            return (result[0], result[1]) if result else None
+
+    def _process_frame_with_results(self, frame_rgb: np.ndarray):
+        """
+        Process single frame and return both landmarks AND raw MediaPipe results.
+        Used for efficient skeleton drawing on different resolution frames.
+
+        Returns:
+            Tuple(landmarks, world_landmarks, raw_results) or (None, None, None) if no detection
+        """
+        if self.mode == "hand":
+            results = self.hands.process(frame_rgb)
+            if not results.multi_hand_landmarks:
+                return None, None, None
+
+            hand_landmarks = results.multi_hand_landmarks[0]
+            landmarks = []
+            for idx, landmark in enumerate(hand_landmarks.landmark):
+                landmarks.append({
+                    "id": idx,
+                    "x": landmark.x,
+                    "y": landmark.y,
+                    "z": landmark.z,
+                    "visibility": 1.0
+                })
+            return landmarks, None, results
+
+        elif self.mode == "pose":
+            results = self.pose.process(frame_rgb)
+            if not results.pose_landmarks:
+                return None, None, None
+
+            landmarks = []
+            for idx, landmark in enumerate(results.pose_landmarks.landmark):
+                landmarks.append({
+                    "id": idx,
+                    "x": landmark.x,
+                    "y": landmark.y,
+                    "z": landmark.z,
+                    "visibility": landmark.visibility
+                })
+
+            world_landmarks = []
+            if results.pose_world_landmarks:
+                for idx, landmark in enumerate(results.pose_world_landmarks.landmark):
+                    world_landmarks.append({
+                        "id": idx,
+                        "x": landmark.x,
+                        "y": landmark.y,
+                        "z": landmark.z,
+                        "visibility": landmark.visibility
+                    })
+            else:
+                world_landmarks = None
+
+            return landmarks, world_landmarks, results
+
+        return None, None, None
+
+    def _draw_skeleton_with_results(self, frame_bgr: np.ndarray, results, processed_size: Tuple[int, int] = None) -> np.ndarray:
+        """
+        Draw skeleton overlay on frame using pre-computed MediaPipe results.
+
+        Uses manual coordinate mapping for accurate overlay on different resolution frames.
+
+        Args:
+            frame_bgr: Frame in BGR format (target resolution for drawing)
+            results: Pre-computed MediaPipe results
+            processed_size: (width, height) of the frame that was processed by MediaPipe
+                           If None, uses MediaPipe's default draw_landmarks
+
+        Returns:
+            Frame with skeleton overlay
+        """
+        frame_h, frame_w = frame_bgr.shape[:2]
+
+        if self.mode == "hand":
+            if results and results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    # Draw connections (lines between landmarks)
+                    for connection in self.mp_hands.HAND_CONNECTIONS:
+                        start_idx, end_idx = connection
+                        start = hand_landmarks.landmark[start_idx]
+                        end = hand_landmarks.landmark[end_idx]
+
+                        # Convert normalized coords to pixel coords on target frame
+                        start_x = int(start.x * frame_w)
+                        start_y = int(start.y * frame_h)
+                        end_x = int(end.x * frame_w)
+                        end_y = int(end.y * frame_h)
+
+                        cv2.line(frame_bgr, (start_x, start_y), (end_x, end_y),
+                                (0, 255, 0), 2)  # Green lines
+
+                    # Draw landmarks (circles)
+                    for idx, landmark in enumerate(hand_landmarks.landmark):
+                        x = int(landmark.x * frame_w)
+                        y = int(landmark.y * frame_h)
+
+                        # Different colors for fingertips
+                        if idx in [4, 8, 12, 16, 20]:  # Fingertips
+                            cv2.circle(frame_bgr, (x, y), 6, (0, 0, 255), -1)  # Red
+                        else:
+                            cv2.circle(frame_bgr, (x, y), 4, (255, 0, 0), -1)  # Blue
+
+        elif self.mode == "pose":
+            if results and results.pose_landmarks:
+                landmarks = results.pose_landmarks.landmark
+
+                # Draw connections (bones)
+                for connection in self.mp_pose.POSE_CONNECTIONS:
+                    start_idx, end_idx = connection
+                    start = landmarks[start_idx]
+                    end = landmarks[end_idx]
+
+                    # Skip if visibility is too low
+                    if start.visibility < 0.5 or end.visibility < 0.5:
+                        continue
+
+                    # Convert normalized coords to pixel coords on target frame
+                    start_x = int(start.x * frame_w)
+                    start_y = int(start.y * frame_h)
+                    end_x = int(end.x * frame_w)
+                    end_y = int(end.y * frame_h)
+
+                    cv2.line(frame_bgr, (start_x, start_y), (end_x, end_y),
+                            (0, 255, 0), 3)  # Green lines, thicker for pose
+
+                # Draw landmarks (joints)
+                for idx, landmark in enumerate(landmarks):
+                    if landmark.visibility < 0.5:
+                        continue
+
+                    x = int(landmark.x * frame_w)
+                    y = int(landmark.y * frame_h)
+
+                    # Color by body part
+                    if idx in [11, 12, 23, 24]:  # Shoulders and hips
+                        cv2.circle(frame_bgr, (x, y), 8, (0, 0, 255), -1)  # Red
+                    elif idx in [13, 14, 15, 16]:  # Arms
+                        cv2.circle(frame_bgr, (x, y), 6, (255, 165, 0), -1)  # Orange
+                    elif idx in [25, 26, 27, 28, 29, 30, 31, 32]:  # Legs and feet
+                        cv2.circle(frame_bgr, (x, y), 6, (255, 0, 255), -1)  # Magenta
+                    else:
+                        cv2.circle(frame_bgr, (x, y), 5, (255, 0, 0), -1)  # Blue
+
+        return frame_bgr
 
     def _draw_skeleton(self, frame_bgr: np.ndarray, frame_rgb: np.ndarray) -> np.ndarray:
         """
-        Draw skeleton overlay on frame
+        Draw skeleton overlay on frame (legacy method - re-processes frame)
+        Use _draw_skeleton_with_results for better performance.
 
         Args:
             frame_bgr: Original frame in BGR format

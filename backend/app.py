@@ -81,27 +81,51 @@ def index():
 
 @app.route('/files/<path:filename>')
 def serve_upload(filename):
-    """Serve uploaded files and analysis results"""
+    """Serve uploaded files and analysis results with Range request support"""
     print(f"[FILE] Serving: {filename}")
     try:
-        response = send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+        # Use conditional=True to enable HTTP 206 Partial Content for video streaming
+        response = send_from_directory(
+            app.config['UPLOAD_FOLDER'],
+            filename,
+            conditional=True
+        )
         response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS, HEAD'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Range'
+        response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Accept-Ranges'
+        response.headers['Accept-Ranges'] = 'bytes'
         return response
     except Exception as e:
         print(f"[ERROR] Serving file failed: {e}")
         return jsonify({"error": str(e)}), 404
+
+@app.route('/files/<path:filename>', methods=['OPTIONS'])
+@app.route('/uploads/<path:filename>', methods=['OPTIONS'])
+def serve_options(filename):
+    """Handle CORS preflight for video files"""
+    response = app.make_default_options_response()
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS, HEAD'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Range'
+    response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Accept-Ranges'
+    return response
 
 @app.route('/uploads/<path:filename>')
 def serve_upload_legacy(filename):
     """Serve uploaded files (legacy route for backward compatibility)"""
     print(f"[FILE-LEGACY] Serving: {filename}")
     try:
-        response = send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+        response = send_from_directory(
+            app.config['UPLOAD_FOLDER'],
+            filename,
+            conditional=True
+        )
         response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS, HEAD'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Range'
+        response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Accept-Ranges'
+        response.headers['Accept-Ranges'] = 'bytes'
         return response
     except Exception as e:
         print(f"[ERROR] Serving file failed: {e}")

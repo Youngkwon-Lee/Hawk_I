@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 from services.metrics_calculator import FingerTappingMetrics, GaitMetrics
 
-ScoringMethod = Literal["rule", "ml", "ensemble"]
+ScoringMethod = Literal["rule", "ml", "ensemble", "coral"]
 
 @dataclass
 class UPDRSScore:

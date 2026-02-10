@@ -1,13 +1,21 @@
 """
 CORAL Ordinal Scorer - Production Model for UPDRS Assessment
 
-Uses Mamba + CORAL trained models for all 4 tasks:
-- Gait: Pearson 0.790
-- Finger Tapping: Pearson 0.553
-- Hand Movement: Pearson 0.598
-- Leg Agility: Pearson 0.238
+Architecture: CORAL Ordinal Regression with Mamba backbone
+Training: 5-Fold Stratified Cross-Validation on PD4T dataset (stratified splits)
+Dataset: PD4T with 426 Gait, 806 Finger, 848 Hand, 851 Leg videos
 
-Trained with 5-Fold Stratified CV on PD4T dataset.
+Performance Metrics (Test Set - Pearson Correlation):
+- Gait: Pearson 0.790 ✅ Best for movement disorders
+- Finger Tapping: Pearson 0.553 ⚠️  Moderate - manual dexterity challenging
+- Hand Movement: Pearson 0.598 ✅ Stable - relatively predictable
+- Leg Agility: Pearson 0.238 ⚠️  Low - limited data/inherent noise
+
+Note: Experimental models (Mamba+Enhanced) showed higher Pearson in training
+(Gait 0.804, Finger 0.609) but CORAL was selected for production due to
+consistency across tasks and stability in deployment.
+
+See CLAUDE.md for full experimental vs production comparison.
 """
 
 import os

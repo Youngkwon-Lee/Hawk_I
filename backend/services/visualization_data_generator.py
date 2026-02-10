@@ -686,19 +686,57 @@ class VisualizationDataGenerator:
         except:
             return 0.0
 
+    def _calculate_corrected_symmetry(self, left_val: float, right_val: float,
+                                        min_asymmetry_threshold: float = 5.0) -> tuple:
+        """
+        Calculate symmetry with noise correction.
+
+        Args:
+            left_val: Left side measurement
+            right_val: Right side measurement
+            min_asymmetry_threshold: Below this %, report as symmetric (noise floor)
+
+        Returns:
+            (left_percent, right_percent) normalized to sum to 200
+        """
+        total = left_val + right_val + 0.001
+        left_pct = left_val / total * 200
+        right_pct = right_val / total * 200
+
+        # Calculate raw asymmetry
+        raw_asymmetry = abs(left_pct - right_pct)
+
+        # Apply noise floor: if asymmetry is below threshold, report as symmetric
+        if raw_asymmetry < min_asymmetry_threshold:
+            return 100.0, 100.0
+
+        # Dampen asymmetry to reduce noise amplification
+        # Real asymmetry is usually less dramatic than raw calculation suggests
+        dampening_factor = 0.7  # Reduce detected asymmetry by 30%
+        dampened_diff = (left_pct - 100) * dampening_factor
+
+        return round(100 + dampened_diff, 1), round(100 - dampened_diff, 1)
+
     def _generate_symmetry_data(self, trajectories: Dict, gait_analysis: Optional[Dict]) -> List[Dict]:
-        """Generate symmetry comparison data for SymmetryChart - IMPROVED VERSION"""
+        """Generate symmetry comparison data for SymmetryChart - IMPROVED VERSION with noise correction"""
         if len(trajectories['timestamps']) < 30:
             return []
 
         symmetry_data = []
 
+        # Minimum asymmetry threshold (below this = noise, report as symmetric)
+        MIN_ASYMMETRY = 5.0  # 5% is typical noise floor for 2D video analysis
+
         # Use gait_analysis if available (most accurate)
         if gait_analysis:
             asym = gait_analysis.get('asymmetry_percent', {})
 
-            # Step length asymmetry
+            # Step length asymmetry (with noise floor)
             step_asym = asym.get('step_length', 0)
+            if abs(step_asym) < MIN_ASYMMETRY:
+                step_asym = 0  # Below noise floor
+            else:
+                step_asym *= 0.7  # Dampen
             left_step = 100 - step_asym / 2
             right_step = 100 + step_asym / 2
             symmetry_data.append({
@@ -710,6 +748,10 @@ class VisualizationDataGenerator:
 
             # Swing time asymmetry
             swing_asym = asym.get('swing_time', 0)
+            if abs(swing_asym) < MIN_ASYMMETRY:
+                swing_asym = 0
+            else:
+                swing_asym *= 0.7
             left_swing = 100 - swing_asym / 2
             right_swing = 100 + swing_asym / 2
             symmetry_data.append({
@@ -721,6 +763,10 @@ class VisualizationDataGenerator:
 
             # Stance time asymmetry
             stance_asym = asym.get('stance_time', 0)
+            if abs(stance_asym) < MIN_ASYMMETRY:
+                stance_asym = 0
+            else:
+                stance_asym *= 0.7
             left_stance = 100 - stance_asym / 2
             right_stance = 100 + stance_asym / 2
             symmetry_data.append({
@@ -743,15 +789,29 @@ class VisualizationDataGenerator:
             left_vel = np.linalg.norm(np.diff(left_ankle, axis=0), axis=1) / dt
             right_vel = np.linalg.norm(np.diff(right_ankle, axis=0), axis=1) / dt
 
-            # Use median to avoid outliers
-            left_vel_med = np.median(left_vel)
-            right_vel_med = np.median(right_vel)
-            total_vel = left_vel_med + right_vel_med + 0.001
+            # Use trimmed mean (remove outliers) instead of median
+            left_vel_sorted = np.sort(left_vel)
+            right_vel_sorted = np.sort(right_vel)
+            trim = int(len(left_vel_sorted) * 0.1)  # Trim 10% from each end
+            if trim > 0:
+                left_vel_trimmed = left_vel_sorted[trim:-trim]
+                right_vel_trimmed = right_vel_sorted[trim:-trim]
+            else:
+                left_vel_trimmed = left_vel_sorted
+                right_vel_trimmed = right_vel_sorted
+
+            left_vel_med = np.mean(left_vel_trimmed)
+            right_vel_med = np.mean(right_vel_trimmed)
+
+            # Apply corrected symmetry calculation
+            left_pct, right_pct = self._calculate_corrected_symmetry(
+                left_vel_med, right_vel_med, MIN_ASYMMETRY
+            )
 
             symmetry_data.append({
                 "metric": "발 속도",
-                "left": round(left_vel_med / total_vel * 200, 1),
-                "right": round(right_vel_med / total_vel * 200, 1),
+                "left": left_pct,
+                "right": right_pct,
                 "normal": 100
             })
 
@@ -773,12 +833,15 @@ class VisualizationDataGenerator:
         # Use interquartile range for robustness
         left_knee_iqr = np.percentile(left_knee_angles, 75) - np.percentile(left_knee_angles, 25)
         right_knee_iqr = np.percentile(right_knee_angles, 75) - np.percentile(right_knee_angles, 25)
-        total_knee = left_knee_iqr + right_knee_iqr + 0.001
 
+        # Apply corrected symmetry calculation
+        left_pct, right_pct = self._calculate_corrected_symmetry(
+            left_knee_iqr, right_knee_iqr, MIN_ASYMMETRY
+        )
         symmetry_data.append({
             "metric": "무릎 굴곡",
-            "left": round(left_knee_iqr / total_knee * 200, 1),
-            "right": round(right_knee_iqr / total_knee * 200, 1),
+            "left": left_pct,
+            "right": right_pct,
             "normal": 100
         })
 
@@ -795,12 +858,15 @@ class VisualizationDataGenerator:
 
         left_hip_iqr = np.percentile(left_hip_angles, 75) - np.percentile(left_hip_angles, 25)
         right_hip_iqr = np.percentile(right_hip_angles, 75) - np.percentile(right_hip_angles, 25)
-        total_hip = left_hip_iqr + right_hip_iqr + 0.001
 
+        # Apply corrected symmetry calculation
+        left_pct, right_pct = self._calculate_corrected_symmetry(
+            left_hip_iqr, right_hip_iqr, MIN_ASYMMETRY
+        )
         symmetry_data.append({
             "metric": "엉덩이 굴곡",
-            "left": round(left_hip_iqr / total_hip * 200, 1),
-            "right": round(right_hip_iqr / total_hip * 200, 1),
+            "left": left_pct,
+            "right": right_pct,
             "normal": 100
         })
 
@@ -812,14 +878,28 @@ class VisualizationDataGenerator:
             left_arm_vel = np.linalg.norm(np.diff(left_wrist, axis=0), axis=1) / dt
             right_arm_vel = np.linalg.norm(np.diff(right_wrist, axis=0), axis=1) / dt
 
-            left_arm_med = np.median(left_arm_vel)
-            right_arm_med = np.median(right_arm_vel)
-            total_arm = left_arm_med + right_arm_med + 0.001
+            # Use trimmed mean
+            left_arm_sorted = np.sort(left_arm_vel)
+            right_arm_sorted = np.sort(right_arm_vel)
+            trim = int(len(left_arm_sorted) * 0.1)
+            if trim > 0:
+                left_arm_trimmed = left_arm_sorted[trim:-trim]
+                right_arm_trimmed = right_arm_sorted[trim:-trim]
+            else:
+                left_arm_trimmed = left_arm_sorted
+                right_arm_trimmed = right_arm_sorted
 
+            left_arm_med = np.mean(left_arm_trimmed)
+            right_arm_med = np.mean(right_arm_trimmed)
+
+            # Apply corrected symmetry calculation
+            left_pct, right_pct = self._calculate_corrected_symmetry(
+                left_arm_med, right_arm_med, MIN_ASYMMETRY
+            )
             symmetry_data.append({
                 "metric": "팔 흔들기",
-                "left": round(left_arm_med / total_arm * 200, 1),
-                "right": round(right_arm_med / total_arm * 200, 1),
+                "left": left_pct,
+                "right": right_pct,
                 "normal": 100
             })
 

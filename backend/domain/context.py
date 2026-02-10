@@ -27,9 +27,11 @@ class AnalysisContext(BaseModel):
     error: Optional[str] = None
 
     # Scoring Configuration
-    # Fixed: Scaler updated to 27 features (2024-12-09)
-    # ensemble = rule + ML weighted average for robust scoring
-    scoring_method: Literal["rule", "ml", "ensemble"] = "ensemble"
+    # coral = CORAL Ordinal Regression with Mamba (Best: Gait 0.790, Finger 0.553, Hand 0.598)
+    # rule = Rule-based with PD4T-calibrated thresholds
+    # ml = RF/XGBoost on kinematic features
+    # ensemble = rule + ML weighted average
+    scoring_method: Literal["rule", "ml", "ensemble", "coral"] = "coral"
     ml_model_type: str = "rf"
 
     # Data Slots (Populated by Agents)
