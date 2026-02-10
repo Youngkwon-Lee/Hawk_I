@@ -25,7 +25,7 @@ class VideoSampleVisualizer:
         # Task별 설정
         if task == "hand_movement":
             self.task_name = "Hand Movement"
-            self.video_folder = "Hand movements"
+            self.video_folder = "Hand movement"  # 실제 폴더명
             self.annotation_file = "train.csv"
         else:  # leg_agility
             self.task_name = "Leg Agility"

@@ -182,7 +182,7 @@ class DataQualityAnalyzer:
         plt.tight_layout()
         output_path = self.output_dir / f"{self.task}_skeleton_quality.png"
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        print(f"\n  ✅ Saved: {output_path}")
+        print(f"\n  [SAVED] {output_path}")
         plt.close()
 
     def analyze_feature_distribution(self, train_data, test_data):
@@ -235,7 +235,7 @@ class DataQualityAnalyzer:
         plt.tight_layout()
         output_path = self.output_dir / f"{self.task}_feature_distribution.png"
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        print(f"\n  ✅ Saved: {output_path}")
+        print(f"\n  [SAVED] {output_path}")
         plt.close()
 
     def compare_with_gait(self):
@@ -250,7 +250,7 @@ class DataQualityAnalyzer:
     def run_full_analysis(self):
         """Run complete analysis pipeline"""
         print(f"\n{'='*60}")
-        print(f"🔍 {self.task_name} Data Quality Analysis")
+        print(f"[ANALYSIS] {self.task_name} Data Quality Analysis")
         print(f"{'='*60}")
 
         # 1. Load data
@@ -266,7 +266,7 @@ class DataQualityAnalyzer:
         self.compare_with_gait()
 
         print(f"\n{'='*60}")
-        print(f"✅ Analysis Complete!")
+        print(f"[DONE] Analysis Complete!")
         print(f"{'='*60}")
         print(f"Output directory: {self.output_dir}")
 

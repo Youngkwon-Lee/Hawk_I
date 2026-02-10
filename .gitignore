@@ -102,7 +102,7 @@ nul
 # ============ Debug/Test Outputs ============
 test_output*.txt
 debug_*.txt
-results/
+/results/
 scripts/analysis/output/
 hawkeye_test_samples_*.json
 

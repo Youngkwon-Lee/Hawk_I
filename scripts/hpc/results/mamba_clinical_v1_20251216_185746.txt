@@ -1,0 +1,23 @@
+Mamba + Clinical Features V1
+Date: 2025-12-16 18:57:46.638205
+Device: cuda
+Epochs: 200
+
+Clinical Features Added:
+  1. SPARC smoothness
+  2. Amplitude decline rate
+  3. Frequency variability
+  4. Hesitation fraction
+
+Total features: 74
+
+Results:
+  MAE: 0.454
+  Exact: 63.7%
+  Within1: 98.2%
+  Pearson: 0.578
+
+Comparison:
+  Mamba + Enhanced: MAE=0.444, Exact=63.0%, Pearson=0.609
+  Mamba + Clinical V1: MAE=0.454, Exact=63.7%, Pearson=0.578
+  Improvement: -5.1% (Pearson)

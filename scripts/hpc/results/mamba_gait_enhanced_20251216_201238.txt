@@ -1,0 +1,14 @@
+Mamba + Enhanced Features - Gait Task
+Date: 2025-12-16 20:12:38.801745
+Device: cuda
+Epochs: 200
+
+Feature Engineering:
+  Enhanced features: 210
+  Additions: velocity, acceleration, moving_stats
+
+Results:
+  MAE: 0.335
+  Exact: 71.9%
+  Within1: 99.4%
+  Pearson: 0.804

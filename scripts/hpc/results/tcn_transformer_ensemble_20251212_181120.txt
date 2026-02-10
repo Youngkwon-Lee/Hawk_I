@@ -1,0 +1,8 @@
+TCN + Transformer Ensemble Results
+Date: 2025-12-12 18:11:20.861582
+Epochs: 200
+
+MAE: 0.468
+Exact: 61.4%
+Within1: 97.0%
+Pearson: 0.523
