@@ -183,43 +183,55 @@ python scripts/extract_features.py
 
 ## Recent Model Training Results (2025-12-16 ~ 2025-12-23)
 
-### Best Performing Models (HPC Training)
+### Production Models (Currently Deployed)
 
-#### Gait Task
-| Model | MAE | Exact | Within1 | Pearson | Status |
-|-------|-----|-------|---------|---------|--------|
-| **CORAL Ordinal** | **0.241** | **76.5%** | **100%** | **0.807** | ✅ **Production** |
-| Mamba + Enhanced | 0.335 | 71.9% | 99.4% | 0.804 | ✅ Baseline |
-| ActionMamba (Mamba+GCN) | 0.342 | 69.7% | 98.8% | 0.699 | ❌ Unstable |
+**Model Architecture**: CORAL Ordinal Regression (Mamba backbone)
+**Training Method**: 5-Fold Stratified Cross-Validation on PD4T dataset
+**Deployment Status**: ✅ Live in backend/agents/clinical_agent.py
 
-**Decision**: Use **CORAL Ordinal** for Gait (best overall performance)
+#### Performance Summary
 
-#### Finger Tapping Task
-| Model | MAE | Exact | Within1 | Pearson | Status |
-|-------|-----|-------|---------|---------|--------|
-| **Mamba + Enhanced Features** | 0.444 | 63.0% | 97.9% | **0.609** | ✅ **Production** |
-| CORAL Ordinal | 0.370 | 64.8% | 98.4% | 0.555 | ✅ Best MAE/Exact |
-| ActionMamba (Mamba+GCN) | 0.380 | 64.3% | 97.9% | 0.507 | ❌ Worse |
-| Mamba + Clinical V1 | 0.454 | 63.7% | 98.2% | 0.578 | ⚠️ Worse |
+| Task | Model | Pearson | MAE | Status |
+|------|-------|---------|-----|--------|
+| **Gait** | CORAL Ordinal | **0.790** | 0.419 | ✅ Production |
+| **Finger Tapping** | CORAL Ordinal | **0.553** | 0.370 | ✅ Production |
+| **Hand Movement** | CORAL Ordinal | **0.598** | 0.431 | ✅ Production |
+| **Leg Agility** | CORAL Ordinal | **0.238** | 0.462 | ✅ Production |
 
-**Decision**: Use **Mamba + Enhanced Features** for Finger Tapping (best Pearson 0.609)
+**Note**: These are the actual models deployed in `backend/models/coral_scorer.py` and used by `clinical_agent.py:_score_with_coral()`
 
-#### Hand Movement Task
-| Model | MAE | Exact | Within1 | Pearson | Status |
-|-------|-----|-------|---------|---------|--------|
-| **CORAL Ordinal** | **0.431** | **59.1%** | **97.8%** | **0.593** | ✅ **Production** |
-| ActionMamba (Mamba+GCN) | 0.481 | 54.5% | 97.6% | 0.511 | ❌ Worse |
+---
 
-**Decision**: Use **CORAL Ordinal** for Hand Movement (Pearson 0.593)
+### Experimental Results (HPC Training - For Reference)
 
-#### Leg Agility Task
-| Model | MAE | Exact | Within1 | Pearson | Status |
-|-------|-----|-------|---------|---------|--------|
-| CORAL Ordinal | **0.462** | **59.5%** | **96.0%** | **0.221** | ⚠️ **낮은 성능** |
-| ActionMamba (Mamba+GCN) | 0.486 | 55.7% | 96.4% | 0.195 | ❌ **완전 실패** |
+#### Gait Task (Experimental)
+| Model | Pearson | MAE | Status | Notes |
+|-------|---------|-----|--------|-------|
+| **Mamba + Enhanced** | **0.804** | 0.335 | ⭐ Best Experimental | Not deployed |
+| CORAL Ordinal (deployed) | 0.790 | 0.419 | ✅ Production | Currently used |
+| ActionMamba (Mamba+GCN) | 0.699 | 0.342 | ❌ Failed | Gradient instability |
 
-**Decision**: **Leg Agility Task는 두 모델 모두 실패** (Pearson 0.221/0.195 거의 랜덤)
-**Note**: 데이터 자체에 문제 있을 가능성 높음 (작은 샘플, 노이즈, 또는 feature 부족)
+#### Finger Tapping Task (Experimental)
+| Model | Pearson | MAE | Status | Notes |
+|-------|---------|-----|--------|-------|
+| **Mamba + Enhanced** | **0.609** | 0.444 | ⭐ Best Experimental | Not deployed |
+| CORAL Ordinal (deployed) | 0.553 | 0.370 | ✅ Production | Currently used |
+| ActionMamba (Mamba+GCN) | 0.507 | 0.380 | ❌ Failed | Poor generalization |
+
+#### Hand Movement Task (Experimental)
+| Model | Pearson | MAE | Status | Notes |
+|-------|---------|-----|--------|-------|
+| **CORAL Ordinal** | **0.598** | 0.431 | ✅ Best & Production | Consistent performance |
+| ActionMamba (Mamba+GCN) | 0.511 | 0.481 | ❌ Failed | Worse generalization |
+
+#### Leg Agility Task (Experimental)
+| Model | Pearson | MAE | Status | Notes |
+|-------|---------|-----|--------|-------|
+| **Mamba + CORAL v2** | **0.307** | 0.458 | ⭐ Best Experimental | With smoothing/interpolation |
+| CORAL Ordinal (deployed) | 0.238 | 0.462 | ✅ Production | Currently used |
+| ActionMamba (Mamba+GCN) | 0.195 | 0.486 | ❌ Failed | Severe overfitting |
+
+**Note**: Leg Agility has lowest performance across all models, suggesting inherent data limitations or task difficulty
 
 ### ActionMamba Architecture (Mamba + GCN Hybrid)
 
@@ -266,16 +278,26 @@ UPDRS Score (0-4)
 4. **Overfitting**: 복잡한 아키텍처가 일반화 성능 저하
 
 ### Lesson Learned
+
+**From ActionMamba (Mamba+GCN) Failure**:
 - ❌ **복잡한 아키텍처 ≠ 높은 성능**: 단순한 모델(CORAL, Mamba+Enhanced)이 더 효과적
 - ❌ **SOTA 방법론 맹신**: 도메인 특성 무시하면 실패
 - ✅ **의료 AI 특수성**: 패턴 인식과 의료 평가는 다른 접근 필요
 - ✅ **Baseline 비교 필수**: 구현 전 baseline 결과 확보로 시간 낭비 방지
 
+**From v3 Angle-Based Features Failure (Leg Agility)**:
+- ❌ **Feature Engineering ≠ 항상 개선**: 집계 통계량(평균, 표준편차)은 temporal 패턴 손실
+- ❌ **Domain Knowledge 맹신**: 문헌의 joint angle features가 ML에서 실패 (Train 0.949 → Test 0.033)
+- ❌ **Temporal 정보 무시 금지**: 의료 평가 (rhythm, hesitation, decrementing amplitude)는 시간 패턴이 핵심
+- ✅ **Raw Data > Engineered Features**: 복잡한 task일수록 raw temporal sequences가 유리
+- ✅ **Overfitting 조기 탐지**: Train/Test 성능 갭 모니터링 필수 (Train 0.949 vs Test 0.033 = 즉시 폐기)
+- ✅ **v2 Raw Skeleton (150, 18) 최선 확정**: Smoothing + Temporal modeling이 최적 조합
+
 ### 권장 모델 (Production)
 - **Gait**: CORAL Ordinal (Pearson 0.807) ✅
 - **Finger**: Mamba + Enhanced Features (Pearson 0.609) ✅
 - **Hand**: CORAL Ordinal (Pearson 0.593) ✅
-- **Leg**: CORAL Ordinal (Pearson 0.221) ⚠️ **사용 주의** (낮은 성능, 데이터 개선 필요)
+- **Leg**: Mamba + CORAL v2 (Pearson 0.307) ⚠️ **사용 주의** (낮은 성능, 데이터 한계 추정)
 
 ### Known Issues and Solutions
 
@@ -453,6 +475,145 @@ export HAWKEYE_ENV=local
 | ML (RF, XGBoost) | ✅ 권장 | ✅ | - |
 | DL (LSTM, Transformer) | ⚠️ 테스트만 | ✅ 권장 | - |
 | VLM (Qwen, LLaVA) | ❌ | ✅ 권장 | ✅ API |
+
+## VLM Research Project (H1 2026)
+
+### Overview
+**Paper**: "Can VLMs Score Parkinson's? Zero-Shot UPDRS Motor Assessment with MotorExam Benchmark"
+**Status**: H1 2026 진행 중
+**Target Venue**: NeurIPS D&B Track / MICCAI 2026 / Nature Medicine
+
+### Research Questions
+1. VLM이 zero-shot으로 MDS-UPDRS scoring을 수행할 수 있는가?
+2. 어떤 input strategy (raw video, skeleton overlay, kinematic text)가 가장 효과적인가?
+3. VLM의 임상 reasoning이 전문가 판단과 얼마나 일치하는가?
+4. Open-source VLM이 commercial VLM과 어느 정도 경쟁 가능한가?
+
+### Key Finding from Literature Review
+- **VLM + PD UPDRS scoring = 0편** (2026.02 기준, 세계 최초)
+- **FLEX (2025)**: VLM scoring은 약하지만 설명력이 핵심 가치
+- **CARE-PD (NeurIPS 2025)**: 유일한 cross-dataset PD 논문 (Gait only, SMPL)
+- **Med-Gemini (Google 2024)**: 유일한 의료 비디오 VLM 논문 (PD 안 함)
+- **ST-VLM (NEC Labs 2025)**: Kinematic instruction tuning (PD 미적용)
+
+### Model Lineup
+```
+Commercial:
+  ├── Gemini 2.5 Pro         (SOTA, 네이티브 비디오)
+  ├── Gemini 2.5 Flash-Lite  (저비용 대량)
+  └── GPT-4.1                (zero-shot only, 프레임 제한)
+
+Open-source:
+  ├── Qwen3-VL-8B            (최신, 비디오 특화, DoRA 가능)
+  ├── InternVL3-8B           (이미지 강자, 비교용)
+  ├── LLaVA-Video-7B         (Video-MME 1위)
+  └── VL-JEPA (1.6B)         (효율성 실험)
+```
+
+### Experiment Design
+| Exp | Method | Compare |
+|-----|--------|---------|
+| E1 | VLM Zero-shot (GPT-4o, Gemini, Qwen) | Random, Majority baseline |
+| E2 | VLM Few-shot (Gemini, Qwen만) | E1 zero-shot |
+| E3 | VLM + CoT / Skeleton overlay | E1 |
+| E4 | AQA baseline (CoRe, TSA on PD4T) | E1-E3 |
+| E5 | Traditional ML (CORAL, Mamba) | E1-E4 |
+| E6 | Frame ablation (4, 8, 16, 32 frames) | Optimal frame count |
+| E7 | Clinical reasoning evaluation | Neurologist review |
+
+### MotorExam Benchmark (NPTE/MDS-UPDRS 스타일)
+| Level | Type | Example | Count |
+|-------|------|---------|-------|
+| L1 Scoring | UPDRS 0-4 점수 | "이 finger tapping의 점수는?" | ~260 |
+| L2 Observation | 임상 관찰 | "amplitude decrement 관찰되는가?" | ~200 |
+| L3 Comparison | 쌍 비교 | "A vs B 중 누가 더 심한가?" | ~100 |
+| L4 Reasoning | 임상 추론 | "왜 Score 2인지 설명하라" | ~100 |
+| L5 Differential | 감별 진단 | "PD인가 정상 노화인가?" | ~50 |
+
+### Timeline (H1 2026)
+| Month | Milestone | Owner |
+|-------|-----------|-------|
+| 2월 | EDA, VLM setup, IRB 제출 | 영권, 재현, 동성 |
+| 3월 | VLM Experiments (E1-E3) | 재현, 현민 |
+| 4월 | MotorExam QA 구축, IRB 승인 | 동성, 승원 |
+| 5월 | Full evaluation, 환자 데이터 수집 시작 | 전원 |
+| 6월 | Paper draft, 투고 | 영권, 재현 |
+
+### Team
+| Name | Role |
+|------|------|
+| 영권 (YK) | Team Lead / Physical Therapist |
+| 재현 | VLM Engineer |
+| 동성 | QA Dataset / Data Collection |
+| 현민 | Skeleton Pipeline |
+| 승원 | EDA / Statistics |
+| 상후 | Clinical Validation |
+| 인호 | Infrastructure |
+
+### Reference Papers (Key)
+
+**Skeleton-based PD UPDRS**:
+- FastEval 2024 (npj Digital Med) - MediaPipe + Dilated CNN, 88% Finger
+- SA-GCN 2020 (IEEE TNSRE) - Adaptive GCN, Pearson 0.92 Leg
+- CST-GCN 2024 (IEEE TNSRE) - Cross-ST GCN, SOTA Gait
+- VisionMD 2025 (npj PD) - Open-source tool, 1,200+ videos
+- Motion Encoder Benchmark 2024 (IEEE FG) - MotionBERT 등 6개 비교
+
+**Cross-dataset / SMPL**:
+- CARE-PD 2025 (NeurIPS) - SMPL mesh, Gait 362명, 9 cohort (유일한 cross-dataset)
+- OpenCapBench 2025 (WACV) - Pose→OpenSim biomechanics benchmark
+
+**RGB Video**:
+- PECoP 2024 (WACV) - I3D + 3D-Adapter, PD4T
+- 3D Conv-LSTM 2024 (arXiv) - Pixel-based CNN, 90.6% Tremor, 5 centers
+- UFNet 2024 (AAAI) - Multi-task fusion, 92.81% AUROC
+
+**VLM / Medical Video**:
+- Med-Gemini 2024 (Google) - 의료 비디오 + Gemini 네이티브
+- FLEX 2025 (arXiv) - Fitness AQA + VLM, Qwen2.5-VL-3B
+- SurgVLM 2025 (arXiv) - 수술 영상 VLM
+- ST-VLM 2025 (NEC Labs) - Kinematic instruction tuning
+- MMed-RAG 2024 - Multimodal RAG for medical VLM
+
+**Rehab Benchmarks**:
+- KIMORE 2019 - 재활 5 exercises, 78명
+- Rehab-Pile 2025 - 9개 DB 통합, 60 tasks (skeleton only)
+- FineRehab 2024 - 16 actions, 50명
+
+**Datasets**:
+- PD4T - 50 subjects, 4 tasks, ~200 videos, UPDRS 0-4
+- TULIP 2024 (CVPR) - 15 subjects, 6 cameras, 25 UPDRS tasks
+
+### Notion Project Management
+- **Main Page**: `302336b4-9bcf-8179-8b0d-cecbf5595b65`
+- **Milestones DB**: `2dab4aaf371a4b02b579069283c2ca26` (data-source: `298ccc0c-2250-4114-b5cb-bdf0328a9b0b`)
+- **Meeting Notes DB**: `a4fa05da222d41de9c018e2fafd91cb9` (data-source: `46def20b-35cf-47b9-8a1f-128835ee5aef`)
+
+### Google Drive (PT_dataset)
+- **Root**: `18U8rGbtmH4wyjFPP7x3qeVou_vcqH-od`
+- **1_disease_specific**: `1WPD95qu_Q_Xw4Bo7cP3fY6q75LycY-P1` — PD4T, TULIP, care_pd, REMAP, WearGait-PD
+- **2_rehabilitation**: `1k4zGmWZT1NvOs0U8WAlE9RTPX8EekJYH` — KIMORE, FineRehab, keraal 등 10개
+- **3_action_recognition**: `1nVnZZa7Im54LkrET0C4VkJUaMtqCAfbZ` — Kinetics-700, NTU_RGB+D 등 4개
+- **_project**: `1GGqz2mn5AmYbXE8miG_xMygFNXiTGyRm` — docs, reference, 연구
+- **_legacy**: `1LjPmVRG1BvSwdF_kukvJ9cTx6HUxZnMZ`
+
+### Key Decisions
+- **Fine-tuning**: DoRA > LoRA (N=160은 부족, 탐색 실험으로 위치)
+- **핵심 전략**: Zero-shot + Few-shot + RAG (학습 불필요)
+- **VLM**: Qwen2.5-VL → Qwen3-VL-8B 업그레이드 (2025.12 출시)
+- **데이터**: 항상 stratified split 사용 (leakage 방지)
+- **H1 = UPDRS Scoring만** (벤치마크 제외, 빠르게 4-5월 투고)
+- **H2 = MotorExam 벤치마크 + SNUH 데이터 합체** (벤치마크 가치 UP)
+
+### Evaluation Metrics
+- **Primary**: Spearman rho (AQA 표준) + QWK (임상 표준)
+- **Secondary**: MAE, MA-MAE (불균형 보정), Exact Acc, OBO Acc
+- **Legacy**: Pearson r (기존 CORAL baseline 호환)
+
+### Target Venues
+- **H1 (4-5월)**: npj Digital Medicine (IF 15.1, 현실적) / JAMA Network Open (IF 13.8, 도전)
+- **H2-A Benchmark (12월)**: Scientific Data (IF 5.8) / NeurIPS D&B 2027
+- **H2-B Clinical (11-12월)**: Movement Disorders (IF 7.6) / Lancet Digital Health (IF 24.1)
 
 ## Git Workflow
 

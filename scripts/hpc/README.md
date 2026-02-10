@@ -2,6 +2,25 @@
 
 HPC Innovation Hub에서 GPU 학습을 위한 패키지입니다.
 
+## HPC VM 접속 정보 (2024-12-12 생성)
+
+| 항목 | 값 |
+|------|-----|
+| **VM Name** | VM1212121914 |
+| **Host** | vmgnode47.openhpc.prv |
+| **IP** | 10.246.246.111 |
+| **User** | gun3856 |
+| **OS** | Ubuntu 22.04 + CUDA 12.4 |
+| **CPU** | Xeon Gold 6140 × 32 cores |
+| **GPU** | NVIDIA V100 16GB × 2 (pGPU) |
+| **GPU Device** | 0, 1 |
+| **만료일** | 2025-12-31 |
+
+### 빠른 접속
+```bash
+ssh gun3856@10.246.246.111
+```
+
 ## 디렉토리 구조
 
 ```
@@ -36,21 +55,21 @@ python scripts/prepare_data.py
 
 ```bash
 # hpc 폴더 전체 전송
-scp -r ./hpc username@hpc:~/hawkeye/
+scp -r ./hpc gun3856@10.246.246.111:~/hawkeye/
 
 # 또는 개별 전송
-scp ./hpc/data/*.pkl username@hpc:~/hawkeye/data/
-scp ./hpc/scripts/*.py username@hpc:~/hawkeye/scripts/
+scp ./hpc/data/*.pkl gun3856@10.246.246.111:~/hawkeye/data/
+scp ./hpc/scripts/*.py gun3856@10.246.246.111:~/hawkeye/scripts/
 ```
 
 ### Step 3: HPC에서 학습 실행
 
 ```bash
 # SSH 접속
-ssh username@hpc
+ssh gun3856@10.246.246.111
 
 # 환경 활성화
-conda activate triage
+conda activate hawkeye
 
 # GPU 확인
 nvidia-smi
@@ -67,10 +86,10 @@ tail -f train.log
 
 ```bash
 # 모델 다운로드
-scp username@hpc:~/hawkeye/models/*.pth ./models/
+scp gun3856@10.246.246.111:~/hawkeye/models/*.pth ./models/
 
 # 결과 다운로드
-scp username@hpc:~/hawkeye/results/*.txt ./results/
+scp gun3856@10.246.246.111:~/hawkeye/results/*.txt ./results/
 ```
 
 ## 학습 옵션
