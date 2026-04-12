@@ -1,0 +1,21 @@
+PD4T Finger Tapping Training Results
+Date: 2025-12-12 16:02:36.999778
+Device: cuda
+
+AttentionLSTM:
+  CV MAE: 0.485
+  CV Exact: 60.8%
+  CV Within1: 97.8%
+  Pearson r: 0.477
+
+TransformerModel:
+  CV MAE: 0.483
+  CV Exact: 60.1%
+  CV Within1: 98.4%
+  Pearson r: 0.512
+
+ConvLSTM:
+  CV MAE: 0.504
+  CV Exact: 58.9%
+  CV Within1: 97.6%
+  Pearson r: 0.463

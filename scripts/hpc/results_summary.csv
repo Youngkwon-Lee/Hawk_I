@@ -1,0 +1,25 @@
+Rank,Task,Model,Version,Eval_Type,MAE,Exact_Acc,Within1_Acc,Pearson_r,Notes
+1,Gait,TCN,v2,GroupKFold,0.419,67.1%,N/A,0.703,★ Previous Best
+2,Gait,DilatedCNN,v2,GroupKFold,0.430,66.4%,N/A,0.727,Best Pearson r (basic)
+3,Gait,Ensemble,v2,GroupKFold,0.426,65.7%,N/A,0.710,★★ Best Advanced - CNN+LSTM
+4,Gait,ST-GCN,v2,GroupKFold,0.457,65.5%,N/A,0.638,Advanced model
+5,Gait,SpatialTemporalLSTM,v2,GroupKFold,0.446,65.0%,N/A,0.662,
+6,Gait,Transformer,v2,GroupKFold,0.432,64.3%,N/A,0.694,
+7,Gait,MS-TCN,v2,GroupKFold,0.482,63.6%,N/A,0.642,Multi-stage TCN
+8,Gait,PatchTST,v2,GroupKFold,0.459,61.5%,N/A,0.674,Patch Transformer
+9,Gait,Mamba-Lite,v2,GroupKFold,0.599,46.0%,N/A,0.376,State Space Model
+1,Finger,RandomForest,v4,GroupKFold,0.450,59.1%,96.9%,0.420,★★★ BEST - 35 clinical kinematic features
+2,Finger,Ensemble,v3,GroupKFold,0.438,59.2%,N/A,0.354,★★ Best DL - CNN+LSTM (3D sequence)
+3,Finger,AdaBoost,v4,GroupKFold,0.470,57.9%,96.5%,0.400,2D aggregated features
+4,Finger,PatchTST,v3,GroupKFold,0.459,58.8%,N/A,0.327,★ Best Transformer
+5,Finger,Transformer,v3,GroupKFold,0.459,58.3%,N/A,0.326,Basic Transformer
+6,Finger,DilatedCNN,v3,GroupKFold,0.475,56.7%,N/A,0.404,Best Pearson r
+7,Finger,OrdinalModel,v3,GroupKFold,0.484,56.1%,N/A,0.335,
+8,Finger,MS-TCN,v3,GroupKFold,0.498,55.3%,N/A,0.323,Multi-stage TCN
+9,Finger,Mamba-Lite,v3,GroupKFold,0.521,54.1%,N/A,0.378,State Space Model
+10,Finger,Rule-Based,v4,AllData,0.552,50.5%,94.8%,0.246,Threshold-based (no training)
+11,Finger,Conv-LSTM,v6,TrainValTest,0.585,50.4%,92.6%,0.122,3D preprocessed (Kalman+Savgol)
+12,Finger,ST-GCN,v3,GroupKFold,0.572,50.0%,N/A,0.375,Spatial-Temporal GCN
+13,Finger,Conv-LSTM,v5,TrainValTest,0.719,38.5%,89.6%,0.177,3D raw (123 features)
+14,Finger,BiLSTM-Attention,v6,TrainValTest,0.741,36.3%,89.6%,0.088,3D preprocessed
+15,Finger,BiLSTM-Attention,v5,TrainValTest,0.815,31.1%,88.9%,0.058,3D raw

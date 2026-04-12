@@ -1,0 +1,245 @@
+"""
+VLM (Vision Language Model) Scoring Service
+Uses GPT-4V to analyze video frames and provide UPDRS scores
+"""
+
+import os
+import cv2
+import base64
+import json
+from typing import Dict, Any, Optional, List, Tuple
+from openai import OpenAI
+
+
+class VLMScorer:
+    """GPT-4V based video analysis for Parkinson's Disease assessment"""
+
+    def __init__(self):
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            print("Warning: OPENAI_API_KEY not found. VLM scoring will not work.")
+            self.client = None
+        else:
+            self.client = OpenAI(api_key=api_key)
+
+    def is_available(self) -> bool:
+        """Check if VLM service is available"""
+        return self.client is not None
+
+    def _get_prompt(self, task_type: str) -> str:
+        """Generate task-specific prompt for GPT-4V"""
+        criteria = {
+            "finger_tapping": "Evaluate: tapping speed, amplitude, hesitations, arrests, and amplitude decrement over repetitions.",
+            "hand_movement": "Evaluate: hand opening/closing speed, amplitude, hesitations, arrests, and amplitude decrement.",
+            "leg_agility": "Evaluate: foot tapping speed, amplitude, hesitations, arrests, and amplitude decrement.",
+            "gait": "Evaluate: stride length, walking speed, foot clearance, heel strike pattern, arm swing, and turning ability."
+        }
+
+        task_criteria = criteria.get(task_type, "Evaluate: movement quality, speed, amplitude, and rhythm patterns.")
+        task_name_display = {
+            "finger_tapping": "Finger Tapping",
+            "hand_movement": "Hand Movement",
+            "leg_agility": "Leg Agility",
+            "gait": "Gait/Walking"
+        }.get(task_type, task_type)
+
+        prompt = f"""You are a computer vision research assistant analyzing movement patterns in video frames for an academic research project on motor assessment.
+
+CONTEXT: This is a research study analyzing '{task_name_display}' movement patterns using the MDS-UPDRS research framework. The images show a research participant performing standardized movement tasks. This analysis is for educational and research purposes only, not clinical diagnosis.
+
+TASK: Analyze the movement characteristics visible in these frames.
+{task_criteria}
+
+RESEARCH SCORING FRAMEWORK (MDS-UPDRS-based movement quality scale):
+0: Normal movement pattern (no observable irregularities)
+1: Slight variations (minor slowness or reduced amplitude, no decrement)
+2: Mild variations (mild slowness/amplitude reduction, slight hesitations)
+3: Moderate variations (moderate slowness, frequent hesitations/interruptions)
+4: Significant variations (severe movement difficulties observed)
+
+OUTPUT FORMAT - Respond ONLY with this JSON structure:
+{{
+  "score": <integer 0-4>,
+  "confidence": <float 0.0-1.0>,
+  "findings": [
+    "<observed movement characteristic 1>",
+    "<observed movement characteristic 2>",
+    "<observed movement characteristic 3>"
+  ],
+  "reasoning": "<explanation of movement pattern observations>"
+}}
+"""
+        return prompt
+
+    def _extract_frames(self, video_path: str, max_frames: int = 12) -> List[Any]:
+        """Extract evenly spaced frames from video"""
+        cap = cv2.VideoCapture(video_path)
+
+        if not cap.isOpened():
+            raise ValueError(f"Cannot open video: {video_path}")
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        # Calculate frame indices to sample
+        if total_frames <= max_frames:
+            frame_indices = list(range(total_frames))
+        else:
+            frame_indices = [int(i * total_frames / max_frames) for i in range(max_frames)]
+
+        frames = []
+        for idx in frame_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ret, frame = cap.read()
+            if ret:
+                # Resize to reduce token usage (512x512)
+                frame = cv2.resize(frame, (512, 512))
+                frames.append(frame)
+
+        cap.release()
+        return frames
+
+    def _encode_frame(self, frame) -> str:
+        """Encode OpenCV frame to base64"""
+        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return base64.b64encode(buffer).decode('utf-8')
+
+    def analyze_video(
+        self,
+        video_path: str,
+        task_type: str,
+        max_frames: int = 12
+    ) -> Dict[str, Any]:
+        """
+        Analyze video using GPT-4V and return UPDRS score with reasoning.
+
+        Args:
+            video_path: Path to the video file
+            task_type: Type of motor task (finger_tapping, gait, etc.)
+            max_frames: Maximum number of frames to send to API
+
+        Returns:
+            Dict with score, confidence, findings, reasoning
+        """
+        if not self.client:
+            return {
+                "success": False,
+                "error": "VLM 서비스가 설정되지 않았습니다. (API Key Missing)"
+            }
+
+        if not os.path.exists(video_path):
+            return {
+                "success": False,
+                "error": f"영상 파일을 찾을 수 없습니다: {video_path}"
+            }
+
+        try:
+            # Extract frames
+            frames = self._extract_frames(video_path, max_frames)
+
+            if not frames:
+                return {
+                    "success": False,
+                    "error": "영상에서 프레임을 추출할 수 없습니다."
+                }
+
+            # Build message content
+            prompt = self._get_prompt(task_type)
+            content = [{"type": "text", "text": prompt}]
+
+            # Add frames as images
+            for frame in frames:
+                base64_image = self._encode_frame(frame)
+                content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{base64_image}",
+                        "detail": "low"  # Use low detail to reduce tokens
+                    }
+                })
+
+            # Call GPT-4V API
+            response = self.client.chat.completions.create(
+                model="gpt-4o",  # or "gpt-4-vision-preview"
+                messages=[{"role": "user", "content": content}],
+                max_tokens=500,
+                temperature=0.3
+            )
+
+            output_text = response.choices[0].message.content
+
+            # Parse JSON response
+            try:
+                start = output_text.find('{')
+                end = output_text.rfind('}') + 1
+                json_str = output_text[start:end]
+                data = json.loads(json_str)
+
+                return {
+                    "success": True,
+                    "score": data.get("score", -1),
+                    "confidence": data.get("confidence", 0.0),
+                    "findings": data.get("findings", []),
+                    "reasoning": data.get("reasoning", ""),
+                    "raw_output": output_text,
+                    "frames_analyzed": len(frames)
+                }
+            except json.JSONDecodeError:
+                return {
+                    "success": True,
+                    "score": -1,
+                    "confidence": 0.0,
+                    "findings": [],
+                    "reasoning": output_text,
+                    "raw_output": output_text,
+                    "frames_analyzed": len(frames),
+                    "parse_error": True
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"VLM 분석 중 오류 발생: {str(e)}"
+            }
+
+    def format_result_for_chat(self, result: Dict[str, Any], ml_score: Optional[int] = None) -> str:
+        """Format VLM result for chat display"""
+        if not result.get("success"):
+            return f"❌ VLM 분석 실패: {result.get('error', '알 수 없는 오류')}"
+
+        score = result.get("score", -1)
+        confidence = result.get("confidence", 0.0)
+        findings = result.get("findings", [])
+        reasoning = result.get("reasoning", "")
+
+        severity_map = {
+            0: "정상 (Normal)",
+            1: "경미 (Slight)",
+            2: "가벼움 (Mild)",
+            3: "중등도 (Moderate)",
+            4: "심각 (Severe)"
+        }
+        severity = severity_map.get(score, "알 수 없음")
+
+        response = f"""🔬 **VLM 정밀 분석 결과** (GPT-4V)
+
+📊 **UPDRS 점수: {score}점** ({severity})
+🎯 확신도: {confidence*100:.0f}%
+
+**주요 관찰 소견:**
+"""
+        for i, finding in enumerate(findings, 1):
+            response += f"  {i}. {finding}\n"
+
+        response += f"\n**분석 근거:**\n{reasoning}"
+
+        # Compare with ML score if available
+        if ml_score is not None:
+            diff = abs(score - ml_score)
+            if diff == 0:
+                response += f"\n\n✅ ML 모델 결과({ml_score}점)와 **일치**합니다."
+            elif diff == 1:
+                response += f"\n\n⚠️ ML 모델 결과({ml_score}점)와 **1점 차이**가 있습니다."
+            else:
+                response += f"\n\n🔴 ML 모델 결과({ml_score}점)와 **{diff}점 차이**가 있습니다. 전문의 확인을 권장합니다."
+
+        return response

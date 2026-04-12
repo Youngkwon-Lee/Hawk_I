@@ -1,0 +1,20 @@
+Mamba + Enhanced Features Training
+Date: 2025-12-16 11:44:05.400120
+Device: cuda
+Epochs: 200
+
+Feature Engineering:
+  Original features: 10
+  Enhanced features: 70
+  Additions: velocity, acceleration, moving_stats
+
+Results:
+  MAE: 0.444
+  Exact: 63.0%
+  Within1: 97.9%
+  Pearson: 0.609
+
+Comparison:
+  Mamba (baseline): MAE=0.455, Exact=62.9%, Pearson=0.536
+  Mamba + Enhanced: MAE=0.444, Exact=63.0%, Pearson=0.609
+  Improvement: +13.7% (Pearson)

@@ -1,0 +1,81 @@
+version: "0.1"
+name: "hawkeye_finger_gait_orchestrator"
+objective: "Stabilize boundary-class errors in finger tapping and gait by routing hard samples to specialist re-read."
+
+pipeline:
+  stage1:
+    model: "gemini-2.5-pro"
+    prompt_profile: "score_plus_rationale_v1"
+    max_output_tokens: 1024
+    retries: 2
+
+  routing:
+    to_stage2_if_any:
+      - condition: "task == 'finger_tapping' and sample_in_hardcase_registry == true"
+        reason: "known_unstable_sample"
+      - condition: "abs(score_run1 - score_run2) >= 2"
+        reason: "inference_instability"
+      - condition: "timestamp_evidence_present == false"
+        reason: "weak_temporal_grounding"
+      - condition: "parse_ok == false or raw_text_empty == true"
+        reason: "output_failure"
+      - condition: "video_quality in ['poor'] or occlusion in ['moderate','severe']"
+        reason: "quality_risk"
+
+  stage2_specialist:
+    enabled_for_tasks: ["finger_tapping"]
+    inputs:
+      - "original_video"
+      - "slow_motion_0_5x"
+    outputs:
+      - "amplitude_decrement: yes|no|uncertain"
+      - "rhythm_irregularity: yes|no|uncertain"
+      - "hesitation_count: integer_or_null"
+      - "specialist_score: 0..4"
+      - "rationale_with_timestamps"
+    rubric_bias:
+      rule: "if sustained amplitude decrement and frequent hesitation => push toward score 3"
+
+  fusion:
+    default_weighted_vote:
+      stage1_weight: 0.4
+      stage2_weight: 0.6
+      final_score: "round(stage1*0.4 + stage2*0.6)"
+    disagreement_guardrail:
+      when: "abs(stage1_score - stage2_score) >= 2"
+      override:
+        final_score: "max(stage1_score, stage2_score) - 1"
+        recheck_required: true
+        policy: "conservative"
+
+uncertainty:
+  recheck_required_if_any:
+    - "sampling_mode_ratio < 0.67"   # mode count / N from repeated runs
+    - "inter_model_score_gap >= 2"
+    - "video_quality == 'poor'"
+    - "occlusion in ['moderate','severe']"
+
+logging:
+  required_fields:
+    - sample_id
+    - task
+    - gt_score
+    - score_stage1
+    - score_stage2
+    - final_score
+    - routed_reason
+    - disagreement
+    - recheck_required
+    - parse_ok
+    - latency_ms
+
+hardcase_registry:
+  description: "Known unstable examples used to force specialist routing."
+  seed_samples:
+    - sample_id: "finger::15-008175_l_042"
+      reason: "high variance (0~4) across repeated runs"
+      observed_gt: 3
+
+notes:
+  - "This config is intentionally conservative for clinical safety."
+  - "Tune weights and thresholds after >=30-sample validation."

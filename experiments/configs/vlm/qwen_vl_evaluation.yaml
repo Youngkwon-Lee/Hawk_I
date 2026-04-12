@@ -1,0 +1,89 @@
+# VLM Experiment Configuration - Qwen2-VL for Video Analysis
+# Run on HPC: python scripts/vlm/evaluate_vlm.py --config experiments/configs/vlm/qwen_vl_evaluation.yaml
+
+experiment:
+  name: "qwen_vl_pd4t_eval"
+  task: "all"  # gait, finger_tapping, hand_movement, leg_agility
+  model_type: "vlm"
+  description: "Qwen2-VL zero-shot UPDRS scoring evaluation"
+  requires_gpu: true
+  min_gpu_memory: "24GB"  # For 7B model with 4-bit
+
+data:
+  dataset: "PD4T"
+  tasks:
+    - gait
+    - finger_tapping
+    - hand_movement
+    - leg_agility
+  video_sampling:
+    strategy: "uniform"  # uniform, keyframe, all
+    num_frames: 16       # Frames per video
+    fps: 2               # Target FPS for sampling
+  test_only: true        # VLM은 주로 평가용
+
+model:
+  name: "Qwen/Qwen2-VL-7B-Instruct"
+  quantization: "4bit"   # 4bit, 8bit, none
+  device_map: "auto"
+  torch_dtype: "bfloat16"
+  max_new_tokens: 256
+
+  # Alternative models (uncomment to use)
+  # name: "llava-hf/llava-1.5-13b-hf"
+  # name: "OpenGVLab/InternVL-Chat-V1-5"
+
+prompts:
+  system: |
+    You are an expert neurologist specializing in Parkinson's Disease assessment.
+    Analyze the video of the patient performing {task} and provide an MDS-UPDRS score.
+
+  scoring_instruction: |
+    Rate the {task} on the MDS-UPDRS Part III scale (0-4):
+    0 = Normal
+    1 = Slight: Minor abnormalities that do not interfere with function
+    2 = Mild: Abnormalities that mildly interfere with function
+    3 = Moderate: Abnormalities that moderately interfere with function
+    4 = Severe: Unable to perform task or severe impairment
+
+  task_specific:
+    gait: |
+      Observe the patient's walking pattern. Look for:
+      - Reduced arm swing
+      - Shuffling steps
+      - Festination (acceleration)
+      - Freezing episodes
+      - Posture abnormalities
+
+    finger_tapping: |
+      Observe the repetitive finger tapping. Look for:
+      - Speed decrement
+      - Amplitude decrement
+      - Hesitations or arrests
+      - Rhythm irregularity
+
+evaluation:
+  metrics:
+    - accuracy
+    - mae
+    - within_one_accuracy
+    - weighted_kappa
+    - confusion_matrix
+
+  save_predictions: true
+  save_explanations: true  # Save VLM reasoning
+
+environment:
+  local:
+    # 로컬: API 기반 (GPT-4V)
+    use_api: true
+    api_model: "gpt-4-vision-preview"
+  hpc:
+    # HPC: 로컬 모델
+    use_api: false
+    model_cache: "/scratch/models/vlm"
+
+output:
+  results_dir: "experiments/results/vlm"
+  prediction_file: "qwen_vl_predictions.csv"
+  metrics_file: "qwen_vl_metrics.json"

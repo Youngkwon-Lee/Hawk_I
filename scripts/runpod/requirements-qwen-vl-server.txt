@@ -1,0 +1,9 @@
+flask>=3.0.0
+python-dotenv>=1.0.1
+transformers>=4.49.0
+accelerate>=1.2.0
+pillow>=10.4.0
+sentencepiece>=0.2.0
+protobuf>=5.29.0
+qwen-vl-utils>=0.0.8
+opencv-python-headless>=4.10.0

@@ -1,0 +1,118 @@
+# ===========================================
+# Hawkeye PD Research - .gitignore
+# ===========================================
+
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+.eggs/
+
+# Virtual environments
+venv/
+lstm_venv/
+.venv/
+env/
+ENV/
+
+# ============ Data (Large Files) ============
+# Raw datasets (download separately)
+data/raw/
+data/processed/
+data/external/
+
+# Demo videos (sample only in repo)
+demo_videos/*.mp4
+!demo_videos/sample_*.mp4
+
+# Uploads (runtime)
+uploads/
+backend/uploads/*.mp4
+backend/uploads/*.json
+backend/uploads/*.png
+!backend/uploads/.gitkeep
+
+# ============ Models (Large Files) ============
+models/trained/
+models/checkpoints/
+*.pkl
+*.pth
+*.pt
+*.h5
+*.onnx
+
+# ============ Experiments ============
+experiments/results/
+*.log
+
+# ============ Video Files ============
+*.mp4
+*.avi
+*.mov
+*.webm
+*.mkv
+
+# ============ Node.js / Frontend ============
+node_modules/
+.next/
+.nuxt/
+.cache/
+npm-debug.log*
+yarn-error.log*
+
+# ============ Environment ============
+.env
+.env.local
+.env.*.local
+*.env
+*.env.*
+!.env.example
+!*.env.example
+
+# ============ IDE ============
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ============ OS ============
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ============ Temporary ============
+*.tmp
+*.temp
+nul
+*.bak
+
+# ============ Archives ============
+*.zip
+*.tar.gz
+*.rar
+
+# ============ Jupyter ============
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ============ Debug/Test Outputs ============
+test_output*.txt
+debug_*.txt
+/results/
+scripts/analysis/output/
+hawkeye_test_samples_*.json
+
+# ============ Claude / Playwright ============
+.claude/settings.local.json
+.playwright-cli/
+.playwright-mcp/
+
+# ============ Benchmark Data ============
+benchmark/data/

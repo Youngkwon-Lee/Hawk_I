@@ -1,0 +1,731 @@
+"""
+MediaPipe Processor for Skeleton Extraction
+Extracts hand landmarks (finger tapping) and pose landmarks (gait)
+"""
+
+import cv2
+import mediapipe as mp
+import numpy as np
+from typing import List, Dict, Tuple, Optional
+from dataclasses import dataclass
+import os
+import urllib.request
+from pathlib import Path
+
+try:
+    _mp_solutions = mp.solutions
+    _MEDIAPIPE_BACKEND = "solutions"
+except AttributeError:  # pragma: no cover - newer/wrapped mediapipe installs
+    _mp_solutions = None
+    _MEDIAPIPE_BACKEND = "tasks"
+    from mediapipe.tasks.python.core.base_options import BaseOptions as _TaskBaseOptions
+    from mediapipe.tasks.python.vision import hand_landmarker as _hand_landmarker
+    from mediapipe.tasks.python.vision import pose_landmarker as _pose_landmarker
+    from mediapipe.tasks.python.vision.core.vision_task_running_mode import VisionTaskRunningMode as _VisionTaskRunningMode
+
+
+_MODEL_CACHE_DIR = Path(__file__).resolve().parents[1] / "models" / "_mediapipe_tasks"
+_HAND_TASK_PATH = _MODEL_CACHE_DIR / "hand_landmarker.task"
+_POSE_TASK_PATH = _MODEL_CACHE_DIR / "pose_landmarker_full.task"
+_HAND_TASK_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+_POSE_TASK_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task"
+
+
+def _ensure_task_model(path: Path, url: str) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        urllib.request.urlretrieve(url, path)
+    return str(path)
+
+
+@dataclass
+class LandmarkFrame:
+    """Single frame's landmark data"""
+    frame_number: int
+    landmarks: List[Dict[str, float]]  # [{"id": int, "x": float, "y": float, "z": float, "visibility": float}]
+    timestamp: float
+    world_landmarks: Optional[List[Dict[str, float]]] = None # Real-world 3D coordinates (meters)
+
+
+class MediaPipeProcessor:
+    """
+    Extract skeleton data using MediaPipe
+
+    Supports:
+    - Hand Landmarks (21 points) for finger tapping
+    - Pose Landmarks (33 points) for gait analysis
+    """
+
+    def __init__(self, mode: str = "hand"):
+        """
+        Args:
+            mode: "hand" for finger tapping, "pose" for gait
+        """
+        self.mode = mode
+        self.backend = _MEDIAPIPE_BACKEND
+
+        # Initialize MediaPipe
+        if mode == "hand" and self.backend == "solutions":
+            self.mp_hands = _mp_solutions.hands
+            self.hands = self.mp_hands.Hands(
+                static_image_mode=False,
+                max_num_hands=2,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5
+            )
+            self.mp_drawing = _mp_solutions.drawing_utils
+            self.mp_drawing_styles = _mp_solutions.drawing_styles
+        elif mode == "pose" and self.backend == "solutions":
+            self.mp_pose = _mp_solutions.pose
+            self.pose = self.mp_pose.Pose(
+                static_image_mode=False,
+                model_complexity=1,  # 0=lite, 1=full (accurate), 2=heavy
+                enable_segmentation=False,  # Disable for speed
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5
+            )
+            self.mp_drawing = _mp_solutions.drawing_utils
+            self.mp_drawing_styles = _mp_solutions.drawing_styles
+        elif mode == "hand" and self.backend == "tasks":
+            hand_model_path = _ensure_task_model(_HAND_TASK_PATH, _HAND_TASK_URL)
+            options = _hand_landmarker.HandLandmarkerOptions(
+                base_options=_TaskBaseOptions(model_asset_path=hand_model_path),
+                running_mode=_VisionTaskRunningMode.VIDEO,
+                num_hands=2,
+                min_hand_detection_confidence=0.5,
+                min_hand_presence_confidence=0.5,
+                min_tracking_confidence=0.5,
+            )
+            self.hand_task = _hand_landmarker.HandLandmarker.create_from_options(options)
+            self.hand_connections = _hand_landmarker.HandLandmarksConnections.HAND_CONNECTIONS
+        elif mode == "pose" and self.backend == "tasks":
+            pose_model_path = _ensure_task_model(_POSE_TASK_PATH, _POSE_TASK_URL)
+            options = _pose_landmarker.PoseLandmarkerOptions(
+                base_options=_TaskBaseOptions(model_asset_path=pose_model_path),
+                running_mode=_VisionTaskRunningMode.VIDEO,
+                num_poses=1,
+                min_pose_detection_confidence=0.5,
+                min_pose_presence_confidence=0.5,
+                min_tracking_confidence=0.5,
+                output_segmentation_masks=False,
+            )
+            self.pose_task = _pose_landmarker.PoseLandmarker.create_from_options(options)
+            self.pose_connections = _pose_landmarker.PoseLandmarksConnections.POSE_LANDMARKS
+        else:
+            raise ValueError(f"Invalid mode: {mode}. Use 'hand' or 'pose'")
+
+    def process_video(
+        self,
+        video_path: str,
+        roi: Optional[Tuple[int, int, int, int]] = None,
+        output_video_path: Optional[str] = None,
+        frame_skip: int = 1,
+        skip_video_generation: bool = False,
+        max_duration: Optional[float] = None,
+        resize_width: Optional[int] = 256,
+        use_mediapipe_optimal: bool = True
+    ) -> List[LandmarkFrame]:
+        """
+        Process video and extract landmarks for all frames
+
+        Args:
+            video_path: Path to video file
+            roi: Optional ROI (x, y, w, h) to crop frames
+            output_video_path: Optional path to save video with skeleton overlay
+            frame_skip: Process every Nth frame (1=all frames, 2=every other, etc.)
+            skip_video_generation: Skip skeleton video generation for faster processing
+            max_duration: Maximum duration to process in seconds (None = entire video)
+            resize_width: Resize frames to this width for faster processing
+                         Default 256px (MediaPipe optimal resolution for ~3x speedup)
+            use_mediapipe_optimal: If True, resize to 256x256 square for MediaPipe (fastest)
+
+        Returns:
+            List of LandmarkFrame objects
+        """
+        import time
+        start_time = time.time()
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frame_count = 0
+        landmark_frames = []
+
+        # Calculate resize dimensions
+        resize_scale = 1.0
+        use_square_resize = use_mediapipe_optimal and resize_width == 256
+
+        if use_square_resize:
+            # MediaPipe optimal: resize to 256x256 square (fastest)
+            target_size = 256
+            resized_width = target_size
+            resized_height = target_size
+            print(f"  [MediaPipe] Resolution: {frame_width}x{frame_height} → {target_size}x{target_size} (optimal square)")
+        elif resize_width and frame_width > resize_width:
+            # Aspect ratio preserving resize
+            resize_scale = resize_width / frame_width
+            resized_width = resize_width
+            resized_height = int(frame_height * resize_scale)
+            print(f"  [MediaPipe] Resolution: {frame_width}x{frame_height} → {resized_width}x{resized_height} (scale: {resize_scale:.2f})")
+        else:
+            resized_width = frame_width
+            resized_height = frame_height
+
+        # Initialize video writer if output path is provided
+        # Output video at ORIGINAL resolution for quality (not resized)
+        video_writer = None
+        if output_video_path and not skip_video_generation:
+            # Use mp4v codec first (avoids OpenH264 issues), then convert to H.264 with ffmpeg
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            # Output at ORIGINAL resolution (not resized)
+            if roi:
+                output_width = roi[2]
+                output_height = roi[3]
+            else:
+                output_width = frame_width
+                output_height = frame_height
+            print(f"  [MediaPipe] Output video: {output_width}x{output_height} (original quality)")
+            video_writer = cv2.VideoWriter(
+                output_video_path,
+                fourcc,
+                fps,
+                (output_width, output_height)
+            )
+            print(f"  [MediaPipe] Saving skeleton video to: {os.path.basename(output_video_path)}")
+            if not video_writer.isOpened():
+                print(f"  [MediaPipe] ERROR: VideoWriter failed to open")
+                video_writer = None
+        elif skip_video_generation:
+            print(f"  [MediaPipe] Skeleton video generation SKIPPED (fast mode)")
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        print(f"  [MediaPipe] Processing {total_frames} frames ({self.mode} mode, skip={frame_skip})")
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Check max_duration limit (stop after N seconds)
+            if max_duration and fps > 0 and (frame_count / fps) >= max_duration:
+                print(f"  [MediaPipe] Reached max_duration ({max_duration}s) at frame {frame_count}, stopping")
+                break
+
+            # Apply ROI if provided
+            if roi:
+                x, y, w, h = roi
+                frame = frame[y:y+h, x:x+w]
+
+            # Keep original frame for output video (high quality)
+            original_frame = frame.copy()
+
+            # Resize frame for faster MediaPipe processing
+            if use_square_resize:
+                # Resize to 256x256 square (MediaPipe optimal)
+                frame_for_mediapipe = cv2.resize(frame, (256, 256), interpolation=cv2.INTER_AREA)
+            elif resize_scale != 1.0:
+                frame_for_mediapipe = cv2.resize(frame, None, fx=resize_scale, fy=resize_scale, interpolation=cv2.INTER_AREA)
+            else:
+                frame_for_mediapipe = frame
+
+            # Frame sampling: only process MediaPipe on selected frames
+            should_process_mediapipe = (frame_count % frame_skip == 0)
+
+            if should_process_mediapipe:
+                # Convert resized frame to RGB for MediaPipe
+                frame_rgb = cv2.cvtColor(frame_for_mediapipe, cv2.COLOR_BGR2RGB)
+
+                # Process frame with MediaPipe (fast, 256x256) - returns landmarks AND raw results
+                timestamp_ms = int((frame_count / fps) * 1000) if fps > 0 else frame_count * 33
+                landmarks, world_landmarks, mp_results = self._process_frame_with_results(frame_rgb, timestamp_ms=timestamp_ms)
+
+                if landmarks:
+                    timestamp = frame_count / fps
+                    landmark_frame = LandmarkFrame(
+                        frame_number=frame_count,
+                        landmarks=landmarks,
+                        world_landmarks=world_landmarks,
+                        timestamp=timestamp
+                    )
+                    landmark_frames.append(landmark_frame)
+
+                    # Draw skeleton on ORIGINAL frame using cached results (no re-processing!)
+                    # MediaPipe landmarks are normalized (0-1), so they work at any resolution
+                    if video_writer:
+                        frame_with_skeleton = self._draw_skeleton_with_results(original_frame.copy(), mp_results)
+                        video_writer.write(frame_with_skeleton)
+                else:
+                    # Write original frame if no landmarks detected
+                    if video_writer:
+                        video_writer.write(original_frame)
+            else:
+                # For skipped frames, just write original to video
+                if video_writer:
+                    video_writer.write(original_frame)
+
+            frame_count += 1
+
+            # Progress indicator (every 60 frames)
+            if frame_count % 60 == 0:
+                elapsed = time.time() - start_time
+                pct = (frame_count / total_frames * 100) if total_frames > 0 else 0
+                print(f"  [MediaPipe] {frame_count}/{total_frames} ({pct:.0f}%) - {len(landmark_frames)} landmarks - {elapsed:.1f}s")
+
+        cap.release()
+        if video_writer:
+            video_writer.release()
+            print(f"[OK] Skeleton overlay video saved!")
+
+            # Convert to H.264 for browser compatibility
+            if output_video_path and os.path.exists(output_video_path):
+                try:
+                    import subprocess
+                    temp_path = output_video_path.replace('.mp4', '_temp.mp4')
+
+                    # Convert using ffmpeg
+                    cmd = [
+                        'ffmpeg', '-i', output_video_path,
+                        '-c:v', 'libx264',
+                        '-preset', 'fast',
+                        '-crf', '23',
+                        '-y',
+                        temp_path
+                    ]
+
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+
+                    if result.returncode == 0 and os.path.exists(temp_path):
+                        # Replace original with H.264 version
+                        os.replace(temp_path, output_video_path)
+                        print(f"[OK] Converted to H.264 for browser compatibility")
+                    else:
+                        print(f"⚠️ ffmpeg conversion failed, keeping original")
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                except Exception as e:
+                    print(f"⚠️ Video conversion error: {e}")
+
+        print(f"\nTotal frames: {frame_count}")
+        print(f"Frames with landmarks: {len(landmark_frames)}")
+        print(f"Detection rate: {len(landmark_frames)/frame_count*100:.1f}%\n")
+
+        return landmark_frames
+
+    def _process_frame(self, frame_rgb: np.ndarray) -> Optional[Tuple[List[Dict[str, float]], Optional[List[Dict[str, float]]]]]:
+        """
+        Process single frame and extract landmarks
+
+        Returns:
+            Tuple(landmarks, world_landmarks) or None if no detection
+        """
+        if self.mode == "hand":
+            result = self._process_hand_frame(frame_rgb)
+            return (result[0], result[1]) if result else None
+        elif self.mode == "pose":
+            result = self._process_pose_frame(frame_rgb)
+            return (result[0], result[1]) if result else None
+
+    def _process_frame_with_results(self, frame_rgb: np.ndarray, timestamp_ms: int = 0):
+        """
+        Process single frame and return both landmarks AND raw MediaPipe results.
+        Used for efficient skeleton drawing on different resolution frames.
+
+        Returns:
+            Tuple(landmarks, world_landmarks, raw_results) or (None, None, None) if no detection
+        """
+        if self.backend == "tasks":
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(frame_rgb))
+            if self.mode == "hand":
+                results = self.hand_task.detect_for_video(mp_image, timestamp_ms)
+                if not results.hand_landmarks:
+                    return None, None, None
+                hand_landmarks = results.hand_landmarks[0]
+                landmarks = []
+                for idx, landmark in enumerate(hand_landmarks):
+                    landmarks.append(
+                        {
+                            "id": idx,
+                            "x": landmark.x,
+                            "y": landmark.y,
+                            "z": landmark.z,
+                            "visibility": 1.0,
+                        }
+                    )
+                world_landmarks = None
+                if results.hand_world_landmarks:
+                    world_landmarks = []
+                    for idx, landmark in enumerate(results.hand_world_landmarks[0]):
+                        world_landmarks.append(
+                            {
+                                "id": idx,
+                                "x": landmark.x,
+                                "y": landmark.y,
+                                "z": landmark.z,
+                                "visibility": 1.0,
+                            }
+                        )
+                return landmarks, world_landmarks, results
+
+            if self.mode == "pose":
+                results = self.pose_task.detect_for_video(mp_image, timestamp_ms)
+                if not results.pose_landmarks:
+                    return None, None, None
+                pose_landmarks = results.pose_landmarks[0]
+                landmarks = []
+                for idx, landmark in enumerate(pose_landmarks):
+                    landmarks.append(
+                        {
+                            "id": idx,
+                            "x": landmark.x,
+                            "y": landmark.y,
+                            "z": landmark.z,
+                            "visibility": getattr(landmark, "visibility", 1.0),
+                        }
+                    )
+                world_landmarks = None
+                if results.pose_world_landmarks:
+                    world_landmarks = []
+                    for idx, landmark in enumerate(results.pose_world_landmarks[0]):
+                        world_landmarks.append(
+                            {
+                                "id": idx,
+                                "x": landmark.x,
+                                "y": landmark.y,
+                                "z": landmark.z,
+                                "visibility": getattr(landmark, "visibility", 1.0),
+                            }
+                        )
+                return landmarks, world_landmarks, results
+
+        if self.mode == "hand":
+            results = self.hands.process(frame_rgb)
+            if not results.multi_hand_landmarks:
+                return None, None, None
+
+            hand_landmarks = results.multi_hand_landmarks[0]
+            landmarks = []
+            for idx, landmark in enumerate(hand_landmarks.landmark):
+                landmarks.append({
+                    "id": idx,
+                    "x": landmark.x,
+                    "y": landmark.y,
+                    "z": landmark.z,
+                    "visibility": 1.0
+                })
+            return landmarks, None, results
+
+        elif self.mode == "pose":
+            results = self.pose.process(frame_rgb)
+            if not results.pose_landmarks:
+                return None, None, None
+
+            landmarks = []
+            for idx, landmark in enumerate(results.pose_landmarks.landmark):
+                landmarks.append({
+                    "id": idx,
+                    "x": landmark.x,
+                    "y": landmark.y,
+                    "z": landmark.z,
+                    "visibility": landmark.visibility
+                })
+
+            world_landmarks = []
+            if results.pose_world_landmarks:
+                for idx, landmark in enumerate(results.pose_world_landmarks.landmark):
+                    world_landmarks.append({
+                        "id": idx,
+                        "x": landmark.x,
+                        "y": landmark.y,
+                        "z": landmark.z,
+                        "visibility": landmark.visibility
+                    })
+            else:
+                world_landmarks = None
+
+            return landmarks, world_landmarks, results
+
+        return None, None, None
+
+    def _draw_skeleton_with_results(self, frame_bgr: np.ndarray, results, processed_size: Tuple[int, int] = None) -> np.ndarray:
+        """
+        Draw skeleton overlay on frame using pre-computed MediaPipe results.
+
+        Uses manual coordinate mapping for accurate overlay on different resolution frames.
+
+        Args:
+            frame_bgr: Frame in BGR format (target resolution for drawing)
+            results: Pre-computed MediaPipe results
+            processed_size: (width, height) of the frame that was processed by MediaPipe
+                           If None, uses MediaPipe's default draw_landmarks
+
+        Returns:
+            Frame with skeleton overlay
+        """
+        frame_h, frame_w = frame_bgr.shape[:2]
+
+        if self.backend == "tasks" and self.mode == "hand":
+            if results and results.hand_landmarks:
+                hand_landmarks = results.hand_landmarks[0]
+                for connection in self.hand_connections:
+                    start = hand_landmarks[connection.start]
+                    end = hand_landmarks[connection.end]
+                    start_x = int(start.x * frame_w)
+                    start_y = int(start.y * frame_h)
+                    end_x = int(end.x * frame_w)
+                    end_y = int(end.y * frame_h)
+                    cv2.line(frame_bgr, (start_x, start_y), (end_x, end_y), (0, 255, 0), 2)
+                for idx, landmark in enumerate(hand_landmarks):
+                    x = int(landmark.x * frame_w)
+                    y = int(landmark.y * frame_h)
+                    if idx in [4, 8, 12, 16, 20]:
+                        cv2.circle(frame_bgr, (x, y), 6, (0, 0, 255), -1)
+                    else:
+                        cv2.circle(frame_bgr, (x, y), 4, (255, 0, 0), -1)
+            return frame_bgr
+
+        if self.backend == "tasks" and self.mode == "pose":
+            if results and results.pose_landmarks:
+                landmarks = results.pose_landmarks[0]
+                for connection in self.pose_connections:
+                    start = landmarks[connection.start]
+                    end = landmarks[connection.end]
+                    start_x = int(start.x * frame_w)
+                    start_y = int(start.y * frame_h)
+                    end_x = int(end.x * frame_w)
+                    end_y = int(end.y * frame_h)
+                    cv2.line(frame_bgr, (start_x, start_y), (end_x, end_y), (0, 255, 0), 3)
+                for idx, landmark in enumerate(landmarks):
+                    x = int(landmark.x * frame_w)
+                    y = int(landmark.y * frame_h)
+                    if idx in [11, 12, 23, 24]:
+                        cv2.circle(frame_bgr, (x, y), 8, (0, 0, 255), -1)
+                    elif idx in [13, 14, 15, 16]:
+                        cv2.circle(frame_bgr, (x, y), 6, (255, 165, 0), -1)
+                    elif idx in [25, 26, 27, 28, 29, 30, 31, 32]:
+                        cv2.circle(frame_bgr, (x, y), 6, (255, 0, 255), -1)
+                    else:
+                        cv2.circle(frame_bgr, (x, y), 5, (255, 0, 0), -1)
+            return frame_bgr
+
+        if self.mode == "hand":
+            if results and results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    # Draw connections (lines between landmarks)
+                    for connection in self.mp_hands.HAND_CONNECTIONS:
+                        start_idx, end_idx = connection
+                        start = hand_landmarks.landmark[start_idx]
+                        end = hand_landmarks.landmark[end_idx]
+
+                        # Convert normalized coords to pixel coords on target frame
+                        start_x = int(start.x * frame_w)
+                        start_y = int(start.y * frame_h)
+                        end_x = int(end.x * frame_w)
+                        end_y = int(end.y * frame_h)
+
+                        cv2.line(frame_bgr, (start_x, start_y), (end_x, end_y),
+                                (0, 255, 0), 2)  # Green lines
+
+                    # Draw landmarks (circles)
+                    for idx, landmark in enumerate(hand_landmarks.landmark):
+                        x = int(landmark.x * frame_w)
+                        y = int(landmark.y * frame_h)
+
+                        # Different colors for fingertips
+                        if idx in [4, 8, 12, 16, 20]:  # Fingertips
+                            cv2.circle(frame_bgr, (x, y), 6, (0, 0, 255), -1)  # Red
+                        else:
+                            cv2.circle(frame_bgr, (x, y), 4, (255, 0, 0), -1)  # Blue
+
+        elif self.mode == "pose":
+            if results and results.pose_landmarks:
+                landmarks = results.pose_landmarks.landmark
+
+                # Draw connections (bones)
+                for connection in self.mp_pose.POSE_CONNECTIONS:
+                    start_idx, end_idx = connection
+                    start = landmarks[start_idx]
+                    end = landmarks[end_idx]
+
+                    # Skip if visibility is too low
+                    if start.visibility < 0.5 or end.visibility < 0.5:
+                        continue
+
+                    # Convert normalized coords to pixel coords on target frame
+                    start_x = int(start.x * frame_w)
+                    start_y = int(start.y * frame_h)
+                    end_x = int(end.x * frame_w)
+                    end_y = int(end.y * frame_h)
+
+                    cv2.line(frame_bgr, (start_x, start_y), (end_x, end_y),
+                            (0, 255, 0), 3)  # Green lines, thicker for pose
+
+                # Draw landmarks (joints)
+                for idx, landmark in enumerate(landmarks):
+                    if landmark.visibility < 0.5:
+                        continue
+
+                    x = int(landmark.x * frame_w)
+                    y = int(landmark.y * frame_h)
+
+                    # Color by body part
+                    if idx in [11, 12, 23, 24]:  # Shoulders and hips
+                        cv2.circle(frame_bgr, (x, y), 8, (0, 0, 255), -1)  # Red
+                    elif idx in [13, 14, 15, 16]:  # Arms
+                        cv2.circle(frame_bgr, (x, y), 6, (255, 165, 0), -1)  # Orange
+                    elif idx in [25, 26, 27, 28, 29, 30, 31, 32]:  # Legs and feet
+                        cv2.circle(frame_bgr, (x, y), 6, (255, 0, 255), -1)  # Magenta
+                    else:
+                        cv2.circle(frame_bgr, (x, y), 5, (255, 0, 0), -1)  # Blue
+
+        return frame_bgr
+
+    def _draw_skeleton(self, frame_bgr: np.ndarray, frame_rgb: np.ndarray) -> np.ndarray:
+        """
+        Draw skeleton overlay on frame (legacy method - re-processes frame)
+        Use _draw_skeleton_with_results for better performance.
+
+        Args:
+            frame_bgr: Original frame in BGR format
+            frame_rgb: Frame in RGB format for MediaPipe
+
+        Returns:
+            Frame with skeleton overlay
+        """
+        if self.mode == "hand":
+            results = self.hands.process(frame_rgb)
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    self.mp_drawing.draw_landmarks(
+                        frame_bgr,
+                        hand_landmarks,
+                        self.mp_hands.HAND_CONNECTIONS,
+                        self.mp_drawing_styles.get_default_hand_landmarks_style(),
+                        self.mp_drawing_styles.get_default_hand_connections_style()
+                    )
+        elif self.mode == "pose":
+            results = self.pose.process(frame_rgb)
+            if results.pose_landmarks:
+                self.mp_drawing.draw_landmarks(
+                    frame_bgr,
+                    results.pose_landmarks,
+                    self.mp_pose.POSE_CONNECTIONS,
+                    landmark_drawing_spec=self.mp_drawing_styles.get_default_pose_landmarks_style()
+                )
+
+        return frame_bgr
+
+    def _process_hand_frame(self, frame_rgb: np.ndarray) -> Optional[Tuple[List[Dict[str, float]], None]]:
+        """Extract hand landmarks (21 points per hand)"""
+        if self.backend == "tasks":
+            landmarks, world_landmarks, _ = self._process_frame_with_results(frame_rgb, timestamp_ms=0)
+            return (landmarks, world_landmarks) if landmarks else None
+
+        results = self.hands.process(frame_rgb)
+
+        if not results.multi_hand_landmarks:
+            return None
+
+        # Get first detected hand (or combine both hands)
+        hand_landmarks = results.multi_hand_landmarks[0]
+
+        landmarks = []
+        for idx, landmark in enumerate(hand_landmarks.landmark):
+            landmarks.append({
+                "id": idx,
+                "x": landmark.x,
+                "y": landmark.y,
+                "z": landmark.z,
+                "visibility": 1.0  # Hand landmarks don't have visibility
+            })
+
+        # Hand model doesn't support world landmarks in the same way pose does usually
+        # or at least we are not prioritizing it now.
+        return landmarks, None
+
+    def _process_pose_frame(self, frame_rgb: np.ndarray) -> Optional[Tuple[List[Dict[str, float]], List[Dict[str, float]]]]:
+        """Extract pose landmarks (33 points)"""
+        if self.backend == "tasks":
+            landmarks, world_landmarks, _ = self._process_frame_with_results(frame_rgb, timestamp_ms=0)
+            return (landmarks, world_landmarks) if landmarks else None
+
+        results = self.pose.process(frame_rgb)
+
+        if not results.pose_landmarks:
+            return None
+
+        landmarks = []
+        for idx, landmark in enumerate(results.pose_landmarks.landmark):
+            landmarks.append({
+                "id": idx,
+                "x": landmark.x,
+                "y": landmark.y,
+                "z": landmark.z,
+                "visibility": landmark.visibility
+            })
+            
+        world_landmarks = []
+        if results.pose_world_landmarks:
+            for idx, landmark in enumerate(results.pose_world_landmarks.landmark):
+                world_landmarks.append({
+                    "id": idx,
+                    "x": landmark.x,
+                    "y": landmark.y,
+                    "z": landmark.z,
+                    "visibility": landmark.visibility
+                })
+        else:
+            world_landmarks = None
+
+        return landmarks, world_landmarks
+
+    def save_to_json(self, landmark_frames: List[LandmarkFrame], output_path: str):
+        """Save landmark data to JSON file"""
+        import json
+
+        data = []
+        for lf in landmark_frames:
+            data.append({
+                "frame": lf.frame_number,
+                "timestamp": lf.timestamp,
+                "keypoints": lf.landmarks,
+                "world_keypoints": lf.world_landmarks
+            })
+
+        with open(output_path, 'w') as f:
+            json.dump(data, f, indent=2)
+
+        print(f"Saved {len(data)} frames to {output_path}")
+
+    def __del__(self):
+        """Cleanup"""
+        if hasattr(self, 'hands'):
+            self.hands.close()
+        if hasattr(self, 'pose'):
+            self.pose.close()
+        if hasattr(self, 'hand_task'):
+            self.hand_task.close()
+        if hasattr(self, 'pose_task'):
+            self.pose_task.close()
+
+
+# Example usage
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) < 3:
+        print("Usage: python mediapipe_processor.py <video_path> <mode>")
+        print("  mode: 'hand' or 'pose'")
+        sys.exit(1)
+
+    video_path = sys.argv[1]
+    mode = sys.argv[2]
+
+    # Process video
+    processor = MediaPipeProcessor(mode=mode)
+    landmark_frames = processor.process_video(video_path)
+
+    # Save to JSON
+    output_path = video_path.replace('.mp4', f'_{mode}_skeleton.json')
+    processor.save_to_json(landmark_frames, output_path)
+
+    print(f"\n[OK] Done! Skeleton data saved to {output_path}")

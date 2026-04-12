@@ -1,0 +1,60 @@
+experiment:
+  name: qwen_vl_lora_motorexam_v0_1
+  stage: phase_1_gait
+  objective: structured_json_sft
+
+model:
+  base_model: Qwen/Qwen2.5-VL-7B-Instruct
+  adaptation: lora
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
+
+data:
+  train_jsonl: data/processed/motorexam_vqa/approved_exports/motorexam_vqa_silver_approved_v0_1.jsonl
+  val_jsonl: data/processed/motorexam_vqa/approved_exports/motorexam_vqa_gold_approved_v0_1.jsonl
+  tasks:
+    - gait
+  fields:
+    input_type: sampled_frames
+    output_type: structured_json
+  sampling_policy:
+    gait: 16
+    finger_tapping: 24
+  split_policy:
+    train: silver
+    val: gold
+
+training:
+  epochs: 3
+  micro_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 0.0002
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  max_seq_length: 4096
+  bf16: true
+  gradient_checkpointing: true
+
+evaluation:
+  primary_metrics:
+    - qwk
+    - mae
+    - spearman
+  secondary_metrics:
+    - json_valid_rate
+    - cue_agreement
+
+notes:
+  - Start with gait only.
+  - Compare against zero-shot and calibrated-prompt baselines.
+  - Do not use dense all-frame inference in phase 1.

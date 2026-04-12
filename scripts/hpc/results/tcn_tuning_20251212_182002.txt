@@ -1,0 +1,30 @@
+TCN Hyperparameter Tuning Results
+Date: 2025-12-12 18:20:02.521738
+
+1. MAE: 0.498, Exact: 59.9%
+   {'hidden_size': 512, 'num_layers': 5, 'dropout': 0.4, 'kernel_size': 5, 'learning_rate': 0.0003}
+
+2. MAE: 0.502, Exact: 60.8%
+   {'hidden_size': 256, 'num_layers': 4, 'dropout': 0.4, 'kernel_size': 7, 'learning_rate': 0.0005}
+
+3. MAE: 0.510, Exact: 60.2%
+   {'hidden_size': 384, 'num_layers': 4, 'dropout': 0.4, 'kernel_size': 3, 'learning_rate': 0.0004}
+
+4. MAE: 0.514, Exact: 58.9%
+   {'hidden_size': 256, 'num_layers': 4, 'dropout': 0.3, 'kernel_size': 5, 'learning_rate': 0.0005}
+
+5. MAE: 0.545, Exact: 56.6%
+   {'hidden_size': 256, 'num_layers': 4, 'dropout': 0.4, 'kernel_size': 3, 'learning_rate': 0.0005}
+
+6. MAE: 0.556, Exact: 56.0%
+   {'hidden_size': 256, 'num_layers': 5, 'dropout': 0.5, 'kernel_size': 3, 'learning_rate': 0.0005}
+
+7. MAE: 0.562, Exact: 54.1%
+   {'hidden_size': 512, 'num_layers': 4, 'dropout': 0.4, 'kernel_size': 3, 'learning_rate': 0.0003}
+
+8. MAE: 0.576, Exact: 52.3%
+   {'hidden_size': 256, 'num_layers': 6, 'dropout': 0.4, 'kernel_size': 3, 'learning_rate': 0.0005}
+
+
+Best config:
+{'hidden_size': 512, 'num_layers': 5, 'dropout': 0.4, 'kernel_size': 5, 'learning_rate': 0.0003}

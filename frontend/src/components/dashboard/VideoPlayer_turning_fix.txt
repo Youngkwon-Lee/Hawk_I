@@ -1,0 +1,103 @@
+interface FrameData {
+    frame: number
+    keypoints: Array<{ id: number; x: number; y: number; score: number }>
+}
+
+interface Marker {
+    time: number
+    label: string
+    type: "warning" | "info" | "good"
+}
+
+// Detect turning events from skeleton data - IMPROVED VERSION
+const detectTurningEvents = React.useCallback((data: FrameData[]): Marker[] => {
+    if (!data || data.length === 0) return []
+
+    const detectedMarkers: Marker[] = []
+
+    // More strict thresholds to detect only actual turns
+    const turningThreshold = 0.35 // Increased from 0.15 - require larger angle change
+    const minTurnDuration = 45 // Minimum frames for a valid turn (1.5 seconds at 30fps)
+    const minFramesBetweenTurns = 90 // Minimum 3 seconds between turn detections
+
+    let previousDirection: number | null = null
+    let turningStarted = false
+    let turningStartFrame = 0
+    let lastTurnEndFrame = -1000 // Track last turn to avoid duplicates
+    let maxAngleChange = 0 // Track maximum angle change during turn
+
+    for (let i = 15; i < data.length - 15; i++) {
+        const frame = data[i]
+
+        // Get shoulder and hip positions for more stable direction tracking
+        const leftShoulder = frame.keypoints.find(k => k.id === 11)
+        const rightShoulder = frame.keypoints.find(k => k.id === 12)
+        const leftHip = frame.keypoints.find(k => k.id === 23)
+        const rightHip = frame.keypoints.find(k => k.id === 24)
+
+        if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) continue
+
+        // Calculate body orientation using both shoulders and hips for stability
+        const shoulderAngle = Math.atan2(
+            rightShoulder.y - leftShoulder.y,
+            rightShoulder.x - leftShoulder.x
+        )
+
+        if (previousDirection !== null) {
+            let angleDiff = shoulderAngle - previousDirection
+
+            // Normalize angle difference to [-π, π]
+            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI
+            while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI
+
+            const absAngleDiff = Math.abs(angleDiff)
+
+            // Detect turning start (significant direction change, not too soon after last turn)
+            if (!turningStarted && absAngleDiff > turningThreshold &&
+                (i - lastTurnEndFrame) > minFramesBetweenTurns) {
+                turningStarted = true
+                turningStartFrame = i
+                maxAngleChange = absAngleDiff
+                console.log('Potential turn detected at frame:', i, 'angle diff:', absAngleDiff)
+            }
+
+            // Track maximum angle change during turn
+            if (turningStarted && absAngleDiff > maxAngleChange) {
+                maxAngleChange = absAngleDiff
+            }
+
+            // Detect turning end (direction stabilizes after sufficient duration)
+            if (turningStarted && i > turningStartFrame + minTurnDuration && absAngleDiff < 0.08) {
+                // Only mark as valid turn if we had significant total rotation
+                if (maxAngleChange > turningThreshold) {
+                    detectedMarkers.push({
+                        time: (turningStartFrame / videoFps),
+                        label: "Turn Start",
+                        type: "info"
+                    })
+                    detectedMarkers.push({
+                        time: (i / videoFps),
+                        label: "Turn End",
+                        type: "good"
+                    })
+                    console.log('Valid turn confirmed:', {
+                        start: turningStartFrame,
+                        end: i,
+                        duration: i - turningStartFrame,
+                        maxAngle: maxAngleChange
+                    })
+                    lastTurnEndFrame = i
+                }
+                turningStarted = false
+                maxAngleChange = 0
+            }
+        }
+
+        previousDirection = shoulderAngle
+    }
+
+    return detectedMarkers
+}, [videoFps])
+
+// Auto-detect turning events when skeleton data loads
+const [autoDetectedMarkers, setAutoDetectedMarkers] = React.useState<Marker[]>([])

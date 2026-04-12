@@ -1,0 +1,189 @@
+{
+  "finger_tapping": [
+    {
+      "sample_id": "finger::15-008175_l_042",
+      "task": "finger_tapping",
+      "video_path": "data/raw/PD4T/PD4T/PD4T/Videos/Finger tapping/042/15-008175_l.mp4",
+      "gt_score": "3",
+      "n": 3,
+      "mismatch_rate": 1.0,
+      "parse_fail_rate": 0.0,
+      "distinct_pred_count": 3,
+      "top_preds": [
+        [
+          "0",
+          1
+        ],
+        [
+          "2",
+          1
+        ],
+        [
+          "3",
+          1
+        ]
+      ],
+      "hardness_score": 0.7,
+      "reason": "manual_sentinel_from_gemini_pro_runs"
+    },
+    {
+      "sample_id": "13-000235_r_003",
+      "task": "finger_tapping",
+      "video_path": "13-000235_r.mp4",
+      "gt_score": "1",
+      "n": 2,
+      "mismatch_rate": 1.0,
+      "parse_fail_rate": 0.0,
+      "distinct_pred_count": 2,
+      "top_preds": [
+        [
+          "2",
+          1
+        ],
+        [
+          "3",
+          1
+        ]
+      ],
+      "hardness_score": 0.6
+    },
+    {
+      "sample_id": "13-005933_r_003",
+      "task": "finger_tapping",
+      "video_path": "13-005933_r.mp4",
+      "gt_score": "1",
+      "n": 2,
+      "mismatch_rate": 1.0,
+      "parse_fail_rate": 0.0,
+      "distinct_pred_count": 2,
+      "top_preds": [
+        [
+          "2",
+          1
+        ],
+        [
+          "0",
+          1
+        ]
+      ],
+      "hardness_score": 0.6
+    },
+    {
+      "sample_id": "13-007370_r_003",
+      "task": "finger_tapping",
+      "video_path": "13-007370_r.mp4",
+      "gt_score": "1",
+      "n": 2,
+      "mismatch_rate": 1.0,
+      "parse_fail_rate": 0.0,
+      "distinct_pred_count": 1,
+      "top_preds": [
+        [
+          "0",
+          2
+        ]
+      ],
+      "hardness_score": 0.6
+    },
+    {
+      "sample_id": "15-008182_l_042",
+      "task": "finger_tapping",
+      "video_path": "15-008182_l.mp4",
+      "gt_score": "1",
+      "n": 2,
+      "mismatch_rate": 1.0,
+      "parse_fail_rate": 0.0,
+      "distinct_pred_count": 1,
+      "top_preds": [
+        [
+          "0",
+          2
+        ]
+      ],
+      "hardness_score": 0.6
+    },
+    {
+      "sample_id": "13-007370_l_003",
+      "task": "finger_tapping",
+      "video_path": "13-007370_l.mp4",
+      "gt_score": "1",
+      "n": 2,
+      "mismatch_rate": 0.0,
+      "parse_fail_rate": 1.0,
+      "distinct_pred_count": 0,
+      "top_preds": [],
+      "hardness_score": 0.3
+    }
+  ],
+  "gait": [
+    {
+      "sample_id": "12-104704",
+      "task": "gait",
+      "video_path": "12-104704_001_clip.mp4",
+      "gt_score": "1",
+      "n": 2,
+      "mismatch_rate": 0.5,
+      "parse_fail_rate": 0.0,
+      "distinct_pred_count": 2,
+      "top_preds": [
+        [
+          "2",
+          1
+        ],
+        [
+          "1",
+          1
+        ]
+      ],
+      "hardness_score": 0.3
+    },
+    {
+      "sample_id": "12-104705",
+      "task": "gait",
+      "video_path": "12-104705_001_clip.mp4",
+      "gt_score": "0",
+      "n": 2,
+      "mismatch_rate": 0.0,
+      "parse_fail_rate": 1.0,
+      "distinct_pred_count": 0,
+      "top_preds": [],
+      "hardness_score": 0.3
+    },
+    {
+      "sample_id": "12-105618",
+      "task": "gait",
+      "video_path": "12-105618_001_clip.mp4",
+      "gt_score": "1",
+      "n": 2,
+      "mismatch_rate": 0.0,
+      "parse_fail_rate": 1.0,
+      "distinct_pred_count": 0,
+      "top_preds": [],
+      "hardness_score": 0.3
+    },
+    {
+      "sample_id": "12-105619",
+      "task": "gait",
+      "video_path": "12-105619_001_clip.mp4",
+      "gt_score": "0",
+      "n": 2,
+      "mismatch_rate": 0.0,
+      "parse_fail_rate": 1.0,
+      "distinct_pred_count": 0,
+      "top_preds": [],
+      "hardness_score": 0.3
+    },
+    {
+      "sample_id": "13-001142",
+      "task": "gait",
+      "video_path": "13-001142_001_clip.mp4",
+      "gt_score": "1",
+      "n": 2,
+      "mismatch_rate": 0.0,
+      "parse_fail_rate": 1.0,
+      "distinct_pred_count": 0,
+      "top_preds": [],
+      "hardness_score": 0.3
+    }
+  ]
+}

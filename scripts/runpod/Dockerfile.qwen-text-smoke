@@ -1,0 +1,20 @@
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
+
+WORKDIR /app
+
+COPY scripts/runpod/requirements-qwen-text-smoke.txt /tmp/requirements-qwen-text-smoke.txt
+COPY scripts/runpod/qwen_text_smoke_server.py /app/qwen_text_smoke_server.py
+
+ENV PYTHONUNBUFFERED=1
+ENV QWEN_SERVER_HOST=0.0.0.0
+ENV QWEN_SERVER_PORT=8000
+ENV QWEN_MAX_NEW_TOKENS=256
+ENV QWEN_TEXT_MODEL_ID=Qwen/Qwen2.5-7B-Instruct
+ENV STARTUP_LOG_PATH=/app/startup.log
+
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --no-cache-dir -r /tmp/requirements-qwen-text-smoke.txt
+
+EXPOSE 8000
+
+CMD ["python", "/app/qwen_text_smoke_server.py"]

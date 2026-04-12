@@ -1,0 +1,28 @@
+SOTA Models for PD Finger Tapping Assessment
+Date: 2025-12-12 19:13:06.017225
+Device: cuda
+Epochs: 200
+
+References:
+- DilatedCNN: FastEval Parkinsonism (Nature Digital Medicine, 2024)
+- ST-GCN: Spatial Temporal GCN (AAAI, 2018)
+- Mamba: State Space Model (arXiv, 2023)
+- GCN-Transformer: Two-stream hybrid (Scientific Reports, 2025)
+
+ST-GCN:
+  MAE: 0.461
+  Exact: 61.9%
+  Within1: 97.5%
+  Pearson: 0.506
+
+GCN-Transformer:
+  MAE: 0.467
+  Exact: 59.9%
+  Within1: 97.5%
+  Pearson: 0.457
+
+DilatedCNN (FastEval):
+  MAE: 0.472
+  Exact: 61.3%
+  Within1: 97.0%
+  Pearson: 0.512
