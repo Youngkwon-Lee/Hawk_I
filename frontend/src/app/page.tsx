@@ -14,8 +14,8 @@ export default function Home() {
             <span className="flex h-2 w-2 rounded-full bg-primary mr-2"></span>
             AI-Powered Parkinson&apos;s Analysis
           </div>
-          <h1 className="text-4xl font-extrabold tracking-tight lg:text-6xl bg-gradient-to-r from-white via-white to-gray-400 bg-clip-text text-transparent">
-            Track Your Movement Changes with Data
+          <h1 className="text-4xl font-extrabold tracking-tight text-foreground lg:text-6xl">
+            Track Your <span className="text-primary">Movement Changes</span> with Data
           </h1>
           <p className="text-lg text-muted-foreground md:text-xl max-w-2xl mx-auto">
             Your personal AI assistant for tracking Parkinson&apos;s related movement patterns using just your smartphone camera.
