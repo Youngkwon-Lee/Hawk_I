@@ -3,13 +3,12 @@
 import * as React from "react"
 import { PageLayout } from "@/components/layout/PageLayout"
 import { ChatInterface } from "@/components/ui/ChatInterface"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
+import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
-import { Hand, Footprints, RotateCw, Upload, FileVideo, X, AlertTriangle, Loader2, CheckCircle2, Activity } from "lucide-react"
+import { Upload, FileVideo, X, AlertTriangle, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { analyzeVideoWithProgress, formatVideoType, getVideoTypeColor, type AnalysisResult, type AnalysisStartResponse } from "@/lib/services/api"
+import { analyzeVideoWithProgress, type AnalysisResult } from "@/lib/services/api"
 import { useAnalysisStore } from "@/store/analysisStore"
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
@@ -109,7 +108,7 @@ export default function TestPage() {
         }
     }
 
-    const handleAnalysisComplete = (result: any) => {
+    const handleAnalysisComplete = (result: AnalysisResult) => {
         // Save result to Zustand store (auto-persisted to sessionStorage)
         setResult(result)
         // Navigate to result page

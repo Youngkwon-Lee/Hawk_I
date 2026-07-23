@@ -101,6 +101,11 @@ class InterpretationAgent:
 
 **중요**: 반드시 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요."""
 
+        if self.client is None:
+            return self._fallback_interpretation_finger_tapping(
+                updrs_score, severity, metrics
+            )
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -194,6 +199,9 @@ class InterpretationAgent:
 }}
 
 **중요**: 반드시 JSON 형식으로만 응답하세요."""
+
+        if self.client is None:
+            return self._fallback_interpretation_gait(updrs_score, severity, metrics)
 
         try:
             response = self.client.chat.completions.create(

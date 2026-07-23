@@ -1,16 +1,4 @@
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/Table"
 import { cn } from "@/lib/utils"
-
-// Need to implement Table component first or just use raw divs if I want to save time.
-// Let's implement a simple Table UI component first in this file to be self-contained or create ui/Table.tsx
-// I'll create ui/Table.tsx quickly as it's standard.
 
 export interface MetricRow {
     label: string

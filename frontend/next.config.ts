@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const backendUrl = process.env.BACKEND_URL || "http://localhost:5000";
+
 const nextConfig: NextConfig = {
   // Empty turbopack config to silence webpack migration warning
   turbopack: {},
@@ -9,11 +11,11 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/backend/:path*',
-        destination: 'http://localhost:5000/api/:path*',
+        destination: `${backendUrl}/api/:path*`,
       },
       {
         source: '/files/:path*',
-        destination: 'http://localhost:5000/files/:path*',
+        destination: `${backendUrl}/files/:path*`,
       },
     ]
   },

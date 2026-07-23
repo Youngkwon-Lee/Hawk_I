@@ -3,9 +3,10 @@
 import * as React from "react"
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
-import { LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { Clock, Activity, AlertCircle, CheckCircle2, Pill } from 'lucide-react'
 import { cn } from "@/lib/utils"
+import { apiUrl } from "@/lib/services/api"
 
 interface TimelineData {
     patient_id: string
@@ -48,7 +49,7 @@ export function MedicationTimeline({ patientId }: MedicationTimelineProps) {
     useEffect(() => {
         const fetchTimeline = async () => {
             try {
-                const response = await fetch(`http://localhost:5000/api/timeline/${patientId}`)
+                const response = await fetch(apiUrl(`/api/timeline/${patientId}`))
                 if (!response.ok) throw new Error('Failed to fetch timeline')
 
                 const data = await response.json()

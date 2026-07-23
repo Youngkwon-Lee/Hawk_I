@@ -9,11 +9,9 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    ReferenceLine,
-    Legend
+    ReferenceLine
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
-import { Badge } from "@/components/ui/Badge"
 import { TrendingDown, TrendingUp, Minus } from "lucide-react"
 
 interface SpeedData {

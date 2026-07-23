@@ -11,25 +11,93 @@ import math
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+class _IdentityScaler:
+    def transform(self, values):
+        return values
+
+
+class _ConstantModel:
+    def __init__(self, prediction):
+        self.prediction = prediction
+
+    def predict(self, values):
+        return np.full(len(values), self.prediction, dtype=float)
+
+
+@pytest.fixture(scope="session")
+def test_ml_model_dir(tmp_path_factory):
+    import joblib
+
+    model_dir = tmp_path_factory.mktemp("hawkeye_ml_models")
+
+    joblib.dump(_ConstantModel(2.0), model_dir / "rf_finger_tapping_scorer.pkl")
+    joblib.dump(_ConstantModel(2.2), model_dir / "xgb_finger_tapping_scorer.pkl")
+    joblib.dump(_IdentityScaler(), model_dir / "finger_tapping_scaler.pkl")
+
+    joblib.dump(_ConstantModel(1.0), model_dir / "rf_gait_scorer.pkl")
+    joblib.dump(_ConstantModel(1.1), model_dir / "xgb_gait_scorer.pkl")
+    joblib.dump(_IdentityScaler(), model_dir / "gait_scaler.pkl")
+
+    return model_dir
+
+
+@pytest.fixture(autouse=True)
+def isolated_ml_scorer(monkeypatch, test_ml_model_dir):
+    monkeypatch.setenv("HAWKEYE_ML_MODEL_DIR", str(test_ml_model_dir))
+
+    try:
+        from services.ml_scorer import MLScorer
+        MLScorer._instance = None
+    except ImportError:
+        pass
+
+    yield
+
+    try:
+        from services.ml_scorer import MLScorer
+        MLScorer._instance = None
+    except ImportError:
+        pass
+
+
 @pytest.fixture
 def mock_finger_tapping_landmarks():
     """Generate mock hand landmark data for finger tapping analysis"""
     frames = []
     for i in range(60):  # 2 seconds at 30fps
-        # Simulate tapping motion with sine wave
-        val = 0.1 + 0.08 * math.sin(i * 0.5)  # Oscillating distance
+        phase = 2 * math.pi * i / 12
+        gap = 0.025 + 0.075 * (0.5 + 0.5 * math.sin(phase))
+        index_tip = {"id": 8, "x": 0.42 + gap, "y": 0.49, "z": 0.01 * math.sin(phase), "visibility": 1.0}
+
+        landmarks = [
+            {"id": 0, "x": 0.50, "y": 0.75, "z": 0.00, "visibility": 1.0},
+            {"id": 1, "x": 0.46, "y": 0.67, "z": 0.00, "visibility": 1.0},
+            {"id": 2, "x": 0.43, "y": 0.59, "z": 0.00, "visibility": 1.0},
+            {"id": 3, "x": 0.42, "y": 0.53, "z": 0.00, "visibility": 1.0},
+            {"id": 4, "x": 0.42, "y": 0.49, "z": 0.00, "visibility": 1.0},
+            {"id": 5, "x": 0.52, "y": 0.56, "z": 0.00, "visibility": 1.0},
+            {"id": 6, "x": 0.53, "y": 0.47, "z": 0.00, "visibility": 1.0},
+            {"id": 7, "x": 0.535, "y": 0.40, "z": 0.00, "visibility": 1.0},
+            index_tip,
+            {"id": 9, "x": 0.57, "y": 0.58, "z": 0.00, "visibility": 1.0},
+            {"id": 10, "x": 0.58, "y": 0.48, "z": 0.00, "visibility": 1.0},
+            {"id": 11, "x": 0.585, "y": 0.40, "z": 0.00, "visibility": 1.0},
+            {"id": 12, "x": 0.59, "y": 0.34, "z": 0.00, "visibility": 1.0},
+            {"id": 13, "x": 0.61, "y": 0.60, "z": 0.00, "visibility": 1.0},
+            {"id": 14, "x": 0.62, "y": 0.51, "z": 0.00, "visibility": 1.0},
+            {"id": 15, "x": 0.625, "y": 0.44, "z": 0.00, "visibility": 1.0},
+            {"id": 16, "x": 0.63, "y": 0.38, "z": 0.00, "visibility": 1.0},
+            {"id": 17, "x": 0.65, "y": 0.63, "z": 0.00, "visibility": 1.0},
+            {"id": 18, "x": 0.66, "y": 0.56, "z": 0.00, "visibility": 1.0},
+            {"id": 19, "x": 0.665, "y": 0.50, "z": 0.00, "visibility": 1.0},
+            {"id": 20, "x": 0.67, "y": 0.45, "z": 0.00, "visibility": 1.0},
+        ]
 
         frame = {
             "frame_number": i,
             "timestamp": i / 30.0,
-            "keypoints": [
-                {"id": 0, "x": 0.5, "y": 0.5, "z": 0.0, "visibility": 1.0},  # Wrist
-                {"id": 4, "x": 0.5, "y": 0.4, "z": 0.0, "visibility": 1.0},  # Thumb tip
-                {"id": 5, "x": 0.5, "y": 0.45, "z": 0.0, "visibility": 1.0}, # Index MCP
-                {"id": 6, "x": 0.5, "y": 0.42, "z": 0.0, "visibility": 1.0}, # Index PIP
-                {"id": 7, "x": 0.5, "y": 0.38, "z": 0.0, "visibility": 1.0}, # Index DIP
-                {"id": 8, "x": 0.5 + val, "y": 0.4 + val, "z": val, "visibility": 1.0},  # Index tip
-            ]
+            "keypoints": landmarks,
+            "landmarks": landmarks,
         }
         frames.append(frame)
     return frames

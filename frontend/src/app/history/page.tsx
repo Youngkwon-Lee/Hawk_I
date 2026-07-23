@@ -6,8 +6,8 @@ import { ChatInterface } from "@/components/ui/ChatInterface"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import {
-  Calendar, Activity, ChevronRight, Filter, TrendingUp, TrendingDown,
-  BarChart3, Clock, Trash2, Eye, X, Search, ChevronDown
+  Calendar, Activity, ChevronRight, Filter, TrendingUp,
+  BarChart3, Clock, Trash2, Eye, Search, ChevronDown
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -17,7 +17,7 @@ import {
 } from "@/lib/services/api"
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell, PieChart, Pie
+  BarChart, Bar, Cell
 } from 'recharts'
 
 // Severity color mapping
@@ -28,13 +28,6 @@ const severityColors: Record<string, string> = {
   "Moderate": "text-orange-400 bg-orange-500/10 border-orange-500/30",
   "Severe": "text-rose-400 bg-rose-500/10 border-rose-500/30",
   "Unknown": "text-slate-400 bg-slate-500/10 border-slate-500/30"
-}
-
-const taskTypeColors: Record<string, string> = {
-  "finger_tapping": "#3b82f6",
-  "gait": "#10b981",
-  // "hand_movement": "#8b5cf6",  // Not implemented yet
-  // "leg_agility": "#f59e0b"  // Not implemented yet
 }
 
 const scoreColors = ["#10b981", "#3b82f6", "#f59e0b", "#f97316", "#ef4444"]

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Play, Pause, Maximize2, Activity, Flame, AlertCircle, Loader2 } from "lucide-react"
+import { Play, Pause, Maximize2, Activity, AlertCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 
@@ -58,12 +58,12 @@ export function VideoPlayer({
 }: VideoPlayerProps) {
     const [isPlaying, setIsPlaying] = React.useState(false)
     const [showSkeleton, setShowSkeleton] = React.useState(true)
-    const [showHeatmap, setShowHeatmap] = React.useState(false)
+    const [showHeatmap] = React.useState(false)
     const [currentTime, setCurrentTime] = React.useState(0)
     const [duration, setDuration] = React.useState(0)
     const [skeletonData, setSkeletonData] = React.useState<FrameData[]>([])
     const [isLoadingData, setIsLoadingData] = React.useState(true)
-    const [videoFps, setVideoFps] = React.useState(keypointsFps) // Use provided FPS
+    const [videoFps] = React.useState(keypointsFps)
     const [videoReady, setVideoReady] = React.useState(false)
 
     const videoRef = React.useRef<HTMLVideoElement>(null)

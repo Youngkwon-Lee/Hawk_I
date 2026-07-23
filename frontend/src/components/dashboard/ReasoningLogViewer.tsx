@@ -1,6 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
 import { ScrollArea } from "@/components/ui/ScrollArea"
-import { Badge } from "@/components/ui/Badge"
 import { Terminal, Clock, Activity, FileText, Brain } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -11,7 +10,7 @@ interface ReasoningStep {
   content?: string    // Frontend format
   message?: string    // Backend format
   timestamp: string
-  meta?: any
+  meta?: unknown
 }
 
 interface ReasoningLogViewerProps {
@@ -58,7 +57,13 @@ export function ReasoningLogViewer({ logs, className }: ReasoningLogViewerProps)
       <CardContent>
         <ScrollArea className="h-[400px] w-full rounded-md border p-4 bg-black/95">
           <div className="space-y-4">
-            {logs.map((log, index) => (
+            {logs.map((log, index) => {
+              const meta =
+                log.meta && typeof log.meta === "object" && !Array.isArray(log.meta)
+                  ? log.meta
+                  : null
+
+              return (
               <div key={index} className="flex gap-3 text-sm animate-in slide-in-from-left-2 fade-in duration-300" style={{ animationDelay: `${index * 50}ms` }}>
                 <div className="flex flex-col items-center gap-1 mt-0.5">
                   <div className={cn("p-1.5 rounded-full border", getAgentColor(log.agent || ""))}>
@@ -84,19 +89,19 @@ export function ReasoningLogViewer({ logs, className }: ReasoningLogViewerProps)
                   <p className="text-slate-400 leading-relaxed font-mono text-xs bg-white/5 p-2 rounded-md border border-white/10">
                     {log.content || log.message || ""}
                   </p>
-                  {log.meta && Object.keys(log.meta).length > 0 && (
+                  {meta && Object.keys(meta).length > 0 && (
                     <div className="mt-2">
                        <details className="text-xs text-muted-foreground cursor-pointer">
                          <summary className="hover:text-primary transition-colors">메타데이터 보기</summary>
                          <pre className="mt-2 p-2 bg-black rounded border border-white/10 overflow-x-auto">
-                           {JSON.stringify(log.meta, null, 2)}
+                           {JSON.stringify(meta, null, 2)}
                          </pre>
                        </details>
                     </div>
                   )}
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </ScrollArea>
       </CardContent>

@@ -58,6 +58,8 @@ Hawkeye/
 
 ## 🚀 Quick Start
 
+For the currently verified local setup, port notes, and smoke checks, see [RUNBOOK.md](./RUNBOOK.md).
+
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+

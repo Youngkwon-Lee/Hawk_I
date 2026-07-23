@@ -39,13 +39,15 @@ class MLScorer:
             cls._instance._loaded = False
         return cls._instance
 
-    def load_models(self, model_dir: str = ML_MODEL_DIR) -> bool:
+    def load_models(self, model_dir: Optional[str] = None) -> bool:
         if self._loaded:
             return True
         try:
             import joblib
         except ImportError:
             return False
+
+        model_dir = model_dir or os.environ.get("HAWKEYE_ML_MODEL_DIR", ML_MODEL_DIR)
 
         ft_models = [("finger_tapping_rf", "rf_finger_tapping_scorer.pkl"),
                      ("finger_tapping_xgb", "xgb_finger_tapping_scorer.pkl"),
