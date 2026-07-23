@@ -35,6 +35,12 @@ CORS(app, resources={
     }
 })
 
+@app.after_request
+def add_private_network_access_header(response):
+    """Allow browser requests to the Tailscale Funnel backend from the public app."""
+    response.headers['Access-Control-Allow-Private-Network'] = 'true'
+    return response
+
 # Configuration
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB max file size
 app.config['JSON_AS_ASCII'] = False  # Enable Korean characters in JSON responses
