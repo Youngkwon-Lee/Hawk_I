@@ -1,9 +1,8 @@
-/**
- * API Service for connecting to Flask Backend
- * Backend: http://localhost:5000
- */
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
+}
 
 export interface FingerTappingMetrics {
   tapping_speed: number
@@ -101,6 +100,7 @@ export interface AnalysisResult {
     detection_rate: number
     mode: string
     skeleton_video_url?: string
+    original_video_url?: string
     fps?: number
     keypoints?: SkeletonFrameData[]
   } | null
@@ -260,6 +260,15 @@ export interface AnalysisStartResponse {
   status: string
 }
 
+export interface AnalysisProgress {
+  status: string
+  task_type?: string
+  steps?: Record<string, {
+    status: string
+    result_url?: string | null
+  }>
+}
+
 /**
  * Scoring methods for UPDRS prediction
  * - 'coral': CORAL Ordinal Regression with Mamba (Best performance - Gait: 0.790, Finger: 0.553, Hand: 0.598)
@@ -324,10 +333,20 @@ export async function analyzeVideoWithProgress(
  * Get final analysis result
  */
 export async function getAnalysisResult(videoId: string): Promise<AnalysisResult> {
-  const response = await fetch(`${API_BASE_URL}/api/analysis/result/${videoId}`)
+  const response = await fetch(apiUrl(`/api/analysis/result/${videoId}`))
 
   if (!response.ok) {
     throw new Error('Failed to fetch analysis result')
+  }
+
+  return response.json()
+}
+
+export async function getAnalysisProgress(videoId: string): Promise<AnalysisProgress> {
+  const response = await fetch(apiUrl(`/api/analysis/progress/${videoId}`))
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch analysis progress')
   }
 
   return response.json()

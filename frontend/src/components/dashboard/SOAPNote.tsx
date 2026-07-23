@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Copy, Check, FileText, ClipboardList } from "lucide-react"
 
@@ -27,24 +27,6 @@ interface SOAPNoteProps {
     analysisDate?: string
 }
 
-// Reference ranges for metrics (mean ± std from normal population)
-const REFERENCE_RANGES: Record<string, Record<string, { mean: number; std: number; unit: string; name: string }>> = {
-    finger_tapping: {
-        tapping_speed: { mean: 2.4, std: 0.6, unit: 'Hz', name: 'Tapping frequency' },
-        amplitude_mean: { mean: 1.5, std: 0.3, unit: '', name: 'Amplitude ratio' },
-        rhythm_variability: { mean: 4.0, std: 4.2, unit: '%', name: 'Rhythm CV' },
-        fatigue_rate: { mean: 10, std: 8, unit: '%', name: 'Fatigue index' },
-        hesitation_count: { mean: 1.0, std: 1.0, unit: '', name: 'Hesitations' },
-    },
-    gait: {
-        velocity_mean: { mean: 1.1, std: 0.2, unit: 'm/s', name: 'Gait velocity' },
-        stride_length: { mean: 1.3, std: 0.15, unit: 'm', name: 'Stride length' },
-        cadence: { mean: 110, std: 10, unit: 'steps/min', name: 'Cadence' },
-        stride_variability: { mean: 3.0, std: 1.5, unit: '%', name: 'Stride CV' },
-        arm_swing_asymmetry: { mean: 5, std: 3, unit: '%', name: 'Arm swing asymmetry' },
-    }
-}
-
 // UPDRS item mapping
 const UPDRS_ITEMS: Record<string, string> = {
     finger_tapping: '3.4 Finger Tapping',
@@ -62,7 +44,7 @@ const SEVERITY_TERMS: Record<string, string> = {
     'Severe': 'Severe bradykinesia with marked motor impairment'
 }
 
-export function SOAPNote({ taskType, metrics, performabilityAssessment, scoreAdvisory, updrsScore, aiInterpretation, patientId, analysisDate }: SOAPNoteProps) {
+export function SOAPNote({ taskType, metrics, performabilityAssessment, scoreAdvisory, updrsScore, analysisDate }: SOAPNoteProps) {
     const [copied, setCopied] = React.useState(false)
     const [format, setFormat] = React.useState<'full' | 'compact'>('compact')
 
@@ -70,7 +52,6 @@ export function SOAPNote({ taskType, metrics, performabilityAssessment, scoreAdv
         ? 'finger_tapping'
         : taskType?.includes('gait') ? 'gait' : taskType
 
-    const refs = REFERENCE_RANGES[normalizedType] || {}
     const updrsItem = UPDRS_ITEMS[normalizedType] || 'Motor Assessment'
     const date = analysisDate ? new Date(analysisDate).toLocaleDateString('ko-KR') : new Date().toLocaleDateString('ko-KR')
 

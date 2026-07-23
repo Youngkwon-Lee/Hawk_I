@@ -8,7 +8,6 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
-    Legend,
     ResponsiveContainer,
     ReferenceLine,
     Cell
@@ -247,11 +246,12 @@ export function GaitCycleChart({ data, analysisData, normalCycleTime = 1000, cla
                                 borderRadius: '8px',
                                 fontSize: '12px'
                             }}
-                            formatter={(value: number, name: string, props: { payload: GaitCycleData }) => {
+                            formatter={(value, name, item) => {
                                 if (name === 'duration') {
+                                    const confidence = item.payload?.confidence
                                     const items: [string, string][] = [[`${value} ms`, '주기 시간']]
-                                    if (props.payload.confidence !== undefined) {
-                                        items.push([`${(props.payload.confidence * 100).toFixed(0)}%`, '신뢰도'])
+                                    if (typeof confidence === 'number') {
+                                        items.push([`${(confidence * 100).toFixed(0)}%`, '신뢰도'])
                                     }
                                     return items[0]
                                 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { getAnalysisResult } from "@/lib/services/api"
+import { getAnalysisProgress, getAnalysisResult } from "@/lib/services/api"
 import { useAnalysisStore } from "@/store/analysisStore"
 
 import * as React from "react"
@@ -52,10 +52,7 @@ function AnalyzingContent() {
 
     const pollProgress = async () => {
       try {
-        const response = await fetch(`http://localhost:5000/api/analysis/progress/${videoId}`)
-        if (!response.ok) throw new Error('Failed to fetch progress')
-
-        const data = await response.json()
+        const data = await getAnalysisProgress(videoId)
         pollCount++
 
         // Update status message based on backend status

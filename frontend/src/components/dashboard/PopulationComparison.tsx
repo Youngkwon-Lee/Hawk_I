@@ -18,6 +18,7 @@ import {
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
 import { Badge } from "@/components/ui/Badge"
+import { apiUrl } from "@/lib/services/api"
 
 interface PopulationStats {
     task_type: string
@@ -80,7 +81,7 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
             try {
                 setLoading(true)
                 const normalizedType = taskType === 'finger' ? 'finger_tapping' : taskType
-                const response = await fetch(`http://localhost:5000/api/population-stats/${normalizedType}`)
+                const response = await fetch(apiUrl(`/api/population-stats/${normalizedType}`))
 
                 if (!response.ok) {
                     throw new Error('Failed to fetch population statistics')
@@ -144,7 +145,7 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
         let patientValue = 0
         if (patientMetrics) {
             // Find frontend key that maps to this backend metricKey
-            const mappedKey = Object.entries(METRIC_MAPPING).find(([k, v]) => v === metricKey)?.[0]
+            const mappedKey = Object.entries(METRIC_MAPPING).find(([, v]) => v === metricKey)?.[0]
             if (mappedKey && patientMetrics[mappedKey] !== undefined) {
                 patientValue = patientMetrics[mappedKey]
             }
@@ -375,16 +376,12 @@ export function PopulationComparison({ taskType, patientScore, patientMetrics }:
                                     const score34Mean = scoreGroups.score_3_4?.mean || 0
                                     const score34Std = scoreGroups.score_3_4?.std || 0
 
-                                    const changePercent = score0Mean > 0
-                                        ? ((score34Mean - score0Mean) / score0Mean * 100)
-                                        : 0
-
                                     // Get patient value
                                     let patientValue: number | undefined
                                     if (patientMetrics) {
                                         // Find frontend key that maps to this backend metricKey
                                         const mappedKey = Object.entries(METRIC_MAPPING)
-                                            .find(([k, v]) => v === metricKey)?.[0]
+                                            .find(([, v]) => v === metricKey)?.[0]
                                         if (mappedKey && patientMetrics[mappedKey] !== undefined) {
                                             patientValue = patientMetrics[mappedKey]
                                         }

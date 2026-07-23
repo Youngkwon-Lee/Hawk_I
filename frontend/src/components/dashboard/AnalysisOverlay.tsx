@@ -4,14 +4,14 @@ import * as React from "react"
 import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent } from "@/components/ui/Card"
 import { Activity, UploadCloud, Eye, Stethoscope, FileText, CheckCircle2, Sparkles, Zap } from 'lucide-react'
-import { getAnalysisResult } from "@/lib/services/api"
+import { getAnalysisProgress, getAnalysisResult, type AnalysisResult } from "@/lib/services/api"
 import { cn } from "@/lib/utils"
 
 interface AnalysisOverlayProps {
     isUploading: boolean
     uploadProgress: number
     videoId: string | null
-    onComplete: (result: any) => void
+    onComplete: (result: AnalysisResult) => void
     onError: (error: string) => void
 }
 
@@ -36,6 +36,9 @@ export function AnalysisOverlay({
     const [estimatedTime, setEstimatedTime] = useState<string | null>(null)
     const [frameInfo, setFrameInfo] = useState<string | null>(null)
     const logsEndRef = useRef<HTMLDivElement>(null)
+    const progressRef = useRef(progress)
+    const onCompleteRef = useRef(onComplete)
+    const onErrorRef = useRef(onError)
 
     // Steps configuration with descriptions
     const steps = [
@@ -116,6 +119,15 @@ export function AnalysisOverlay({
 
     // Handle Analysis Phase
     useEffect(() => {
+        progressRef.current = progress
+    }, [progress])
+
+    useEffect(() => {
+        onCompleteRef.current = onComplete
+        onErrorRef.current = onError
+    }, [onComplete, onError])
+
+    useEffect(() => {
         if (!videoId) return
 
         let pollCount = 0
@@ -132,10 +144,7 @@ export function AnalysisOverlay({
 
         const pollProgress = async () => {
             try {
-                const response = await fetch(`http://localhost:5000/api/analysis/progress/${videoId}`)
-                if (!response.ok) throw new Error('Failed to fetch progress')
-
-                const data = await response.json()
+                const data = await getAnalysisProgress(videoId)
                 pollCount++
 
                 if (data.steps) {
@@ -150,8 +159,8 @@ export function AnalysisOverlay({
                             if (pollCount % 3 === 0) addLog("관심 영역(ROI) 스캔 중...", 'processing')
                         } else {
                             updateReasoning("Vision Agent: MediaPipe 스켈레톤 추출 중...")
-                            setFrameInfo(`프레임 처리 중... (${Math.round(progress * 3)}개 완료)`)
-                            if (pollCount % 2 === 0) addLog(`랜드마크 추출: ${Math.round(progress * 2)}개 포인트`, 'processing')
+                            setFrameInfo(`프레임 처리 중... (${Math.round(progressRef.current * 3)}개 완료)`)
+                            if (pollCount % 2 === 0) addLog(`랜드마크 추출: ${Math.round(progressRef.current * 2)}개 포인트`, 'processing')
                         }
                     }
                     // Clinical Agent Phase
@@ -193,11 +202,11 @@ export function AnalysisOverlay({
 
                     try {
                         const result = await getAnalysisResult(videoId)
-                        setTimeout(() => onComplete(result), 800)
+                        setTimeout(() => onCompleteRef.current(result), 800)
                         return true
                     } catch (err) {
                         console.error('Failed to fetch result:', err)
-                        onError('결과를 가져오는데 실패했습니다.')
+                        onErrorRef.current('결과를 가져오는데 실패했습니다.')
                         return true
                     }
                 }

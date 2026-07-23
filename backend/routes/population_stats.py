@@ -52,6 +52,8 @@ def load_population_stats():
             ft_df = pd.concat(ft_dfs, ignore_index=True)
             stats['finger_tapping'] = compute_task_stats(ft_df, 'finger_tapping')
             print(f"[PopulationStats] Finger Tapping: {len(ft_df)} samples loaded")
+        else:
+            stats['finger_tapping'] = get_default_finger_tapping_stats()
     except Exception as e:
         print(f"[PopulationStats] Error loading finger tapping: {e}")
         stats['finger_tapping'] = get_default_finger_tapping_stats()
@@ -69,6 +71,8 @@ def load_population_stats():
             gait_df = pd.concat(gait_dfs, ignore_index=True)
             stats['gait'] = compute_task_stats(gait_df, 'gait')
             print(f"[PopulationStats] Gait: {len(gait_df)} samples loaded")
+        else:
+            stats['gait'] = get_default_gait_stats()
     except Exception as e:
         print(f"[PopulationStats] Error loading gait: {e}")
         stats['gait'] = get_default_gait_stats()
@@ -166,6 +170,12 @@ def get_default_finger_tapping_stats():
     return {
         'task_type': 'finger_tapping',
         'total_samples': 0,
+        'score_distribution': {
+            'score_0': 0,
+            'score_1': 0,
+            'score_2': 0,
+            'score_3_4': 0
+        },
         'metrics': {
             'tapping_freq': {
                 'score_0': {'mean': 2.39, 'std': 0.58},
@@ -208,6 +218,12 @@ def get_default_gait_stats():
     return {
         'task_type': 'gait',
         'total_samples': 0,
+        'score_distribution': {
+            'score_0': 0,
+            'score_1': 0,
+            'score_2': 0,
+            'score_3_4': 0
+        },
         'metrics': {
             'walking_speed': {
                 'score_0': {'mean': 1.1, 'std': 0.2},

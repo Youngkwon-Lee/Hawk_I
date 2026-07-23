@@ -1,25 +1,44 @@
 "use client"
 
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
+import * as React from "react"
+import { Line, LineChart, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card"
 
 interface TrendChartProps {
-    data: any[]
+    data: Array<Record<string, string | number | null | undefined>>
     dataKey: string
     label: string
     color?: string
 }
 
 export function TrendChart({ data, dataKey, label, color = "#8884d8" }: TrendChartProps) {
+    const containerRef = React.useRef<HTMLDivElement>(null)
+    const [chartWidth, setChartWidth] = React.useState(0)
+
+    React.useEffect(() => {
+        const element = containerRef.current
+        if (!element) return
+
+        const updateWidth = () => {
+            setChartWidth(Math.max(1, Math.floor(element.getBoundingClientRect().width)))
+        }
+
+        updateWidth()
+        const observer = new ResizeObserver(updateWidth)
+        observer.observe(element)
+
+        return () => observer.disconnect()
+    }, [])
+
     return (
         <Card>
             <CardHeader>
                 <CardTitle className="text-sm font-medium">{label} Trend</CardTitle>
             </CardHeader>
             <CardContent>
-                <div className="h-[200px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data}>
+                <div ref={containerRef} className="h-[200px] min-w-0 w-full">
+                    {chartWidth > 0 && (
+                        <LineChart width={chartWidth} height={200} data={data}>
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                             <XAxis
                                 dataKey="date"
@@ -48,7 +67,7 @@ export function TrendChart({ data, dataKey, label, color = "#8884d8" }: TrendCha
                                 activeDot={{ r: 6 }}
                             />
                         </LineChart>
-                    </ResponsiveContainer>
+                    )}
                 </div>
             </CardContent>
         </Card>

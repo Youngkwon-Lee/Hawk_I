@@ -5,6 +5,7 @@ import { Send, Bot, User, Sparkles, Microscope, Zap } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 import { useAnalysisStore } from "@/store/analysisStore"
+import { apiUrl } from "@/lib/services/api"
 
 interface Message {
     id: string
@@ -124,7 +125,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
             // Use analysis result from Zustand store as context
             const context = analysisResult || null
 
-            const response = await fetch('http://localhost:5000/api/chat', {
+            const response = await fetch(apiUrl('/api/chat'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -169,6 +170,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
 
     // Check if we have analysis context
     const hasContext = !!(analysisResult && (analysisResult.metrics || analysisResult.updrs_score))
+    const updrsScore = analysisResult?.updrs_score?.total_score ?? analysisResult?.updrs_score?.score
 
     return (
         <div className={cn("flex flex-col h-full", className)}>
@@ -196,7 +198,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                     {analysisResult?.video_type === "finger_tapping" ? "손가락 태핑" :
                      analysisResult?.video_type === "gait" ? "보행 분석" : analysisResult?.video_type}
                     {analysisResult?.updrs_score && (
-                        <span> • UPDRS: {analysisResult.updrs_score.score}점 ({analysisResult.updrs_score.severity})</span>
+                        <span> • UPDRS: {updrsScore ?? "N/A"}점 ({analysisResult.updrs_score.severity})</span>
                     )}
                     {analysisResult?.performability_assessment && (
                         <span> • 수행성: {analysisResult.performability_assessment.status}</span>

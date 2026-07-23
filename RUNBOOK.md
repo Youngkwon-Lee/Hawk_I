@@ -1,0 +1,115 @@
+# Hawk_I Local Runbook
+
+This runbook records the local development path verified on 2026-07-23.
+
+## Prerequisites
+
+- Python 3.10
+- uv
+- Node.js 18+
+- npm
+
+## Install
+
+From the repo root:
+
+```bash
+uv venv --python 3.10 .venv
+uv pip install -r backend/requirements.txt pytest pytest-cov pytest-mock
+
+cd frontend
+npm install
+```
+
+## Run Backend
+
+The backend defaults to port `5000`, but macOS may already use that port. Use `5001` when `5000` is occupied:
+
+```bash
+PORT=5001 \
+FLASK_ENV=development \
+FRONTEND_URL=http://localhost:3000 \
+uv run --no-sync python backend/app.py
+```
+
+Expected health check:
+
+```bash
+curl -sS http://127.0.0.1:5001/health | python3 -m json.tool
+```
+
+Expected status is `healthy`. `OPENAI_API_KEY` is not required for the health endpoint or basic upload validation. Without it, chat and VLM scoring log warnings and are disabled.
+
+## Run Frontend
+
+In another terminal:
+
+```bash
+cd frontend
+BACKEND_URL=http://127.0.0.1:5001 \
+NEXT_PUBLIC_API_URL=http://127.0.0.1:5001 \
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
+
+The frontend uses `BACKEND_URL` for Next.js rewrites and `NEXT_PUBLIC_API_URL` for browser-side API calls.
+
+## Verified Smoke Checks
+
+```bash
+npm --prefix frontend run build
+npm --prefix frontend run lint
+
+TEST_API_URL=http://127.0.0.1:5001 \
+uv run --no-sync python -m pytest \
+  backend/tests/test_api_e2e.py::TestHealthEndpoints \
+  backend/tests/test_api_e2e.py::TestAnalysisAPI::test_analyze_without_file
+```
+
+For the full backend suite, run the Flask server first and point the E2E tests at it:
+
+```bash
+TEST_API_URL=http://127.0.0.1:5001 \
+uv run --no-sync python -m pytest backend/tests -q
+```
+
+To smoke test the asynchronous upload flow with a local gait clip:
+
+```bash
+mkdir -p /tmp/hawkeye_smoke
+ffmpeg -hide_banner -loglevel error -y \
+  -ss 0 -t 6 \
+  -i /path/to/local-gait-video.mp4 \
+  -an -c:v libx264 -preset veryfast -crf 28 \
+  /tmp/hawkeye_smoke/gait_smoke_6s.mp4
+
+curl -sS -X POST http://127.0.0.1:5001/api/analyze \
+  -F 'video_file=@/tmp/hawkeye_smoke/gait_smoke_6s.mp4;type=video/mp4' \
+  -F 'patient_id=smoke_test' \
+  -F 'test_type=gait' \
+  -F 'scoring_method=rule'
+```
+
+Observed results on 2026-07-23:
+
+- Frontend build passes.
+- Frontend lint passes with warnings only.
+- Backend tests pass: `32 passed, 5 skipped`.
+- Backend `/health` returns `healthy`.
+- Backend `/api/analyze` without a video returns HTTP 400 with `No video file provided`.
+- Backend `/api/analyze` accepts a local 6 second gait clip, completes asynchronously, returns `video_type=gait`, gait metrics, rule-based UPDRS score, events, and skeleton/original video URLs.
+- Frontend `/` and `/test` render in browser.
+- Frontend proxy `/api/backend/analyze` reaches the backend when `BACKEND_URL` points at the active backend port.
+
+## Known Gaps
+
+- The public repo still does not include a de-identified sample video fixture, so the full upload smoke uses a local external gait clip.
+- OpenAI-backed chat and VLM paths require `OPENAI_API_KEY`; without it, fallback interpretation is used.
+- `npm audit` reports dependency vulnerabilities; review before production deployment.
+- Next.js warns that `middleware.ts` should migrate to the newer `proxy` convention.
+- Several frontend lint warnings remain for unused imports/variables and `<img>` usage, but there are no lint errors.

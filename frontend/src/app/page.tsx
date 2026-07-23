@@ -26,7 +26,7 @@ export default function Home() {
                 Start New Test <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
-            <Link href="/about">
+            <Link href="#features">
               <Button variant="outline" size="lg" className="w-full sm:w-auto text-base">
                 How it works
               </Button>
@@ -35,7 +35,7 @@ export default function Home() {
         </div>
 
         {/* Features Section */}
-        <div className="grid gap-8 md:grid-cols-3 w-full max-w-5xl pt-12">
+        <div id="features" className="grid gap-8 md:grid-cols-3 w-full max-w-5xl pt-12">
           <Card className="bg-card/50 backdrop-blur border-primary/10">
             <CardHeader>
               <Activity className="h-10 w-10 text-primary mb-2" />
