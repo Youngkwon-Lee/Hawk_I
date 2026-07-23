@@ -106,9 +106,51 @@ Observed results on 2026-07-23:
 - Frontend `/` and `/test` render in browser.
 - Frontend proxy `/api/backend/analyze` reaches the backend when `BACKEND_URL` points at the active backend port.
 
+## Production Topology
+
+Current production setup verified on 2026-07-23:
+
+- Frontend: Vercel project `hawkeye-labeling-tool`
+- Public app URL: `https://hawkeye-labeling-tool.vercel.app`
+- Backend runtime: home desktop WSL, systemd user service `hawkeye-backend.service`
+- Backend local port: `127.0.0.1:5891`
+- Public backend tunnel: Tailscale Funnel path `https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-api`
+- Browser API path: same-origin `https://hawkeye-labeling-tool.vercel.app/api/*`
+- Browser file path: same-origin `https://hawkeye-labeling-tool.vercel.app/files/*`
+
+Vercel env:
+
+```text
+NEXT_PUBLIC_API_URL=https://hawkeye-labeling-tool.vercel.app
+BACKEND_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-api
+```
+
+The browser must call the Vercel origin, not the Tailscale URL directly. Direct browser requests to the Tailscale Funnel URL can be blocked by browser Private Network Access checks. Next.js rewrites proxy `/api/*` and `/files/*` server-side to the Tailscale backend.
+
+Home desktop checks:
+
+```bash
+ssh yk@100.125.26.99 'systemctl --user status hawkeye-backend.service --no-pager'
+ssh yk@100.125.26.99 'tailscale funnel status'
+curl -sS https://hawkeye-labeling-tool.vercel.app/api/vlm/status
+```
+
+Production smoke test:
+
+```bash
+bash scripts/hawkeye_production_smoke.sh
+```
+
+By default this uses `/tmp/hawkeye_smoke/gait_smoke_6s.mp4`. To use a different file:
+
+```bash
+HAWKEYE_SMOKE_VIDEO=/path/to/gait.mp4 bash scripts/hawkeye_production_smoke.sh
+```
+
 ## Known Gaps
 
 - The public repo still does not include a de-identified sample video fixture, so the full upload smoke uses a local external gait clip.
+- Production analysis availability depends on the home desktop WSL runtime and Tailscale Funnel staying online.
 - OpenAI-backed chat and VLM paths require `OPENAI_API_KEY`; without it, fallback interpretation is used.
 - `npm audit` reports dependency vulnerabilities; review before production deployment.
 - Next.js warns that `middleware.ts` should migrate to the newer `proxy` convention.

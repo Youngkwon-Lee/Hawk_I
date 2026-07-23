@@ -10,11 +10,11 @@ import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
 import { analyzeVideoWithProgress, type AnalysisResult } from "@/lib/services/api"
 import { useAnalysisStore } from "@/store/analysisStore"
+import { AnalysisOverlay } from "@/components/dashboard/AnalysisOverlay"
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime']
-
-import { AnalysisOverlay } from "@/components/dashboard/AnalysisOverlay"
+const DEBUG_LOGS = process.env.NODE_ENV !== "production"
 
 export default function TestPage() {
     const router = useRouter()
@@ -96,7 +96,9 @@ export default function TestPage() {
                 manualTestType
             )
 
-            console.log("Upload complete, analysis started:", result)
+            if (DEBUG_LOGS) {
+                console.log("Upload complete, analysis started:", result)
+            }
             setCurrentVideoId(result.id)
 
             // Note: We don't navigate anymore. The overlay handles the rest.

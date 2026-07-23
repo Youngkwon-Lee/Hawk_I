@@ -5,6 +5,8 @@ import { Play, Pause, Maximize2, Activity, AlertCircle, Loader2 } from "lucide-r
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 
+const DEBUG_LOGS = process.env.NODE_ENV !== "production"
+
 export interface Marker {
     time: number
     label: string
@@ -144,28 +146,36 @@ export function VideoPlayer({
     React.useEffect(() => {
         // If direct keypoints data provided, use that instead
         if (keypointsData && keypointsData.length > 0) {
-            console.log('Using direct keypoints data:', keypointsData.length, 'frames')
+            if (DEBUG_LOGS) {
+                console.log('Using direct keypoints data:', keypointsData.length, 'frames')
+            }
             setIsLoadingData(false)
             setShowSkeleton(true)
             return
         }
 
         if (!skeletonSrc) {
-            console.log('No skeleton data source provided - using plain video player')
+            if (DEBUG_LOGS) {
+                console.log('No skeleton data source provided - using plain video player')
+            }
             setIsLoadingData(false)
             setShowSkeleton(false)
             return
         }
 
         setIsLoadingData(true)
-        console.log('Loading skeleton data from:', skeletonSrc)
+        if (DEBUG_LOGS) {
+            console.log('Loading skeleton data from:', skeletonSrc)
+        }
         fetch(skeletonSrc)
             .then(res => {
                 if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
                 return res.json()
             })
             .then(data => {
-                console.log('Skeleton data loaded:', data?.length, 'frames')
+                if (DEBUG_LOGS) {
+                    console.log('Skeleton data loaded:', data?.length, 'frames')
+                }
                 setSkeletonData(data)
                 setIsLoadingData(false)
             })
@@ -194,7 +204,9 @@ export function VideoPlayer({
             if (canvasRef.current.width !== videoWidth || canvasRef.current.height !== videoHeight) {
                 canvasRef.current.width = videoWidth
                 canvasRef.current.height = videoHeight
-                console.log('Canvas resized to:', videoWidth, 'x', videoHeight)
+                if (DEBUG_LOGS) {
+                    console.log('Canvas resized to:', videoWidth, 'x', videoHeight)
+                }
             }
 
             // Clear canvas
@@ -339,12 +351,14 @@ export function VideoPlayer({
 
             // Try to get FPS from video (not always available in browser)
             // Default to 30 if not available
-            console.log('Video loaded:', {
-                duration: videoRef.current.duration,
-                videoWidth: videoRef.current.videoWidth,
-                videoHeight: videoRef.current.videoHeight,
-                readyState: videoRef.current.readyState
-            })
+            if (DEBUG_LOGS) {
+                console.log('Video loaded:', {
+                    duration: videoRef.current.duration,
+                    videoWidth: videoRef.current.videoWidth,
+                    videoHeight: videoRef.current.videoHeight,
+                    readyState: videoRef.current.readyState
+                })
+            }
         }
     }
 
@@ -397,7 +411,9 @@ export function VideoPlayer({
                         console.error('Ready state:', video.readyState)
                     }}
                     onCanPlayThrough={() => {
-                        console.log('Video can play through')
+                        if (DEBUG_LOGS) {
+                            console.log('Video can play through')
+                        }
                         setVideoReady(true)
                     }}
                     muted

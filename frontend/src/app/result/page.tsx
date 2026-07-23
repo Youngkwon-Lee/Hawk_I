@@ -24,6 +24,8 @@ import { SymmetryChart } from "@/components/dashboard/SymmetryChart"
 import { SpeedProfileChart } from "@/components/dashboard/SpeedProfileChart"
 import { SOAPNote } from "@/components/dashboard/SOAPNote"
 
+const DEBUG_LOGS = process.env.NODE_ENV !== "production"
+
 // Mock Data - Gait (PD4T 기준)
 const GAIT_METRICS: MetricRow[] = [
     { label: "보행 속도", value: "0.75 m/s", unit: "", change: "-2%", status: "good", normalRange: "0.55-0.95" },
@@ -287,8 +289,9 @@ function ResultContent() {
         }
     }, [searchParams, analysisResult, setResult, setError, clearResult])
 
-    // Log for debugging
     React.useEffect(() => {
+        if (!DEBUG_LOGS) return
+
         console.log('=== RESULT PAGE DEBUG ===')
         console.log('Analysis result:', analysisResult)
         console.log('Has metrics?', !!analysisResult?.metrics)
@@ -347,8 +350,9 @@ function ResultContent() {
         : undefined
     const keypointsFps = skeletonData?.fps || 30
 
-    // Log video source for debugging
     React.useEffect(() => {
+        if (!DEBUG_LOGS) return
+
         console.log('=== VIDEO DEBUG ===')
         console.log('Video source:', videoSrc)
         console.log('Skeleton video URL (from API):', skeletonVideoUrl)
