@@ -14,6 +14,13 @@ load_dotenv()
 # Create Flask app
 app = Flask(__name__)
 
+@app.after_request
+def add_private_network_access_header(response):
+    """Allow browser requests to the Tailscale Funnel backend from the public app."""
+    if 'Access-Control-Allow-Private-Network' not in response.headers:
+        response.headers['Access-Control-Allow-Private-Network'] = 'true'
+    return response
+
 # Enable CORS for Next.js frontend
 CORS(app, resources={
     r"/api/*": {
@@ -34,12 +41,6 @@ CORS(app, resources={
         "origins": "*"
     }
 })
-
-@app.after_request
-def add_private_network_access_header(response):
-    """Allow browser requests to the Tailscale Funnel backend from the public app."""
-    response.headers['Access-Control-Allow-Private-Network'] = 'true'
-    return response
 
 # Configuration
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB max file size
