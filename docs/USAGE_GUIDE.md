@@ -12,11 +12,14 @@ cd C:/Users/YK/tulip/VLM_commercial
 pip install -r requirements.txt
 ```
 
-### 2. API 키 확인
+### 2. API 키 설정
 
-API 키는 이미 `configs/api_keys.env`에 설정되어 있습니다:
-- OpenAI GPT-4o: ✅ 설정됨
-- Google Gemini 2.0 Flash: ✅ 설정됨
+API 키는 환경변수로 설정합니다:
+
+```bash
+export OPENAI_API_KEY="your-key"
+export GOOGLE_API_KEY="your-key"
+```
 
 ### 3. 평가 실행
 
@@ -26,12 +29,12 @@ API 키는 이미 `configs/api_keys.env`에 설정되어 있습니다:
 # GPT-4o 전체 평가
 python scripts/gpt4o_vlm_evaluation.py \
     --base_dir ../PD4T/PD4T/PD4T \
-    --api_key $(grep OPENAI_API_KEY configs/api_keys.env | cut -d '=' -f2)
+    --api_key "$OPENAI_API_KEY"
 
 # Gemini 2.0 Flash 전체 평가
 python scripts/gemini_2_flash_evaluation.py \
     --base_dir ../PD4T/PD4T/PD4T \
-    --api_key $(grep GOOGLE_API_KEY configs/api_keys.env | cut -d '=' -f2)
+    --api_key "$GOOGLE_API_KEY"
 ```
 
 #### Option B: 특정 태스크만 평가

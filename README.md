@@ -53,7 +53,7 @@ Hawkeye/
 │
 ├── notebooks/                  # 📓 Jupyter Notebooks
 ├── docs/                       # 📚 Documentation
-└── demo_videos/                # 🎬 Demo samples
+└── frontend/public/data/       # De-identified skeleton/keypoint demo data
 ```
 
 ## 🚀 Quick Start

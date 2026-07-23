@@ -24,7 +24,6 @@ VLM_commercial/
 ├── run_evaluation.sh                  # 실행 스크립트
 │
 ├── configs/
-│   ├── api_keys.env                  # API 키 (실제 키 포함)
 │   └── api_keys.env.example          # API 키 템플릿
 │
 ├── scripts/

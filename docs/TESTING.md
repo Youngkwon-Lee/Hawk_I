@@ -136,14 +136,14 @@ print(f'Predicted: {result.total_score}, Expected: {expected_score}')
   - Arm Swing 임계값 하향 조정 필요 (PD4T 환경 특성)
   - Penalty cap 적용 고려
 
-### demo_videos 테스트 결과 (참고)
-#### Score 1 영상 (demo_videos/score_1_14-005690_demo.mp4)
+### Historical demo video test results
+#### Score 1 reference clip
 - Walking Speed: **1.85 m/s** (정상)
 - Stride Length: **0.49 m** (정상)
 - Arm Swing: L 10.0 / R 10.8 cm (정상)
 - Arm Asymmetry: **7.3%** (정상)
 
-#### Score 3 영상 (demo_videos/score_3_13-007586_demo.mp4)
+#### Score 3 reference clip
 - Walking Speed: **0.62 m/s** (감소)
 - Stride Length: **0.15 m** (매우 짧음)
 - Arm Swing: L 4.9 / R 4.8 cm (감소)
