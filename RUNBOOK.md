@@ -125,6 +125,31 @@ NEXT_PUBLIC_API_URL=https://hawkeye-labeling-tool.vercel.app
 BACKEND_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-api
 ```
 
+Optional backend env for writing completed analyses into physio_app
+`public.activity_sessions` and `public.observations`:
+
+```text
+HAWKEYE_SUPABASE_URL=https://iwtyzcwiovuvmsodtusx.supabase.co
+HAWKEYE_SUPABASE_SERVICE_KEY=<server-side secret/service key>
+HAWKEYE_SUPABASE_ORGANIZATION_ID=<organizations.id>
+HAWKEYE_SUPABASE_CREATED_BY_PERSON_ID=<provider/operator persons.id for creator>
+HAWKEYE_SUPABASE_PERFORMER_PERSON_ID=<persons.id for AI/camera performer, defaults to creator>
+HAWKEYE_SUPABASE_SUBJECT_PERSON_ID=<optional selector hint; only used if it is an active org_clients.person_id>
+HAWKEYE_SUPABASE_ACTIVITY_SESSION_ID=<optional existing activity_sessions.id>
+HAWKEYE_SUPABASE_ACTIVITY_SESSIONS_TABLE=activity_sessions
+HAWKEYE_SUPABASE_OBSERVATIONS_TABLE=observations
+```
+
+Do not set these in the Vercel frontend project. They belong on the Flask
+backend runtime only. If `HAWKEYE_SUPABASE_ACTIVITY_SESSION_ID` is omitted, the
+backend creates one completed camera assessment session per saved analysis.
+The frontend reads selectable people from the backend-only endpoint
+`GET /api/physio/subjects`; that route uses the server Supabase key and returns
+only active `org_clients` in the configured organization. Completed analyses are
+written only when the request includes an explicit physio_app subject/organization
+context; the backend does not fall back to `HAWKEYE_SUPABASE_SUBJECT_PERSON_ID`
+as a write target.
+
 The browser must call the Vercel origin, not the Tailscale URL directly. Direct browser requests to the Tailscale Funnel URL can be blocked by browser Private Network Access checks. Next.js rewrites proxy `/api/*` and `/files/*` server-side to the Tailscale backend.
 
 Home desktop checks:
@@ -132,6 +157,7 @@ Home desktop checks:
 ```bash
 ssh yk@100.125.26.99 'systemctl --user status hawkeye-backend.service --no-pager'
 ssh yk@100.125.26.99 'tailscale funnel status'
+curl -sS https://hawkeye-labeling-tool.vercel.app/api/physio/subjects
 curl -sS https://hawkeye-labeling-tool.vercel.app/api/vlm/status
 ```
 

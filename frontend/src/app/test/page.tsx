@@ -5,10 +5,16 @@ import { PageLayout } from "@/components/layout/PageLayout"
 import { ChatInterface } from "@/components/ui/ChatInterface"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
-import { Upload, FileVideo, X, AlertTriangle, Loader2 } from "lucide-react"
+import { Upload, FileVideo, X, AlertTriangle, Loader2, Users, RefreshCw, CheckCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
-import { analyzeVideoWithProgress, type AnalysisResult } from "@/lib/services/api"
+import {
+    analyzeVideoWithProgress,
+    getPhysioSubjects,
+    type AnalysisResult,
+    type PhysioAnalysisContext,
+    type PhysioSubjectsResponse,
+} from "@/lib/services/api"
 import { useAnalysisStore } from "@/store/analysisStore"
 import { AnalysisOverlay } from "@/components/dashboard/AnalysisOverlay"
 
@@ -26,6 +32,60 @@ export default function TestPage() {
     const [uploadProgress, setUploadProgress] = React.useState(0)
     const [analysisError, setAnalysisError] = React.useState<string>("")
     const [currentVideoId, setCurrentVideoId] = React.useState<string | null>(null)
+    const [physioData, setPhysioData] = React.useState<PhysioSubjectsResponse | null>(null)
+    const [selectedSubjectId, setSelectedSubjectId] = React.useState("")
+    const [isLoadingPhysio, setIsLoadingPhysio] = React.useState(true)
+    const [physioError, setPhysioError] = React.useState("")
+
+    const loadPhysioSubjects = React.useCallback(async () => {
+        setIsLoadingPhysio(true)
+        setPhysioError("")
+        try {
+            const data = await getPhysioSubjects()
+            setPhysioData(data)
+            if (data.enabled && data.subjects.length > 0) {
+                setSelectedSubjectId((current) => {
+                    if (data.subjects.some((subject) => subject.id === current)) {
+                        return current
+                    }
+                    return data.default_subject_id || data.subjects[0].id
+                })
+            } else {
+                setSelectedSubjectId("")
+            }
+        } catch (error) {
+            setPhysioData(null)
+            setSelectedSubjectId("")
+            setPhysioError(error instanceof Error ? error.message : "physio_app 대상을 불러오지 못했습니다")
+        } finally {
+            setIsLoadingPhysio(false)
+        }
+    }, [])
+
+    React.useEffect(() => {
+        void loadPhysioSubjects()
+    }, [loadPhysioSubjects])
+
+    const selectedSubject = React.useMemo(() => {
+        return physioData?.subjects.find((subject) => subject.id === selectedSubjectId) ?? null
+    }, [physioData, selectedSubjectId])
+
+    const physioAnalysisContext = React.useMemo<PhysioAnalysisContext | undefined>(() => {
+        if (!physioData?.enabled || !selectedSubject) return undefined
+
+        return {
+            subject_person_id: selectedSubject.id,
+            organization_id: selectedSubject.organization_id,
+            created_by_person_id: physioData.default_created_by_person_id ?? undefined,
+            performer_person_id: physioData.default_performer_person_id ?? undefined,
+            subject_display_name: selectedSubject.display_name,
+            organization_display_name: physioData.organization?.display_name || physioData.organization?.name || undefined,
+        }
+    }, [physioData, selectedSubject])
+
+    const isMissingRequiredPhysioSubject = physioData?.enabled === true && !selectedSubject
+    const isAnalysisDisabled =
+        !file || isAnalyzing || isLoadingPhysio || Boolean(physioError) || isMissingRequiredPhysioSubject
 
     const validateFile = (file: File): string | null => {
         // Check file size
@@ -75,6 +135,18 @@ export default function TestPage() {
 
     const handleStartAnalysis = async () => {
         if (!file) return
+        if (isLoadingPhysio) {
+            setAnalysisError("physio_app 저장 대상을 확인 중입니다.")
+            return
+        }
+        if (physioError) {
+            setAnalysisError("physio_app 대상 조회를 먼저 해결해주세요.")
+            return
+        }
+        if (physioData?.enabled && !selectedSubject) {
+            setAnalysisError("physio_app에 저장할 active 고객을 먼저 선택해주세요.")
+            return
+        }
 
         // Clear previous result before starting new analysis
         clearResult()
@@ -91,9 +163,11 @@ export default function TestPage() {
             // Start upload and get videoId
             const result = await analyzeVideoWithProgress(
                 file,
-                undefined,
+                physioAnalysisContext?.subject_person_id,
                 (progress) => setUploadProgress(progress),
-                manualTestType
+                manualTestType,
+                "coral",
+                physioAnalysisContext
             )
 
             if (DEBUG_LOGS) {
@@ -176,9 +250,78 @@ export default function TestPage() {
                     </div>
                 </div>
 
-                {/* Step 2: Upload Video */}
+                {/* Step 2: Select physio_app subject */}
                 <div className="space-y-4">
-                    <h2 className="text-xl font-semibold">2. 비디오 업로드</h2>
+                    <div className="flex items-center justify-between gap-3">
+                        <h2 className="text-xl font-semibold">2. physio_app 저장 대상</h2>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={loadPhysioSubjects}
+                            disabled={isLoadingPhysio}
+                            className="gap-2"
+                        >
+                            <RefreshCw className={cn("h-4 w-4", isLoadingPhysio && "animate-spin")} />
+                            새로고침
+                        </Button>
+                    </div>
+
+                    <div className="rounded-lg border border-border bg-card/60 p-4">
+                        {isLoadingPhysio ? (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                불러오는 중
+                            </div>
+                        ) : physioError ? (
+                            <div className="flex items-center gap-2 text-sm text-red-500">
+                                <AlertTriangle className="h-4 w-4" />
+                                {physioError}
+                            </div>
+                        ) : physioData?.enabled && physioData.subjects.length > 0 ? (
+                            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                                <label className="space-y-2">
+                                    <span className="flex items-center gap-2 text-sm font-medium">
+                                        <Users className="h-4 w-4 text-primary" />
+                                        대상
+                                    </span>
+                                    <select
+                                        value={selectedSubjectId}
+                                        onChange={(event) => setSelectedSubjectId(event.target.value)}
+                                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                    >
+                                        {physioData.subjects.map((subject) => (
+                                            <option key={subject.id} value={subject.id}>
+                                                {subject.display_name} · {subject.role || subject.user_type || "member"}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                                {selectedSubject && (
+                                    <div className="flex min-w-0 items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-500">
+                                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                                        <span className="truncate">
+                                            {selectedSubject.display_name}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        ) : physioData?.enabled ? (
+                            <div className="flex items-center gap-2 text-sm text-amber-600">
+                                <AlertTriangle className="h-4 w-4 shrink-0" />
+                                <span>physio_app active 고객이 없습니다. 고객을 먼저 등록한 뒤 새로고침하세요.</span>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Users className="h-4 w-4" />
+                                physio_app 저장 비활성화
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Step 3: Upload Video */}
+                <div className="space-y-4">
+                    <h2 className="text-xl font-semibold">3. 비디오 업로드</h2>
                     <div
                         className={cn(
                             "border-2 border-dashed rounded-xl p-10 text-center transition-colors",
@@ -251,13 +394,18 @@ export default function TestPage() {
                     <Button variant="ghost" disabled={isAnalyzing}>취소</Button>
                     <Button
                         size="lg"
-                        disabled={!file || isAnalyzing}
+                        disabled={isAnalysisDisabled}
                         onClick={handleStartAnalysis}
                     >
                         {isAnalyzing ? (
                             <>
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                 분석 중...
+                            </>
+                        ) : isLoadingPhysio ? (
+                            <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                대상 확인 중...
                             </>
                         ) : (
                             '분석 시작'

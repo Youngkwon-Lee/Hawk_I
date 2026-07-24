@@ -68,6 +68,18 @@ export interface AnalysisResult {
   confidence: number
   auto_detected: boolean
   patient_id: string
+  physio_context?: PhysioAnalysisContext | null
+  integrations?: {
+    supabase_observation?: {
+      enabled: boolean
+      saved: boolean
+      table: string
+      reason?: string
+      observation_id?: string
+      activity_session_id?: string
+      status_code?: number
+    }
+  }
   roi: {
     x: number
     y: number
@@ -185,6 +197,47 @@ export interface AnalysisResult {
   } | null
 }
 
+export interface PhysioSubject {
+  id: string
+  display_name: string
+  email?: string | null
+  user_type?: string | null
+  source_type?: string | null
+  role?: string | null
+  organization_id: string
+  is_default: boolean
+}
+
+export interface PhysioOrganization {
+  id: string
+  name?: string | null
+  display_name?: string | null
+  slug?: string | null
+  org_type?: string | null
+  status?: string | null
+}
+
+export interface PhysioSubjectsResponse {
+  success: boolean
+  enabled: boolean
+  organization: PhysioOrganization | null
+  subjects: PhysioSubject[]
+  default_subject_id?: string | null
+  default_created_by_person_id?: string | null
+  default_performer_person_id?: string | null
+  reason?: string
+  error?: string
+}
+
+export interface PhysioAnalysisContext {
+  subject_person_id: string
+  organization_id: string
+  created_by_person_id?: string
+  performer_person_id?: string
+  subject_display_name?: string
+  organization_display_name?: string
+}
+
 export interface HealthStatus {
   status: string
   service: string
@@ -216,6 +269,36 @@ export async function checkHealth(): Promise<HealthStatus> {
   return response.json()
 }
 
+export async function getPhysioSubjects(): Promise<PhysioSubjectsResponse> {
+  const response = await fetch(apiUrl('/api/physio/subjects'))
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null)
+    throw new Error(error?.error || 'Failed to fetch physio_app subjects')
+  }
+
+  return response.json()
+}
+
+function appendPhysioContext(formData: FormData, context?: PhysioAnalysisContext) {
+  if (!context) return
+
+  formData.append('physio_subject_person_id', context.subject_person_id)
+  formData.append('physio_organization_id', context.organization_id)
+  if (context.created_by_person_id) {
+    formData.append('physio_created_by_person_id', context.created_by_person_id)
+  }
+  if (context.performer_person_id) {
+    formData.append('physio_performer_person_id', context.performer_person_id)
+  }
+  if (context.subject_display_name) {
+    formData.append('physio_subject_display_name', context.subject_display_name)
+  }
+  if (context.organization_display_name) {
+    formData.append('physio_organization_display_name', context.organization_display_name)
+  }
+}
+
 /**
  * Analyze video with automatic task classification
  *
@@ -227,7 +310,8 @@ export async function checkHealth(): Promise<HealthStatus> {
 export async function analyzeVideo(
   videoFile: File,
   patientId?: string,
-  manualTestType?: string
+  manualTestType?: string,
+  physioContext?: PhysioAnalysisContext
 ): Promise<AnalysisResult> {
   const formData = new FormData()
   formData.append('video_file', videoFile)
@@ -239,6 +323,7 @@ export async function analyzeVideo(
   if (manualTestType) {
     formData.append('test_type', manualTestType)
   }
+  appendPhysioContext(formData, physioContext)
 
   const response = await fetch(`${API_BASE_URL}/api/analyze`, {
     method: 'POST',
@@ -287,7 +372,8 @@ export async function analyzeVideoWithProgress(
   patientId?: string,
   onProgress?: (progress: number) => void,
   manualTestType?: string,
-  scoringMethod: ScoringMethod = 'coral'
+  scoringMethod: ScoringMethod = 'coral',
+  physioContext?: PhysioAnalysisContext
 ): Promise<AnalysisStartResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -322,6 +408,7 @@ export async function analyzeVideoWithProgress(
     if (manualTestType) {
       formData.append('test_type', manualTestType)
     }
+    appendPhysioContext(formData, physioContext)
     formData.append('scoring_method', scoringMethod)
 
     xhr.open('POST', `${API_BASE_URL}/api/analyze`)

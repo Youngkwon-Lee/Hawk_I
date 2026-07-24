@@ -23,6 +23,7 @@ from services.finger_performability import get_finger_performability_gate
 from services.updrs_scorer import UPDRSScorer
 from services.interpretation_agent import InterpretationAgent
 from services.progress_tracker import init_analysis, update_step, complete_analysis, fail_analysis
+from services.supabase_observations import save_analysis_observation
 from services.visualization_data_generator import generate_visualization_data, detect_events
 from agents.orchestrator import OrchestratorAgent
 from domain.context import AnalysisContext
@@ -59,7 +60,16 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def process_video_background(video_path, video_id, patient_id, manual_test_type, app_config, scoring_method='ensemble', ml_model_type='rf'):
+def process_video_background(
+    video_path,
+    video_id,
+    patient_id,
+    manual_test_type,
+    app_config,
+    scoring_method='ensemble',
+    ml_model_type='rf',
+    physio_context=None,
+):
     """
     Background task for video analysis using Multi-Agent Orchestrator
     """
@@ -210,6 +220,7 @@ def process_video_background(video_path, video_id, patient_id, manual_test_type,
             "success": True,
             "id": video_id,
             "patient_id": patient_id,
+            "physio_context": physio_context or None,
             "video_type": ctx.task_type,
             "auto_detected": manual_test_type is None,
             "confidence": ctx.vision_meta.get("confidence", 0.0),
@@ -257,6 +268,10 @@ def process_video_background(video_path, video_id, patient_id, manual_test_type,
             },
             "visualization_data": visualization_data,
             "gait_cycle_analysis": gait_analysis  # Include raw gait cycle data
+        }
+
+        response["integrations"] = {
+            "supabase_observation": save_analysis_observation(response).as_public_dict()
         }
 
         # Save result
@@ -324,7 +339,21 @@ def start_analysis():
         init_analysis(video_id, task_type="auto_detect")
 
         # Get optional parameters
-        patient_id = request.form.get('patient_id', 'unknown')
+        physio_context = {
+            "subject_person_id": request.form.get("physio_subject_person_id"),
+            "organization_id": request.form.get("physio_organization_id"),
+            "created_by_person_id": request.form.get("physio_created_by_person_id"),
+            "performer_person_id": request.form.get("physio_performer_person_id"),
+            "subject_display_name": request.form.get("physio_subject_display_name"),
+            "organization_display_name": request.form.get("physio_organization_display_name"),
+        }
+        physio_context = {
+            key: value.strip()
+            for key, value in physio_context.items()
+            if isinstance(value, str) and value.strip()
+        }
+
+        patient_id = request.form.get('patient_id') or physio_context.get("subject_person_id") or 'unknown'
         manual_test_type = request.form.get('test_type', None)
         # Scoring methods:
         # - 'coral': CORAL Ordinal Regression with Mamba (Best: Gait 0.790, Finger 0.553, Hand 0.598)
@@ -344,7 +373,8 @@ def start_analysis():
                 manual_test_type,
                 current_app.config.copy(),
                 scoring_method,
-                ml_model_type
+                ml_model_type,
+                physio_context or None,
             )
         )
         thread.daemon = True
@@ -399,4 +429,3 @@ def get_analysis_status(analysis_id):
         "success": False,
         "error": "Use /api/analysis/progress/<video_id> instead"
     }), 301
-

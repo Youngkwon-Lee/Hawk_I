@@ -15,7 +15,7 @@ import { VideoPlayer, type Marker } from "@/components/dashboard/VideoPlayer"
 import { AIInterpretation } from "@/components/dashboard/AIInterpretation"
 import { MedicationTimeline } from "@/components/dashboard/MedicationTimeline"
 import { PopulationComparison } from "@/components/dashboard/PopulationComparison"
-import { AlertTriangle, CheckCircle2, Download, HelpCircle, Share2, Activity, Brain, ClipboardList, CircleSlash } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Download, HelpCircle, Share2, Activity, Brain, ClipboardList, CircleSlash, Database } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiUrl, getAnalysisResult, type FingerPerformabilityAssessment, type FingerTappingMetrics, type GaitMetrics, type TimelineEvent } from "@/lib/services/api"
 import { ReasoningLogViewer } from "@/components/dashboard/ReasoningLogViewer"
@@ -331,6 +331,8 @@ function ResultContent() {
     const confidence = analysisResult?.updrs_score?.confidence
     const performabilityAssessment = isFinger ? analysisResult?.performability_assessment : null
     const scoreAdvisory = isFinger ? analysisResult?.score_advisory : null
+    const supabaseObservation = analysisResult?.integrations?.supabase_observation
+    const subjectDisplayName = analysisResult?.physio_context?.subject_display_name
 
     // Use original video with canvas overlay (Method A - Frontend Canvas Overlay)
     // Priority: original video URL (from API) > skeleton video URL (legacy) > sample video
@@ -419,6 +421,26 @@ function ResultContent() {
                                 </span>
                             )}
                         </p>
+                        {(subjectDisplayName || supabaseObservation?.enabled) && (
+                            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                                {subjectDisplayName && (
+                                    <span className="rounded-md border border-border bg-card px-2.5 py-1 text-muted-foreground">
+                                        대상: {subjectDisplayName}
+                                    </span>
+                                )}
+                                {supabaseObservation?.enabled && (
+                                    <span className={cn(
+                                        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1",
+                                        supabaseObservation.saved
+                                            ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-500"
+                                            : "border-yellow-500/20 bg-yellow-500/5 text-yellow-500"
+                                    )}>
+                                        <Database className="h-4 w-4" />
+                                        {supabaseObservation.saved ? "physio_app 저장됨" : "physio_app 저장 대기"}
+                                    </span>
+                                )}
+                            </div>
+                        )}
                     </div>
                     <div className="flex gap-2">
                         <Button variant="outline" size="sm" className="gap-2">

@@ -57,7 +57,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 from services.progress_tracker import get_progress
 
 # Import routes
-from routes import analyze, chat, health, timeline, streaming, population_stats, history, vlm
+from routes import analyze, chat, health, timeline, streaming, population_stats, history, vlm, physio_context
 
 # Register blueprints
 app.register_blueprint(analyze.bp)
@@ -68,6 +68,7 @@ app.register_blueprint(streaming.bp)
 app.register_blueprint(population_stats.bp)
 app.register_blueprint(history.bp)
 app.register_blueprint(vlm.bp)
+app.register_blueprint(physio_context.bp)
 
 @app.route('/')
 def index():
@@ -81,6 +82,7 @@ def index():
             "/api/analyze": "Video analysis with ROI detection and task classification",
             "/api/extract-skeleton": "Extract skeleton keypoints using MediaPipe",
             "/api/predict-updrs": "Predict UPDRS score (0-3)",
+            "/api/physio/subjects": "Selectable physio_app context for analysis storage",
             "/uploads/<filename>": "Static file serving for videos and results"
         }
     })
