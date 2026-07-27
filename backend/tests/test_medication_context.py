@@ -67,3 +67,9 @@ def test_deidentified_frontend_contract_fixture_keeps_the_safety_boundary():
     assert payload["medication_context"]["source"] == "patient_reported_local"
     assert payload["medication_timing"]["evidence_level"] == "single_observation"
     assert payload["medication_timing"]["can_infer_medication_effect"] is False
+
+    followup_path = Path(__file__).parent / "fixtures" / "medication_result_followup.json"
+    followup = json.loads(followup_path.read_text(encoding="utf-8"))
+    assert followup["patient_id"] == payload["patient_id"]
+    assert followup["medication_context"]["dose_mg"] == payload["medication_context"]["dose_mg"]
+    assert followup["medication_timing"]["can_infer_medication_effect"] is False

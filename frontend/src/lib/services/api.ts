@@ -531,6 +531,44 @@ export interface HistoryItem {
   metrics: Record<string, number>
   patient_id: string
   scoring_method: string
+  assessment_session_id?: string | null
+  medication_context?: MedicationContext | null
+  medication_timing?: MedicationTiming | null
+}
+
+export interface MedicationComparisonObservation {
+  video_id?: string
+  date?: string
+  patient_id: string
+  task_type: string
+  medication: string
+  dose_mg: number | null
+  hours_after_reported_dose: number | null
+  score: number
+  tapping_speed: number | null
+  amplitude_mean: number | null
+  fatigue_rate: number | null
+}
+
+export interface MedicationComparison {
+  available: boolean
+  observation_count: number
+  reason?: "needs_repeated_comparable_assessments"
+  patient_id?: string
+  task_type?: string
+  medication?: string
+  dose_mg?: number | null
+  first?: MedicationComparisonObservation
+  latest?: MedicationComparisonObservation
+  observed_change?: {
+    score: number | null
+    tapping_speed: number | null
+    amplitude_mean: number | null
+    fatigue_rate: number | null
+  }
+  evidence_level?: "observational_repeated_assessments"
+  can_infer_medication_effect: false
+  requires_clinician_review?: true
 }
 
 export interface HistoryResponse {
@@ -556,6 +594,7 @@ export interface HistoryStats {
       score: number
       task_type: string
     }>
+    medication_comparison: MedicationComparison
   }
 }
 

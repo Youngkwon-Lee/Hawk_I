@@ -192,6 +192,29 @@ HAWKEYE_SMOKE_VIDEO=/path/to/gait.mp4 bash scripts/hawkeye_production_smoke.sh
 - The public repo still does not include a de-identified sample video fixture, so the full upload smoke uses a local external gait clip.
 - Production analysis availability depends on the home desktop WSL runtime and Tailscale Funnel staying online.
 - Medication-effect inference requires repeated, comparable assessments and clinician review. The current integration only preserves patient-reported context and displays its time relationship to one assessment.
+
+## De-identified finger and medication smoke
+
+Build a hand-only synthetic clip from the Apache-2.0 MediaPipe gesture
+recognizer test assets. The downloaded source photos stay in a temporary
+directory and the script deletes them after encoding; the output contains only
+cropped hands. This proves pipeline connectivity, not clinical validity.
+
+```bash
+bash scripts/build_deidentified_finger_fixture.sh
+PYTHONPATH=backend /path/to/project-venv/bin/python \
+  scripts/run_local_medication_e2e.py \
+  /tmp/hawkeye_smoke/deidentified_hand_motion.mp4
+```
+
+The smoke clears Supabase and external LLM credentials in its own process,
+requires detected hand landmarks, preserves the synthetic assessment and
+medication timing contract, and fails if any Supabase observation is saved.
+
+Repeated medication comparison is deliberately observational. ParkiCheck and
+Hawk I group only the same patient, task, patient-reported medication name, and
+dose; they show numeric first-to-latest differences while keeping
+`can_infer_medication_effect=false` and requiring clinician review.
 - OpenAI-backed chat and VLM paths require `OPENAI_API_KEY`; without it, fallback interpretation is used.
 - `npm audit` reports dependency vulnerabilities; review before production deployment.
 - Next.js warns that `middleware.ts` should migrate to the newer `proxy` convention.

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/Button"
 import {
   Calendar, Activity, ChevronRight, Filter, TrendingUp,
-  BarChart3, Clock, Trash2, Eye, Search, ChevronDown
+  BarChart3, Clock, Trash2, Eye, Search, ChevronDown, Pill
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -54,7 +54,7 @@ export default function HistoryPage() {
       try {
         const [historyRes, statsRes] = await Promise.all([
           getHistory(filters),
-          getHistoryStats(filters.task_type)
+          getHistoryStats(filters.task_type, filters.patient_id)
         ])
         setHistory(historyRes.data.items)
         setStats(statsRes.data)
@@ -87,6 +87,11 @@ export default function HistoryPage() {
       item.patient_id.toLowerCase().includes(searchTerm.toLowerCase())
     )
   })
+
+  const formatDelta = (value: number | null | undefined, suffix = '') => {
+    if (value == null) return '—'
+    return `${value > 0 ? '+' : ''}${value}${suffix}`
+  }
 
   return (
     <PageLayout agentPanel={<ChatInterface initialMessages={[{
@@ -342,6 +347,56 @@ export default function HistoryPage() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {stats && (
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Pill className="h-5 w-5 text-blue-400" />
+                반복 측정 복약 컨텍스트
+              </CardTitle>
+              <CardDescription>
+                동일 환자·동일 과제·동일 약명·동일 용량으로 기록된 관찰만 비교합니다.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {stats.medication_comparison.available && stats.medication_comparison.first && stats.medication_comparison.latest ? (
+                <div className="space-y-4">
+                  <div className="text-sm text-slate-300">
+                    {stats.medication_comparison.medication}
+                    {stats.medication_comparison.dose_mg == null ? '' : ` ${stats.medication_comparison.dose_mg} mg`}
+                    <span className="text-slate-500"> · 비교 가능한 관찰 {stats.medication_comparison.observation_count}회</span>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                      <p className="text-xs text-slate-500">첫 관찰</p>
+                      <p className="mt-1 text-xl font-semibold">{stats.medication_comparison.first.score}/4</p>
+                      <p className="text-xs text-slate-500">복용 후 {stats.medication_comparison.first.hours_after_reported_dose ?? '—'}시간</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                      <p className="text-xs text-slate-500">최근 관찰</p>
+                      <p className="mt-1 text-xl font-semibold">{stats.medication_comparison.latest.score}/4</p>
+                      <p className="text-xs text-slate-500">복용 후 {stats.medication_comparison.latest.hours_after_reported_dose ?? '—'}시간</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                      <p className="text-xs text-slate-500">관찰된 단순 차이</p>
+                      <p className="mt-1 text-xl font-semibold">점수 {formatDelta(stats.medication_comparison.observed_change?.score)}</p>
+                      <p className="text-xs text-slate-500">태핑 속도 {formatDelta(stats.medication_comparison.observed_change?.tapping_speed, ' Hz')}</p>
+                    </div>
+                  </div>
+                  <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-slate-400">
+                    반복 관찰의 단순 차이이며 약효, 인과관계, ON/OFF 상태 또는 복약 변경 필요성을 의미하지 않습니다. 의료진 검토가 필요합니다.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 text-sm text-slate-400">
+                  <p>동일 조건의 저장 결과가 2회 이상 필요합니다.</p>
+                  <p>현재 비교 가능한 관찰 {stats.medication_comparison.observation_count || 0}회 · 약효 또는 ON/OFF 상태는 추정하지 않습니다.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* History List */}
