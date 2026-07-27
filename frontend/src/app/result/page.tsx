@@ -10,7 +10,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/Button"
 import { SummaryCard } from "@/components/dashboard/SummaryCard"
 import { MetricsTable, MetricRow } from "@/components/dashboard/MetricsTable"
-import { TrendChart } from "@/components/dashboard/TrendChart"
 import { VideoPlayer, type Marker } from "@/components/dashboard/VideoPlayer"
 import { AIInterpretation } from "@/components/dashboard/AIInterpretation"
 import { MedicationTimeline } from "@/components/dashboard/MedicationTimeline"
@@ -25,31 +24,6 @@ import { SpeedProfileChart } from "@/components/dashboard/SpeedProfileChart"
 import { SOAPNote } from "@/components/dashboard/SOAPNote"
 
 const DEBUG_LOGS = process.env.NODE_ENV !== "production"
-
-// Mock Data - Gait (PD4T 기준)
-const GAIT_METRICS: MetricRow[] = [
-    { label: "보행 속도", value: "0.75 m/s", unit: "", change: "-2%", status: "good", normalRange: "0.55-0.95" },
-    { label: "보행률 (Cadence)", value: "140", unit: "steps/min", change: "+1%", status: "good", normalRange: "120-160" },
-    { label: "보폭 길이", value: "0.33", unit: "(정규화)", change: "-8%", status: "good", normalRange: "0.25-0.45" },
-    { label: "팔 흔들기 비대칭", value: "12", unit: "%", change: "+5%", status: "good", normalRange: "<20" },
-]
-
-// Mock Data - Finger
-const FINGER_METRICS: MetricRow[] = [
-    { label: "태핑 속도", value: "3.2 Hz", unit: "", change: "-5%", status: "warning", normalRange: "3.0-6.0" },
-    { label: "진폭 (Amplitude)", value: "4.5 cm", unit: "", change: "-10%", status: "bad", normalRange: ">0.8" },
-    { label: "주저함", value: "3", unit: "회", change: "+1", status: "warning", normalRange: "≤2" },
-    { label: "피로율", value: "12", unit: "%", change: "+3%", status: "bad", normalRange: "<20" },
-]
-
-// Mock trend data for demo (임시 데이터)
-const MOCK_TREND_DATA = [
-    { date: "8월", score: 1.2, stride: 1.1 },
-    { date: "9월", score: 1.5, stride: 1.0 },
-    { date: "10월", score: 1.3, stride: 0.95 },
-    { date: "11월", score: 1.8, stride: 0.92 },
-    { date: "12월", score: 1.6, stride: 0.98 },
-]
 
 function getPerformabilityPresentation(assessment: FingerPerformabilityAssessment) {
     switch (assessment.status) {
@@ -306,8 +280,8 @@ function ResultContent() {
     const type = analysisResult?.video_type || searchParams.get("type") || "gait"
     const isFinger = type === "finger_tapping" || type === "finger"  // hand_movement not implemented yet
 
-    // Use real metrics from backend if available, otherwise fall back to mock
-    let metrics: MetricRow[] = isFinger ? FINGER_METRICS : GAIT_METRICS
+    // Only render metrics that were measured in this analysis.
+    let metrics: MetricRow[] = []
     if (analysisResult?.metrics) {
         if (isFinger && 'tapping_speed' in analysisResult.metrics) {
             metrics = convertFingerMetricsToRows(analysisResult.metrics as FingerTappingMetrics)
@@ -814,26 +788,16 @@ function ResultContent() {
                 {/* Tab Content */}
                 {activeTab === "dashboard" && (
                     <div className="grid gap-6 md:grid-cols-2 animate-in fade-in slide-in-from-bottom-2">
-                        {/* Left Col: Charts with mock trend data */}
+                        {/* Longitudinal trends require linked, persisted assessments. */}
                         <div className="space-y-6">
-                            <div>
-                                <TrendChart
-                                    data={MOCK_TREND_DATA}
-                                    label="점수 추세"
-                                    dataKey="score"
-                                    color="#3b82f6"
-                                />
-                                <p className="text-xs text-muted-foreground text-center mt-1">(임시 데이터)</p>
-                            </div>
-                            <div>
-                                <TrendChart
-                                    data={MOCK_TREND_DATA}
-                                    label={isFinger ? "진폭 추세" : "보폭 길이 추세"}
-                                    dataKey="stride"
-                                    color="#10b981"
-                                />
-                                <p className="text-xs text-muted-foreground text-center mt-1">(임시 데이터)</p>
-                            </div>
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle>환자 추세 데이터 없음</CardTitle>
+                                    <CardDescription>
+                                        동일 환자의 저장된 평가가 연결된 뒤 실제 점수와 운동 지표 추세를 표시합니다.
+                                    </CardDescription>
+                                </CardHeader>
+                            </Card>
                         </div>
 
                         {/* Right Col: Metrics Table */}
@@ -844,7 +808,13 @@ function ResultContent() {
                                     <CardDescription>운동 매개변수의 종합적인 분석 결과입니다.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-0">
-                                    <MetricsTable data={metrics} />
+                                    {metrics.length > 0 ? (
+                                        <MetricsTable data={metrics} />
+                                    ) : (
+                                        <div className="p-6 text-sm text-muted-foreground">
+                                            이번 분석에서 측정된 운동 지표가 없습니다.
+                                        </div>
+                                    )}
                                 </CardContent>
                             </Card>
                         </div>
@@ -1112,7 +1082,11 @@ function ResultContent() {
 
                 {activeTab === "timeline" && (
                     <div className="animate-in fade-in slide-in-from-bottom-2">
-                        <MedicationTimeline patientId={analysisResult?.patient_id || "unknown"} />
+                        <MedicationTimeline
+                            patientId={analysisResult?.patient_id || "unknown"}
+                            medicationContext={analysisResult?.medication_context}
+                            medicationTiming={analysisResult?.medication_timing}
+                        />
                     </div>
                 )}
 

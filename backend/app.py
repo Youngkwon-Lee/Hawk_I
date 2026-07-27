@@ -6,6 +6,7 @@ Movement-based ROI Detection & Video Analysis API
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
+import re
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -21,21 +22,40 @@ def add_private_network_access_header(response):
         response.headers['Access-Control-Allow-Private-Network'] = 'true'
     return response
 
-# Enable CORS for Next.js frontend
+def build_cors_origins():
+    """Return the bounded browser origins allowed to call the public API."""
+    origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        re.compile(r"^https://hawkeye-labeling-tool(?:-[a-z0-9-]+)*\.vercel\.app$"),
+        re.compile(r"^https://finger-tap(?:-fx)?(?:-[a-z0-9-]+)*\.vercel\.app$"),
+    ]
+
+    for env_name in ("FRONTEND_URL", "PARKICHECK_FRONTEND_URL"):
+        configured = os.getenv(env_name, "").strip().rstrip("/")
+        if configured and configured not in origins:
+            origins.append(configured)
+
+    configured_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    for configured in configured_origins.split(","):
+        origin = configured.strip().rstrip("/")
+        if origin and origin not in origins:
+            origins.append(origin)
+
+    return origins
+
+
+# Enable CORS for the Hawk I and ParkiCheck browser surfaces. The endpoint is
+# public, but bounding browser origins prevents accidental cross-site uploads.
+CORS_ORIGINS = build_cors_origins()
 CORS(app, resources={
     r"/api/*": {
-        "origins": [
-            "http://localhost:3000",
-            "http://localhost:3001",
-            os.getenv("FRONTEND_URL", "http://localhost:3000")
-        ]
+        "origins": CORS_ORIGINS
     },
     r"/uploads/*": {
-        "origins": [
-            "http://localhost:3000",
-            "http://localhost:3001",
-            os.getenv("FRONTEND_URL", "http://localhost:3000")
-        ]
+        "origins": CORS_ORIGINS
     },
     r"/files/*": {
         "origins": "*"
@@ -54,7 +74,7 @@ app.config['UPLOAD_FOLDER'] = upload_dir
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Import progress tracker
-from services.progress_tracker import get_progress
+from services.progress_tracker import get_progress, recover_interrupted_analyses
 
 # Import routes
 from routes import analyze, chat, health, timeline, streaming, population_stats, history, vlm, physio_context
@@ -69,6 +89,33 @@ app.register_blueprint(population_stats.bp)
 app.register_blueprint(history.bp)
 app.register_blueprint(vlm.bp)
 app.register_blueprint(physio_context.bp)
+
+resume_jobs_on_start = os.getenv(
+    'HAWKEYE_RESUME_ANALYSIS_JOBS_ON_START', ''
+).strip().lower() in {'1', 'true', 'yes', 'on'}
+recover_progress_on_start = os.getenv(
+    'HAWKEYE_RECOVER_INTERRUPTED_ON_START', ''
+).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+if resume_jobs_on_start:
+    job_recovery = analyze.resume_interrupted_analysis_jobs(app.config.copy())
+    recovered_count = sum(len(video_ids) for video_ids in job_recovery.values())
+    if recovered_count:
+        print(
+            "[Analysis Queue] Startup recovery resolved "
+            f"{len(job_recovery['completed'])} completed, "
+            f"resumed {len(job_recovery['resumed'])}, and "
+            f"failed {len(job_recovery['failed'])} analyses"
+        )
+elif recover_progress_on_start:
+    recovery = recover_interrupted_analyses()
+    recovered_count = len(recovery['completed']) + len(recovery['interrupted'])
+    if recovered_count:
+        print(
+            "[Progress Tracker] Startup recovery resolved "
+            f"{len(recovery['completed'])} completed and "
+            f"{len(recovery['interrupted'])} interrupted analyses"
+        )
 
 @app.route('/')
 def index():

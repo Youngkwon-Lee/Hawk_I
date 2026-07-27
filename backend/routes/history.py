@@ -8,6 +8,7 @@ import os
 import json
 from datetime import datetime
 from pathlib import Path
+from services.medication_comparison import build_medication_comparison
 
 bp = Blueprint('history', __name__, url_prefix='/api/history')
 
@@ -20,7 +21,12 @@ def parse_result_file(filepath: str) -> dict:
 
         # Get file modification time as analysis date
         mtime = os.path.getmtime(filepath)
-        analysis_date = datetime.fromtimestamp(mtime).isoformat()
+        medication_context = data.get("medication_context")
+        analysis_date = (
+            medication_context.get("assessment_at")
+            if isinstance(medication_context, dict) and medication_context.get("assessment_at")
+            else datetime.fromtimestamp(mtime).isoformat()
+        )
 
         # Extract video_id from filename
         video_id = Path(filepath).stem.replace('_result', '')
@@ -36,13 +42,16 @@ def parse_result_file(filepath: str) -> dict:
             "metrics": data.get("metrics", {}),
             "patient_id": data.get("patient_id", "anonymous"),
             "scoring_method": data.get("updrs_score", {}).get("method", "rule"),
+            "assessment_session_id": data.get("assessment_session_id"),
+            "medication_context": medication_context,
+            "medication_timing": data.get("medication_timing"),
         }
     except Exception as e:
         print(f"Error parsing {filepath}: {e}")
         return None
 
 
-@bp.route('/', methods=['GET'])
+@bp.route('/', methods=['GET'], strict_slashes=False)
 def get_history():
     """
     Get analysis history with optional filters
@@ -159,7 +168,8 @@ def get_stats():
                 "total_analyses": 0,
                 "task_distribution": {},
                 "score_distribution": {},
-                "trend": []
+                "trend": [],
+                "medication_comparison": build_medication_comparison([]),
             }
         })
 
@@ -202,7 +212,8 @@ def get_stats():
             "average_score": round(avg_score, 2) if avg_score else None,
             "task_distribution": task_distribution,
             "score_distribution": score_distribution,
-            "trend": trend
+            "trend": trend,
+            "medication_comparison": build_medication_comparison(results),
         }
     })
 

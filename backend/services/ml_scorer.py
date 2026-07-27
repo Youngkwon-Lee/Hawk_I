@@ -331,9 +331,6 @@ class MLScorer:
             from models.coral_scorer import get_coral_scorer
 
             scorer = get_coral_scorer()
-            if not scorer.is_loaded():
-                scorer.load_models()
-
             result = scorer.predict(skeleton_sequence, task_type)
 
             if result is None:

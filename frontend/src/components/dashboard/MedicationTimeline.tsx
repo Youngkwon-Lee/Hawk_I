@@ -1,273 +1,89 @@
 "use client"
 
-import * as React from "react"
-import { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
-import { Clock, Activity, AlertCircle, CheckCircle2, Pill } from 'lucide-react'
-import { cn } from "@/lib/utils"
-import { apiUrl } from "@/lib/services/api"
-
-interface TimelineData {
-    patient_id: string
-    timeline: Array<{
-        time: string
-        hour: number
-        motor_score: number
-        medication_effect: number
-        state: "ON" | "OFF"
-        tremor_intensity: number
-        rigidity: number
-        bradykinesia: number
-    }>
-    pattern: {
-        on_periods: Array<{ state: string; start_hour: number; end_hour: number }>
-        off_periods: Array<{ state: string; start_hour: number; end_hour: number }>
-        avg_motor_score: number
-        on_avg_score: number
-        off_avg_score: number
-        total_on_hours: number
-        total_off_hours: number
-    }
-    recommendations: {
-        optimal_exercise_times: string[]
-        best_exercise_hour: string
-        next_medication_time: string
-        avoid_activities: string[]
-    }
-}
+import { Pill } from "lucide-react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card"
+import type { MedicationContext, MedicationTiming } from "@/lib/services/api"
 
 interface MedicationTimelineProps {
     patientId: string
+    medicationContext?: MedicationContext | null
+    medicationTiming?: MedicationTiming | null
 }
 
-export function MedicationTimeline({ patientId }: MedicationTimelineProps) {
-    const [timelineData, setTimelineData] = useState<TimelineData | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+function formatReportedDose(context: MedicationContext): string {
+    const name = context.medication || "약물명 미입력"
+    const dose = context.dose_mg == null ? "용량 미입력" : `${context.dose_mg} mg`
+    return `${name} · ${dose}`
+}
 
-    useEffect(() => {
-        const fetchTimeline = async () => {
-            try {
-                const response = await fetch(apiUrl(`/api/timeline/${patientId}`))
-                if (!response.ok) throw new Error('Failed to fetch timeline')
+function formatTiming(timing: MedicationTiming): string {
+    const hours = timing.hours_after_reported_dose
+    if (hours == null) return "복용 후 경과시간 확인 필요"
+    return `환자 보고 복용 후 ${hours}시간에 검사`
+}
 
-                const data = await response.json()
-                setTimelineData(data.data)
-            } catch (err) {
-                console.error('Timeline fetch error:', err)
-                setError(err instanceof Error ? err.message : 'Unknown error')
-            } finally {
-                setLoading(false)
-            }
-        }
+function formatReportedTime(value?: string): string {
+    if (!value) return "복용 시각 미입력"
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return "복용 시각 확인 필요"
+    return new Intl.DateTimeFormat("ko-KR", {
+        dateStyle: "medium",
+        timeStyle: "short",
+    }).format(date)
+}
 
-        fetchTimeline()
-    }, [patientId])
-
-    if (loading) {
+export function MedicationTimeline({ patientId, medicationContext, medicationTiming }: MedicationTimelineProps) {
+    if (!medicationContext?.available || !medicationTiming?.available) {
         return (
-            <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-        )
-    }
-
-    if (error || !timelineData) {
-        return (
-            <Card className="border-red-200 bg-red-50/50">
-                <CardContent className="p-6">
-                    <div className="flex items-center gap-2 text-red-900">
-                        <AlertCircle className="h-5 w-5" />
-                        <p>타임라인 데이터를 불러올 수 없습니다: {error}</p>
-                    </div>
-                </CardContent>
-            </Card>
-        )
-    }
-
-    const { timeline, pattern, recommendations } = timelineData
-
-    return (
-        <div className="space-y-6">
-            {/* Header Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">평균 운동 점수</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{pattern.avg_motor_score}</div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                            ON: {pattern.on_avg_score} / OFF: {pattern.off_avg_score}
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">약물 효과 시간</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-green-600">{pattern.total_on_hours}시간</div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                            OFF: {pattern.total_off_hours}시간
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">다음 복용 시간</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-center gap-2">
-                            <Pill className="h-5 w-5 text-primary" />
-                            <div className="text-xl font-bold">{recommendations.next_medication_time}</div>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* Timeline Chart */}
             <Card>
                 <CardHeader>
-                    <CardTitle>24시간 운동 능력 추이</CardTitle>
+                    <CardTitle className="flex items-center gap-2">
+                        <Pill className="h-5 w-5 text-primary" />
+                        약물 타임라인 데이터 없음
+                    </CardTitle>
                     <CardDescription>
-                        시간대별 운동 점수 및 약물 효과 (낮을수록 좋음)
+                        검증된 복용 기록과 반복 운동 평가가 연결된 뒤 실제 시간 관계를 표시합니다.
                     </CardDescription>
                 </CardHeader>
-                <CardContent>
-                    <ResponsiveContainer width="100%" height={400}>
-                        <LineChart data={timeline} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis
-                                dataKey="hour"
-                                tickFormatter={(hour) => `${hour}:00`}
-                                label={{ value: '시간', position: 'insideBottom', offset: -5 }}
-                            />
-                            <YAxis
-                                yAxisId="left"
-                                label={{ value: '운동 점수', angle: -90, position: 'insideLeft' }}
-                            />
-                            <YAxis
-                                yAxisId="right"
-                                orientation="right"
-                                domain={[0, 1]}
-                                label={{ value: '약물 효과', angle: 90, position: 'insideRight' }}
-                            />
-                            <Tooltip
-                                content={({ active, payload }) => {
-                                    if (active && payload && payload.length) {
-                                        const data = payload[0].payload
-                                        return (
-                                            <div className="bg-card border border-border rounded-lg p-3 shadow-lg">
-                                                <p className="font-semibold">{data.hour}:00</p>
-                                                <p className="text-sm">상태: <span className={cn(
-                                                    "font-medium",
-                                                    data.state === "ON" ? "text-green-600" : "text-red-600"
-                                                )}>{data.state}</span></p>
-                                                <p className="text-sm">운동 점수: {data.motor_score}</p>
-                                                <p className="text-sm">약물 효과: {(data.medication_effect * 100).toFixed(0)}%</p>
-                                                <p className="text-sm">떨림: {data.tremor_intensity}</p>
-                                                <p className="text-sm">경직: {data.rigidity}</p>
-                                            </div>
-                                        )
-                                    }
-                                    return null
-                                }}
-                            />
-                            <Legend />
-
-                            {/* Background areas for ON/OFF periods */}
-                            {pattern.on_periods.map((period, i) => (
-                                <ReferenceLine
-                                    key={`on-${i}`}
-                                    x={period.start_hour}
-                                    stroke="green"
-                                    strokeDasharray="3 3"
-                                    opacity={0.3}
-                                />
-                            ))}
-
-                            <Line
-                                yAxisId="left"
-                                type="monotone"
-                                dataKey="motor_score"
-                                stroke="#ef4444"
-                                strokeWidth={2}
-                                name="운동 점수"
-                                dot={{ r: 3 }}
-                            />
-                            <Line
-                                yAxisId="right"
-                                type="monotone"
-                                dataKey="medication_effect"
-                                stroke="#22c55e"
-                                strokeWidth={2}
-                                name="약물 효과"
-                                dot={{ r: 3 }}
-                            />
-                        </LineChart>
-                    </ResponsiveContainer>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                    <p>환자 세션: {patientId}</p>
+                    <p>현재는 복용 시간, ON/OFF 상태, 다음 복용 시간 또는 활동 권고를 추정하지 않습니다.</p>
                 </CardContent>
             </Card>
+        )
+    }
 
-            {/* Recommendations */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card className="border-green-200 bg-green-50/50">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-green-900">
-                            <CheckCircle2 className="h-5 w-5" />
-                            권장 활동 시간
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        <div>
-                            <p className="text-sm font-medium text-green-900 mb-2">최적 운동 시간:</p>
-                            <div className="flex items-center gap-2 text-lg font-bold text-green-700">
-                                <Activity className="h-5 w-5" />
-                                {recommendations.best_exercise_hour}
-                            </div>
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-green-900 mb-2">권장 시간대:</p>
-                            <ul className="space-y-1">
-                                {recommendations.optimal_exercise_times.map((time, i) => (
-                                    <li key={i} className="text-sm text-green-800 flex items-center gap-2">
-                                        <Clock className="h-4 w-4" />
-                                        {time}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="border-red-200 bg-red-50/50">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-red-900">
-                            <AlertCircle className="h-5 w-5" />
-                            주의 시간대
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        <p className="text-sm text-red-900">다음 시간대는 약물 효과가 낮아 격렬한 활동을 피하세요:</p>
-                        <ul className="space-y-1">
-                            {recommendations.avoid_activities.length > 0 ? (
-                                recommendations.avoid_activities.map((time, i) => (
-                                    <li key={i} className="text-sm text-red-800 flex items-center gap-2">
-                                        <Clock className="h-4 w-4" />
-                                        {time}
-                                    </li>
-                                ))
-                            ) : (
-                                <li className="text-sm text-muted-foreground">없음</li>
-                            )}
-                        </ul>
-                    </CardContent>
-                </Card>
-            </div>
-        </div>
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <Pill className="h-5 w-5 text-primary" />
+                    복약–검사 시간 관계
+                </CardTitle>
+                <CardDescription>
+                    ParkiCheck에서 동의 후 전달된 환자 보고 기록입니다.
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+                <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">환자 보고 복약</p>
+                        <p className="mt-1 font-medium">{formatReportedDose(medicationContext)}</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">보고된 복용 시각</p>
+                        <p className="mt-1 font-medium">{formatReportedTime(medicationContext.taken_at)}</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">검사와의 관계</p>
+                        <p className="mt-1 font-medium">{formatTiming(medicationTiming)}</p>
+                    </div>
+                </div>
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-muted-foreground">
+                    단일 검사에서 확인되는 것은 시간 관계뿐입니다. 이 결과만으로 약효, ON/OFF 상태 또는 복약 변경 필요성을 판단하지 않습니다. 동일 과제를 반복 측정한 뒤 의료진이 함께 검토해야 합니다.
+                </div>
+                <p className="text-xs text-muted-foreground">분석 세션: {patientId}</p>
+            </CardContent>
+        </Card>
     )
 }

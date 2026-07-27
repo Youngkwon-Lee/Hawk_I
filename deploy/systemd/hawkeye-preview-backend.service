@@ -1,0 +1,20 @@
+[Unit]
+Description=HawkEye Preview Backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/yk/previews/Hawk_I-parkicheck-safety/backend
+EnvironmentFile=/home/yk/.config/hawkeye-backend/backend.env
+Environment=PATH=/home/yk/projects/Hawk_I/.venv-py311/bin:/home/yk/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HAWKEYE_CORAL_MODEL_DIR=/home/yk/previews/hawkeye-models/coral
+ExecStartPre=/usr/bin/mkdir -p /home/yk/previews/hawkeye-uploads
+ExecStart=/usr/bin/env UPLOAD_FOLDER=/home/yk/previews/hawkeye-uploads HAWKEYE_RESUME_ANALYSIS_JOBS_ON_START=1 /home/yk/projects/Hawk_I/.venv-py311/bin/gunicorn app:app --bind 127.0.0.1:5892 --workers 1 --timeout 300
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

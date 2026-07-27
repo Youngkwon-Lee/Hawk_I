@@ -57,7 +57,56 @@ Open:
 http://127.0.0.1:3000
 ```
 
-The frontend uses `BACKEND_URL` for Next.js rewrites and `NEXT_PUBLIC_API_URL` for browser-side API calls.
+The frontend uses `BACKEND_URL` for Next.js rewrites and `NEXT_PUBLIC_API_URL` for browser-side API calls. Set `NEXT_PUBLIC_UPLOAD_API_URL` to the public backend prefix when large multipart uploads must bypass the Vercel request-body proxy. Only `POST /api/analyze` uses this direct URL; progress, result, history, and file reads remain on the active frontend origin.
+
+For the isolated home-desktop preview:
+
+```bash
+NEXT_PUBLIC_UPLOAD_API_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-preview
+```
+
+The preview backend runs separately from production on port `5892` and stores
+uploads, progress, and completed result JSON under the persistent path
+`/home/yk/previews/hawkeye-uploads`. Install the checked-in user
+service after updating the preview worktree:
+
+```bash
+install -m 0644 deploy/systemd/hawkeye-preview-backend.service \
+  ~/.config/systemd/user/hawkeye-preview-backend.service
+systemctl --user daemon-reload
+systemctl --user enable --now hawkeye-preview-backend.service
+```
+
+The service deliberately uses one analysis worker so it can run beside the
+two-worker production backend without exhausting the WSL runtime. Its upload
+directory is overridden after loading the shared backend secrets, so preview
+results never mix with production result files. It also enables
+`HAWKEYE_RESUME_ANALYSIS_JOBS_ON_START`: uploaded analysis inputs are persisted
+to `analysis_jobs.json`, and queued or abruptly interrupted jobs are rerun after
+a service restart. A valid completed result is never rerun, and each job is
+limited to three attempts before the browser is asked to submit the video
+again. Legacy progress entries without a durable job remain covered by the
+retryable `service_restarted` fallback. Keep automatic resume limited to a
+single-worker service.
+
+CORAL checkpoints stay outside Git and are copied from the home desktop D drive
+to a preview-only, owner-readable directory. Refresh them before installing or
+restarting the preview service:
+
+```bash
+install -d -m 0700 /home/yk/previews/hawkeye-models/coral
+install -m 0600 /mnt/d/Hawkeye/models/trained/{gait,finger,hand,leg}_coral_raw_kfold_best.pth \
+  /home/yk/previews/hawkeye-models/coral/
+sha256sum /home/yk/previews/hawkeye-models/coral/*_coral_raw_kfold_best.pth
+```
+
+The backend loads only the requested task model, uses PyTorch's
+`weights_only=True` loader with a narrow NumPy allowlist, and exposes
+`requested_scoring_method` plus `scoring_fallback` if a checkpoint cannot be
+used. The effective `scoring_method` remains `coral` after successful CORAL
+inference.
+
+The backend CORS policy allows the bounded Hawk I and ParkiCheck Vercel origins by default. Additional exact origins can be supplied as a comma-separated `CORS_ALLOWED_ORIGINS` backend environment variable.
 
 ## Verified Smoke Checks
 
@@ -121,9 +170,11 @@ Current production setup verified on 2026-07-23:
 Vercel env:
 
 ```text
-NEXT_PUBLIC_API_URL=https://hawkeye-labeling-tool.vercel.app
 BACKEND_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-api
 ```
+
+Browser requests use relative same-origin `/api/*` and `/files/*` paths. Do not
+set a preview deployment's browser API URL to the production application.
 
 Optional backend env for writing completed analyses into physio_app
 `public.activity_sessions` and `public.observations`:
@@ -138,17 +189,29 @@ HAWKEYE_SUPABASE_SUBJECT_PERSON_ID=<optional selector hint; only used if it is a
 HAWKEYE_SUPABASE_ACTIVITY_SESSION_ID=<optional existing activity_sessions.id>
 HAWKEYE_SUPABASE_ACTIVITY_SESSIONS_TABLE=activity_sessions
 HAWKEYE_SUPABASE_OBSERVATIONS_TABLE=observations
+HAWKEYE_PHYSIO_CONTEXT_TOKEN=<long random backend-only operator token>
 ```
 
 Do not set these in the Vercel frontend project. They belong on the Flask
 backend runtime only. If `HAWKEYE_SUPABASE_ACTIVITY_SESSION_ID` is omitted, the
 backend creates one completed camera assessment session per saved analysis.
-The frontend reads selectable people from the backend-only endpoint
-`GET /api/physio/subjects`; that route uses the server Supabase key and returns
-only active `org_clients` in the configured organization. Completed analyses are
-written only when the request includes an explicit physio_app subject/organization
-context; the backend does not fall back to `HAWKEYE_SUPABASE_SUBJECT_PERSON_ID`
-as a write target.
+The subject directory endpoint `GET /api/physio/subjects` and any analysis
+request containing `physio_*` write context require `Authorization: Bearer
+<HAWKEYE_PHYSIO_CONTEXT_TOKEN>`. Public browser clients must not receive or
+embed this token. Without an authenticated server-side operator proxy, the
+frontend runs an anonymous research analysis and does not write Hawk I results
+directly into a selected patient record. ParkiCheck links its own signed-in
+observation to Hawk I with a shared `assessment_session_id` and stores the Hawk I
+provenance itself. The backend never falls back to
+`HAWKEYE_SUPABASE_SUBJECT_PERSON_ID` as an implicit write target.
+
+When the ParkiCheck user explicitly enables Hawk I research review, the request
+may also include a small `medication_context` JSON object containing only the
+patient-reported medication name, dose, reported dose time, assessment time,
+and elapsed hours. The backend validates and whitelists those fields, returns a
+descriptive `medication_timing` relationship, and stores both objects alongside
+the shared assessment session. This is a single-observation time relationship;
+it does not infer efficacy, an ON/OFF state, or a dosing recommendation.
 
 The browser must call the Vercel origin, not the Tailscale URL directly. Direct browser requests to the Tailscale Funnel URL can be blocked by browser Private Network Access checks. Next.js rewrites proxy `/api/*` and `/files/*` server-side to the Tailscale backend.
 
@@ -177,6 +240,30 @@ HAWKEYE_SMOKE_VIDEO=/path/to/gait.mp4 bash scripts/hawkeye_production_smoke.sh
 
 - The public repo still does not include a de-identified sample video fixture, so the full upload smoke uses a local external gait clip.
 - Production analysis availability depends on the home desktop WSL runtime and Tailscale Funnel staying online.
+- Medication-effect inference requires repeated, comparable assessments and clinician review. The current integration only preserves patient-reported context and displays its time relationship to one assessment.
+
+## De-identified finger and medication smoke
+
+Build a hand-only synthetic clip from the Apache-2.0 MediaPipe gesture
+recognizer test assets. The downloaded source photos stay in a temporary
+directory and the script deletes them after encoding; the output contains only
+cropped hands. This proves pipeline connectivity, not clinical validity.
+
+```bash
+bash scripts/build_deidentified_finger_fixture.sh
+PYTHONPATH=backend /path/to/project-venv/bin/python \
+  scripts/run_local_medication_e2e.py \
+  /tmp/hawkeye_smoke/deidentified_hand_motion.mp4
+```
+
+The smoke clears Supabase and external LLM credentials in its own process,
+requires detected hand landmarks, preserves the synthetic assessment and
+medication timing contract, and fails if any Supabase observation is saved.
+
+Repeated medication comparison is deliberately observational. ParkiCheck and
+Hawk I group only the same patient, task, patient-reported medication name, and
+dose; they show numeric first-to-latest differences while keeping
+`can_infer_medication_effect=false` and requiring clinician review.
 - OpenAI-backed chat and VLM paths require `OPENAI_API_KEY`; without it, fallback interpretation is used.
 - `npm audit` reports dependency vulnerabilities; review before production deployment.
 - Next.js warns that `middleware.ts` should migrate to the newer `proxy` convention.

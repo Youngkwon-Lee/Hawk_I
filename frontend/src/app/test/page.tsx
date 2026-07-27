@@ -83,9 +83,7 @@ export default function TestPage() {
         }
     }, [physioData, selectedSubject])
 
-    const isMissingRequiredPhysioSubject = physioData?.enabled === true && !selectedSubject
-    const isAnalysisDisabled =
-        !file || isAnalyzing || isLoadingPhysio || Boolean(physioError) || isMissingRequiredPhysioSubject
+    const isAnalysisDisabled = !file || isAnalyzing
 
     const validateFile = (file: File): string | null => {
         // Check file size
@@ -135,19 +133,6 @@ export default function TestPage() {
 
     const handleStartAnalysis = async () => {
         if (!file) return
-        if (isLoadingPhysio) {
-            setAnalysisError("physio_app 저장 대상을 확인 중입니다.")
-            return
-        }
-        if (physioError) {
-            setAnalysisError("physio_app 대상 조회를 먼저 해결해주세요.")
-            return
-        }
-        if (physioData?.enabled && !selectedSubject) {
-            setAnalysisError("physio_app에 저장할 active 고객을 먼저 선택해주세요.")
-            return
-        }
-
         // Clear previous result before starting new analysis
         clearResult()
 
@@ -159,6 +144,7 @@ export default function TestPage() {
         try {
             const manualTestType = selectedTest === null ? undefined :
                 selectedTest === "finger" ? "finger_tapping" : "gait"
+            const assessmentSessionId = crypto.randomUUID()
 
             // Start upload and get videoId
             const result = await analyzeVideoWithProgress(
@@ -167,7 +153,8 @@ export default function TestPage() {
                 (progress) => setUploadProgress(progress),
                 manualTestType,
                 "coral",
-                physioAnalysisContext
+                physioAnalysisContext,
+                assessmentSessionId
             )
 
             if (DEBUG_LOGS) {
@@ -273,9 +260,9 @@ export default function TestPage() {
                                 불러오는 중
                             </div>
                         ) : physioError ? (
-                            <div className="flex items-center gap-2 text-sm text-red-500">
+                            <div className="flex items-center gap-2 text-sm text-amber-600">
                                 <AlertTriangle className="h-4 w-4" />
-                                {physioError}
+                                환자 연결 없이 연구 분석만 진행합니다. ({physioError})
                             </div>
                         ) : physioData?.enabled && physioData.subjects.length > 0 ? (
                             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
@@ -313,7 +300,7 @@ export default function TestPage() {
                         ) : (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Users className="h-4 w-4" />
-                                physio_app 저장 비활성화
+                                운영자 인증이 없어 환자 저장 연결은 비활성화됩니다. 분석은 익명 세션으로 진행할 수 있습니다.
                             </div>
                         )}
                     </div>
@@ -401,11 +388,6 @@ export default function TestPage() {
                             <>
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                 분석 중...
-                            </>
-                        ) : isLoadingPhysio ? (
-                            <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                대상 확인 중...
                             </>
                         ) : (
                             '분석 시작'

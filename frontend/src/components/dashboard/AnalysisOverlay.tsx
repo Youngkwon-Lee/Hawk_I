@@ -4,7 +4,7 @@ import * as React from "react"
 import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent } from "@/components/ui/Card"
 import { Activity, UploadCloud, Eye, Stethoscope, FileText, CheckCircle2, Sparkles, Zap } from 'lucide-react'
-import { getAnalysisProgress, getAnalysisResult, type AnalysisResult } from "@/lib/services/api"
+import { getAnalysisProgress, getAnalysisProgressErrorMessage, getAnalysisResult, type AnalysisResult } from "@/lib/services/api"
 import { cn } from "@/lib/utils"
 
 interface AnalysisOverlayProps {
@@ -32,7 +32,7 @@ export function AnalysisOverlay({
     const [activeStep, setActiveStep] = useState(0)
     const [currentReasoning, setCurrentReasoning] = useState("시스템 초기화 중...")
     const [logs, setLogs] = useState<LogEntry[]>([])
-    const [startTime] = useState(Date.now())
+    const [startTime] = useState(() => Date.now())
     const [estimatedTime, setEstimatedTime] = useState<string | null>(null)
     const [frameInfo, setFrameInfo] = useState<string | null>(null)
     const logsEndRef = useRef<HTMLDivElement>(null)
@@ -147,6 +147,11 @@ export function AnalysisOverlay({
                 const data = await getAnalysisProgress(videoId)
                 pollCount++
 
+                if (data.resumed && pollCount === 1) {
+                    updateReasoning("저장된 분석 작업을 자동으로 재개했습니다.")
+                    addLog(`서비스 재시작 복구 - 시도 ${data.resume_attempt ?? 2}`, 'info')
+                }
+
                 if (data.steps) {
                     // Vision Agent Phase
                     if (data.steps.roi_detection?.status === 'in_progress' ||
@@ -209,6 +214,14 @@ export function AnalysisOverlay({
                         onErrorRef.current('결과를 가져오는데 실패했습니다.')
                         return true
                     }
+                }
+
+                if (data.status === 'error') {
+                    clearInterval(progressInterval)
+                    const message = getAnalysisProgressErrorMessage(data)
+                    addLog(message, 'info')
+                    onErrorRef.current(message)
+                    return true
                 }
 
                 if (pollCount >= MAX_POLLS) return true

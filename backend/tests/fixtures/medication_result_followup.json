@@ -1,0 +1,78 @@
+{
+  "success": true,
+  "id": "medication-contract-followup",
+  "patient_id": "synthetic-medication-contract",
+  "assessment_session_id": "synthetic-assessment-002",
+  "medication_context": {
+    "available": true,
+    "source": "patient_reported_local",
+    "medication": "비식별 테스트 약물",
+    "dose_mg": 100.0,
+    "taken_at": "2026-07-28T00:00:00Z",
+    "assessment_at": "2026-07-28T02:00:00Z",
+    "hours_before_assessment": 2.0
+  },
+  "medication_timing": {
+    "available": true,
+    "relationship": "after_patient_reported_dose",
+    "hours_after_reported_dose": 2.0,
+    "timing_window": "within_2_hours",
+    "evidence_level": "single_observation",
+    "can_infer_medication_effect": false
+  },
+  "video_type": "finger_tapping",
+  "auto_detected": false,
+  "confidence": 0.92,
+  "roi": {"x": 0, "y": 0, "w": 640, "h": 480},
+  "motion_analysis": {
+    "motion_pattern": "synthetic_contract_fixture",
+    "motion_area_ratio": 0.1,
+    "body_part": "hand"
+  },
+  "reasoning": "비식별 반복 측정 UI 계약 확인용 합성 결과입니다.",
+  "video_metadata": {
+    "width": 640,
+    "height": 480,
+    "fps": 30,
+    "duration": 10,
+    "total_frames": 300
+  },
+  "metrics": {
+    "tapping_speed": 3.7,
+    "amplitude_mean": 0.47,
+    "amplitude_std": 0.07,
+    "rhythm_variability": 0.1,
+    "fatigue_rate": 7.0,
+    "hesitation_count": 1,
+    "total_taps": 37,
+    "duration": 10
+  },
+  "updrs_score": {
+    "total_score": 1,
+    "severity": "synthetic",
+    "method": "contract_fixture",
+    "confidence": 0.8
+  },
+  "performability_assessment": {
+    "status": "performable",
+    "confidence": 0.9,
+    "summary": "합성 반복 측정 계약 픽스처",
+    "analyzable": true,
+    "evidence": {},
+    "triggers": []
+  },
+  "score_advisory": {
+    "level": "reference_only",
+    "summary": "비식별 반복 측정 UI 계약 확인용 합성 결과입니다."
+  },
+  "events": [],
+  "visualization_data": {},
+  "integrations": {
+    "supabase_observation": {
+      "enabled": false,
+      "saved": false,
+      "table": "observations",
+      "reason": "synthetic_fixture"
+    }
+  }
+}

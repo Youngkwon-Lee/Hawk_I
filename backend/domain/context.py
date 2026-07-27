@@ -32,6 +32,8 @@ class AnalysisContext(BaseModel):
     # ml = RF/XGBoost on kinematic features
     # ensemble = rule + ML weighted average
     scoring_method: Literal["rule", "ml", "ensemble", "coral"] = "coral"
+    requested_scoring_method: Optional[Literal["rule", "ml", "ensemble", "coral"]] = None
+    scoring_fallback: Optional[Dict[str, str]] = None
     ml_model_type: str = "rf"
     manual_test_type: Optional[str] = None
 

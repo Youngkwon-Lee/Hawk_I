@@ -1,4 +1,17 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+// Browser requests must stay on the active deployment origin so previews never
+// leak API traffic to a hard-coded production URL. Next.js rewrites proxy these
+// relative paths to the environment-specific BACKEND_URL.
+export const API_BASE_URL = typeof window === 'undefined'
+  ? (process.env.NEXT_PUBLIC_API_URL || '')
+  : ''
+
+// Large multipart uploads bypass the Vercel rewrite so request bodies are sent
+// directly to the environment-specific Hawk I backend. Read/progress requests
+// remain same-origin through API_BASE_URL.
+export const UPLOAD_API_BASE_URL = (typeof window === 'undefined'
+  ? (process.env.NEXT_PUBLIC_UPLOAD_API_URL || process.env.NEXT_PUBLIC_API_URL || '')
+  : (process.env.NEXT_PUBLIC_UPLOAD_API_URL || '')
+).replace(/\/+$/, '')
 
 export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
@@ -47,6 +60,25 @@ export interface ScoreAdvisory {
   summary: string
 }
 
+export interface MedicationContext {
+  available: boolean
+  source: "patient_reported_local"
+  medication?: string | null
+  dose_mg?: number | null
+  taken_at?: string
+  assessment_at?: string
+  hours_before_assessment?: number | null
+}
+
+export interface MedicationTiming {
+  available: boolean
+  relationship?: "after_patient_reported_dose"
+  hours_after_reported_dose?: number | null
+  timing_window?: "within_2_hours" | "between_2_and_6_hours" | "over_6_hours" | "unknown"
+  evidence_level: "none" | "single_observation"
+  can_infer_medication_effect: false
+}
+
 export interface SkeletonKeypoint {
   x: number
   y: number
@@ -68,6 +100,16 @@ export interface AnalysisResult {
   confidence: number
   auto_detected: boolean
   patient_id: string
+  assessment_session_id?: string | null
+  scoring_method?: ScoringMethod
+  requested_scoring_method?: ScoringMethod
+  scoring_fallback?: {
+    from: ScoringMethod
+    to: ScoringMethod
+    reason: string
+  } | null
+  medication_context?: MedicationContext | null
+  medication_timing?: MedicationTiming | null
   physio_context?: PhysioAnalysisContext | null
   integrations?: {
     supabase_observation?: {
@@ -117,7 +159,7 @@ export interface AnalysisResult {
     keypoints?: SkeletonFrameData[]
   } | null
   updrs_score?: {
-    score: number
+    score?: number
     total_score?: number
     severity: string
     method?: string
@@ -272,6 +314,16 @@ export async function checkHealth(): Promise<HealthStatus> {
 export async function getPhysioSubjects(): Promise<PhysioSubjectsResponse> {
   const response = await fetch(apiUrl('/api/physio/subjects'))
 
+  if (response.status === 403) {
+    return {
+      success: false,
+      enabled: false,
+      organization: null,
+      subjects: [],
+      reason: 'operator_authorization_required',
+    }
+  }
+
   if (!response.ok) {
     const error = await response.json().catch(() => null)
     throw new Error(error?.error || 'Failed to fetch physio_app subjects')
@@ -311,7 +363,8 @@ export async function analyzeVideo(
   videoFile: File,
   patientId?: string,
   manualTestType?: string,
-  physioContext?: PhysioAnalysisContext
+  physioContext?: PhysioAnalysisContext,
+  assessmentSessionId?: string
 ): Promise<AnalysisResult> {
   const formData = new FormData()
   formData.append('video_file', videoFile)
@@ -319,13 +372,16 @@ export async function analyzeVideo(
   if (patientId) {
     formData.append('patient_id', patientId)
   }
+  if (assessmentSessionId) {
+    formData.append('assessment_session_id', assessmentSessionId)
+  }
 
   if (manualTestType) {
     formData.append('test_type', manualTestType)
   }
   appendPhysioContext(formData, physioContext)
 
-  const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+  const response = await fetch(`${UPLOAD_API_BASE_URL}/api/analyze`, {
     method: 'POST',
     body: formData,
   })
@@ -343,15 +399,37 @@ export interface AnalysisStartResponse {
   message: string
   id: string
   status: string
+  assessment_session_id?: string | null
 }
 
 export interface AnalysisProgress {
   status: string
   task_type?: string
+  error?: string
+  error_code?: string
+  retryable?: boolean
+  recovered_at?: string
+  resumed?: boolean
+  resume_attempt?: number
+  resumed_at?: string
   steps?: Record<string, {
     status: string
     result_url?: string | null
   }>
+}
+
+export function getAnalysisProgressErrorMessage(progress: AnalysisProgress): string {
+  if (progress.error_code === 'service_restarted') {
+    return '서버가 재시작되어 진행 중인 분석이 중단되었습니다. 영상을 다시 제출해 주세요.'
+  }
+  if (progress.error_code === 'resume_limit_reached') {
+    return '자동 분석 재개에 여러 번 실패했습니다. 영상을 다시 제출해 주세요.'
+  }
+  if (progress.error_code === 'saved_video_unavailable') {
+    return '저장된 영상을 찾을 수 없습니다. 영상을 다시 제출해 주세요.'
+  }
+
+  return progress.error || '분석 중 오류가 발생했습니다. 다시 시도해 주세요.'
 }
 
 /**
@@ -373,7 +451,8 @@ export async function analyzeVideoWithProgress(
   onProgress?: (progress: number) => void,
   manualTestType?: string,
   scoringMethod: ScoringMethod = 'coral',
-  physioContext?: PhysioAnalysisContext
+  physioContext?: PhysioAnalysisContext,
+  assessmentSessionId?: string
 ): Promise<AnalysisStartResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -405,13 +484,16 @@ export async function analyzeVideoWithProgress(
     if (patientId) {
       formData.append('patient_id', patientId)
     }
+    if (assessmentSessionId) {
+      formData.append('assessment_session_id', assessmentSessionId)
+    }
     if (manualTestType) {
       formData.append('test_type', manualTestType)
     }
     appendPhysioContext(formData, physioContext)
     formData.append('scoring_method', scoringMethod)
 
-    xhr.open('POST', `${API_BASE_URL}/api/analyze`)
+    xhr.open('POST', `${UPLOAD_API_BASE_URL}/api/analyze`)
     xhr.send(formData)
   })
 }
@@ -485,6 +567,44 @@ export interface HistoryItem {
   metrics: Record<string, number>
   patient_id: string
   scoring_method: string
+  assessment_session_id?: string | null
+  medication_context?: MedicationContext | null
+  medication_timing?: MedicationTiming | null
+}
+
+export interface MedicationComparisonObservation {
+  video_id?: string
+  date?: string
+  patient_id: string
+  task_type: string
+  medication: string
+  dose_mg: number | null
+  hours_after_reported_dose: number | null
+  score: number
+  tapping_speed: number | null
+  amplitude_mean: number | null
+  fatigue_rate: number | null
+}
+
+export interface MedicationComparison {
+  available: boolean
+  observation_count: number
+  reason?: "needs_repeated_comparable_assessments"
+  patient_id?: string
+  task_type?: string
+  medication?: string
+  dose_mg?: number | null
+  first?: MedicationComparisonObservation
+  latest?: MedicationComparisonObservation
+  observed_change?: {
+    score: number | null
+    tapping_speed: number | null
+    amplitude_mean: number | null
+    fatigue_rate: number | null
+  }
+  evidence_level?: "observational_repeated_assessments"
+  can_infer_medication_effect: false
+  requires_clinician_review?: true
 }
 
 export interface HistoryResponse {
@@ -510,6 +630,7 @@ export interface HistoryStats {
       score: number
       task_type: string
     }>
+    medication_comparison: MedicationComparison
   }
 }
 
@@ -539,7 +660,7 @@ export async function getHistory(filters?: HistoryFilters): Promise<HistoryRespo
     if (filters.sort) params.set('sort', filters.sort)
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/history/?${params.toString()}`)
+  const response = await fetch(`${API_BASE_URL}/api/history?${params.toString()}`)
 
   if (!response.ok) {
     throw new Error('Failed to fetch history')
