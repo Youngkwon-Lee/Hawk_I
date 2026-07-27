@@ -5,6 +5,7 @@ import json
 def test_analyze_start_echoes_and_forwards_assessment_session(monkeypatch, tmp_path):
     from app import app
     from routes import analyze
+    from services import analysis_job_store
 
     captured = {}
 
@@ -19,6 +20,11 @@ def test_analyze_start_echoes_and_forwards_assessment_session(monkeypatch, tmp_p
             captured["started"] = True
 
     monkeypatch.setattr(analyze.threading, "Thread", FakeThread)
+    monkeypatch.setattr(
+        analysis_job_store,
+        "JOB_FILE",
+        tmp_path / "analysis_jobs.json",
+    )
     app.config["UPLOAD_FOLDER"] = str(tmp_path)
 
     response = app.test_client().post(
@@ -42,8 +48,12 @@ def test_analyze_start_echoes_and_forwards_assessment_session(monkeypatch, tmp_p
 
     assert response.status_code == 202
     assert response.get_json()["assessment_session_id"] == "assessment-123"
-    assert captured["args"][-2] == "assessment-123"
-    assert captured["args"][-1] == {
+    video_id = response.get_json()["id"]
+    job = analysis_job_store.get_job(video_id)
+    assert captured["target"] is analyze._run_persisted_analysis_job
+    assert captured["args"][0] == video_id
+    assert job["payload"]["assessment_session_id"] == "assessment-123"
+    assert job["payload"]["medication_context"] == {
         "available": True,
         "source": "patient_reported_local",
         "assessment_at": "2026-07-27T01:30:00Z",
@@ -52,6 +62,7 @@ def test_analyze_start_echoes_and_forwards_assessment_session(monkeypatch, tmp_p
         "dose_mg": 100.0,
         "hours_before_assessment": 1.5,
     }
+    assert job["status"] == "queued"
     assert captured["started"] is True
 
 

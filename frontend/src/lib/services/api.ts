@@ -402,6 +402,9 @@ export interface AnalysisProgress {
   error_code?: string
   retryable?: boolean
   recovered_at?: string
+  resumed?: boolean
+  resume_attempt?: number
+  resumed_at?: string
   steps?: Record<string, {
     status: string
     result_url?: string | null
@@ -411,6 +414,12 @@ export interface AnalysisProgress {
 export function getAnalysisProgressErrorMessage(progress: AnalysisProgress): string {
   if (progress.error_code === 'service_restarted') {
     return '서버가 재시작되어 진행 중인 분석이 중단되었습니다. 영상을 다시 제출해 주세요.'
+  }
+  if (progress.error_code === 'resume_limit_reached') {
+    return '자동 분석 재개에 여러 번 실패했습니다. 영상을 다시 제출해 주세요.'
+  }
+  if (progress.error_code === 'saved_video_unavailable') {
+    return '저장된 영상을 찾을 수 없습니다. 영상을 다시 제출해 주세요.'
   }
 
   return progress.error || '분석 중 오류가 발생했습니다. 다시 시도해 주세요.'

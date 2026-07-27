@@ -147,6 +147,11 @@ export function AnalysisOverlay({
                 const data = await getAnalysisProgress(videoId)
                 pollCount++
 
+                if (data.resumed && pollCount === 1) {
+                    updateReasoning("저장된 분석 작업을 자동으로 재개했습니다.")
+                    addLog(`서비스 재시작 복구 - 시도 ${data.resume_attempt ?? 2}`, 'info')
+                }
+
                 if (data.steps) {
                     // Vision Agent Phase
                     if (data.steps.roi_detection?.status === 'in_progress' ||

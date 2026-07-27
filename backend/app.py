@@ -76,18 +76,6 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 # Import progress tracker
 from services.progress_tracker import get_progress, recover_interrupted_analyses
 
-if os.getenv('HAWKEYE_RECOVER_INTERRUPTED_ON_START', '').strip().lower() in {
-    '1', 'true', 'yes', 'on'
-}:
-    recovery = recover_interrupted_analyses()
-    recovered_count = len(recovery['completed']) + len(recovery['interrupted'])
-    if recovered_count:
-        print(
-            "[Progress Tracker] Startup recovery resolved "
-            f"{len(recovery['completed'])} completed and "
-            f"{len(recovery['interrupted'])} interrupted analyses"
-        )
-
 # Import routes
 from routes import analyze, chat, health, timeline, streaming, population_stats, history, vlm, physio_context
 
@@ -101,6 +89,33 @@ app.register_blueprint(population_stats.bp)
 app.register_blueprint(history.bp)
 app.register_blueprint(vlm.bp)
 app.register_blueprint(physio_context.bp)
+
+resume_jobs_on_start = os.getenv(
+    'HAWKEYE_RESUME_ANALYSIS_JOBS_ON_START', ''
+).strip().lower() in {'1', 'true', 'yes', 'on'}
+recover_progress_on_start = os.getenv(
+    'HAWKEYE_RECOVER_INTERRUPTED_ON_START', ''
+).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+if resume_jobs_on_start:
+    job_recovery = analyze.resume_interrupted_analysis_jobs(app.config.copy())
+    recovered_count = sum(len(video_ids) for video_ids in job_recovery.values())
+    if recovered_count:
+        print(
+            "[Analysis Queue] Startup recovery resolved "
+            f"{len(job_recovery['completed'])} completed, "
+            f"resumed {len(job_recovery['resumed'])}, and "
+            f"failed {len(job_recovery['failed'])} analyses"
+        )
+elif recover_progress_on_start:
+    recovery = recover_interrupted_analyses()
+    recovered_count = len(recovery['completed']) + len(recovery['interrupted'])
+    if recovered_count:
+        print(
+            "[Progress Tracker] Startup recovery resolved "
+            f"{len(recovery['completed'])} completed and "
+            f"{len(recovery['interrupted'])} interrupted analyses"
+        )
 
 @app.route('/')
 def index():

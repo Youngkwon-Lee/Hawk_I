@@ -7,7 +7,9 @@ Persists to JSON file to survive Flask restarts in debug mode
 import json
 import os
 import sys
+import threading
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 from services.json_store import atomic_write_json
 
@@ -22,11 +24,21 @@ PROGRESS_FILE = Path(UPLOAD_DIR) / "analysis_progress.json"
 # Global dictionary to track analysis progress
 # Structure: {video_id: {status, steps: {step_name: {status, result_url}}}}
 ANALYSIS_PROGRESS = {}
+_LOCK = threading.RLock()
 
 
 def _utc_now():
     """Return an ISO-8601 UTC timestamp for persisted recovery metadata."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _synchronized(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        with _LOCK:
+            return function(*args, **kwargs)
+
+    return wrapper
 
 
 def _load_progress():
@@ -55,6 +67,7 @@ def _save_progress():
 _load_progress()
 
 
+@_synchronized
 def init_analysis(video_id: str, task_type: str = "gait"):
     """Initialize analysis progress tracking"""
     # Reload to ensure we have latest state
@@ -81,6 +94,17 @@ def init_analysis(video_id: str, task_type: str = "gait"):
     print(f"[Progress Tracker] Initialized tracking for video_id: {video_id}")
 
 
+@_synchronized
+def resume_analysis(video_id: str, task_type: str, resume_attempt: int):
+    """Reset interrupted step progress before a persisted job is rerun."""
+    init_analysis(video_id, task_type=task_type)
+    ANALYSIS_PROGRESS[video_id]["resumed"] = True
+    ANALYSIS_PROGRESS[video_id]["resume_attempt"] = resume_attempt
+    ANALYSIS_PROGRESS[video_id]["resumed_at"] = _utc_now()
+    _save_progress()
+
+
+@_synchronized
 def update_step(video_id: str, step_name: str, status: str, result_url: str = None):
     """
     Update progress for a specific step
@@ -103,30 +127,52 @@ def update_step(video_id: str, step_name: str, status: str, result_url: str = No
         print(f"[Progress Tracker] Warning: Unknown step '{step_name}'")
 
 
+@_synchronized
 def complete_analysis(video_id: str):
     """Mark analysis as completed"""
     if video_id not in ANALYSIS_PROGRESS:
         _load_progress()
         
     if video_id in ANALYSIS_PROGRESS:
-        ANALYSIS_PROGRESS[video_id]["status"] = "completed"
+        progress = ANALYSIS_PROGRESS[video_id]
+        progress["status"] = "completed"
+        progress.pop("error", None)
+        progress.pop("error_code", None)
+        progress.pop("retryable", None)
+        steps = progress.get("steps")
+        if isinstance(steps, dict):
+            for step in steps.values():
+                if isinstance(step, dict) and step.get("status") == "in_progress":
+                    step["status"] = "completed"
         _save_progress()
         print(f"[Progress Tracker] Analysis completed for video_id: {video_id}")
 
 
-def fail_analysis(video_id: str, error_message: str):
+@_synchronized
+def fail_analysis(
+    video_id: str,
+    error_message: str,
+    error_code: str | None = None,
+    retryable: bool = False,
+):
     """Mark analysis as failed"""
     if video_id not in ANALYSIS_PROGRESS:
         _load_progress()
 
-    if video_id in ANALYSIS_PROGRESS:
-        ANALYSIS_PROGRESS[video_id]["status"] = "error"
-        ANALYSIS_PROGRESS[video_id]["error"] = error_message
-        _save_progress()
-        print(f"[Progress Tracker] Analysis failed for video_id: {video_id} - {error_message}")
+    if video_id not in ANALYSIS_PROGRESS:
+        ANALYSIS_PROGRESS[video_id] = {"status": "error", "steps": {}}
+
+    ANALYSIS_PROGRESS[video_id]["status"] = "error"
+    ANALYSIS_PROGRESS[video_id]["error"] = error_message
+    ANALYSIS_PROGRESS[video_id]["retryable"] = retryable
+    if error_code:
+        ANALYSIS_PROGRESS[video_id]["error_code"] = error_code
+    _save_progress()
+    print(f"[Progress Tracker] Analysis failed for video_id: {video_id} - {error_message}")
 
 
-def recover_interrupted_analyses():
+@_synchronized
+def recover_interrupted_analyses(exclude_video_ids=None):
     """Resolve analyses left in progress by a previous single-worker process.
 
     A complete, atomically-written result wins over stale progress. Otherwise the
@@ -135,10 +181,13 @@ def recover_interrupted_analyses():
     """
     _load_progress()
 
+    excluded = set(exclude_video_ids or ())
     recovered = {"completed": [], "interrupted": []}
     recovered_at = _utc_now()
 
     for video_id, progress in ANALYSIS_PROGRESS.items():
+        if video_id in excluded:
+            continue
         if not isinstance(progress, dict) or progress.get("status") != "in_progress":
             continue
 
@@ -188,6 +237,7 @@ def recover_interrupted_analyses():
     return recovered
 
 
+@_synchronized
 def get_progress(video_id: str):
     """Get progress for a specific video"""
     if video_id not in ANALYSIS_PROGRESS:
@@ -200,6 +250,7 @@ def get_progress(video_id: str):
     })
 
 
+@_synchronized
 def cleanup_old_progress(max_entries: int = 100):
     """Clean up old progress entries to prevent memory leak"""
     if len(ANALYSIS_PROGRESS) > max_entries:

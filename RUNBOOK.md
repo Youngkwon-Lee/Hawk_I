@@ -81,11 +81,13 @@ The service deliberately uses one analysis worker so it can run beside the
 two-worker production backend without exhausting the WSL runtime. Its upload
 directory is overridden after loading the shared backend secrets, so preview
 results never mix with production result files. It also enables
-`HAWKEYE_RECOVER_INTERRUPTED_ON_START`: after a service restart, a stale
-in-progress entry is restored as completed when a valid result JSON exists;
-otherwise it becomes a retryable `service_restarted` error so the browser stops
-polling and asks the user to submit the video again. Keep this startup recovery
-flag limited to a single-worker service.
+`HAWKEYE_RESUME_ANALYSIS_JOBS_ON_START`: uploaded analysis inputs are persisted
+to `analysis_jobs.json`, and queued or abruptly interrupted jobs are rerun after
+a service restart. A valid completed result is never rerun, and each job is
+limited to three attempts before the browser is asked to submit the video
+again. Legacy progress entries without a durable job remain covered by the
+retryable `service_restarted` fallback. Keep automatic resume limited to a
+single-worker service.
 
 The backend CORS policy allows the bounded Hawk I and ParkiCheck Vercel origins by default. Additional exact origins can be supplied as a comma-separated `CORS_ALLOWED_ORIGINS` backend environment variable.
 

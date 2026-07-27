@@ -22,7 +22,23 @@ from services.metrics_calculator import MetricsCalculator
 from services.finger_performability import get_finger_performability_gate
 from services.updrs_scorer import UPDRSScorer
 from services.interpretation_agent import InterpretationAgent
-from services.progress_tracker import init_analysis, update_step, complete_analysis, fail_analysis
+from services.progress_tracker import (
+    init_analysis,
+    update_step,
+    complete_analysis,
+    fail_analysis,
+    recover_interrupted_analyses,
+    resume_analysis,
+)
+from services.analysis_job_store import (
+    MAX_RESUME_ATTEMPTS,
+    claim_job,
+    create_job,
+    list_resumable_jobs,
+    mark_job_completed,
+    mark_job_failed,
+    requeue_interrupted_job,
+)
 from services.supabase_observations import save_analysis_observation
 from services.operator_auth import is_authorized_physio_operator
 from services.medication_context import describe_medication_timing, parse_medication_context
@@ -33,6 +49,8 @@ from domain.context import AnalysisContext
 # asdict no longer needed - clinical_scores already converted in ClinicalAgent
 
 bp = Blueprint('analyze', __name__, url_prefix='/api')
+_ACTIVE_JOB_IDS = set()
+_ACTIVE_JOB_IDS_LOCK = threading.Lock()
 
 
 def build_score_advisory(video_type: str, performability: dict | None) -> dict | None:
@@ -293,6 +311,7 @@ def process_video_background(
 
         print(f"\n{'='*50}")
         print(f"Analysis Complete! (ID: {video_id})")
+        return True, None
 
     except Exception as e:
         print(f"\nError during analysis:")
@@ -303,6 +322,154 @@ def process_video_background(
             traceback.print_exc(file=f)
         traceback.print_exc()
         fail_analysis(video_id, str(e))
+        return False, str(e)
+
+
+def _has_valid_result(video_id, upload_folder):
+    result_path = os.path.join(upload_folder, f"{video_id}_result.json")
+    if not os.path.exists(result_path):
+        return False
+    try:
+        with open(result_path, 'r', encoding='utf-8') as result_file:
+            return isinstance(json.load(result_file), dict)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
+def _is_safe_saved_video(video_path, upload_folder):
+    try:
+        resolved_video = os.path.realpath(video_path)
+        resolved_upload = os.path.realpath(upload_folder)
+        return (
+            os.path.commonpath([resolved_video, resolved_upload]) == resolved_upload
+            and os.path.isfile(resolved_video)
+        )
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _run_persisted_analysis_job(video_id, app_config):
+    """Claim and execute one persisted analysis job."""
+    try:
+        job = claim_job(video_id)
+        if not job:
+            return
+
+        payload = job.get("payload")
+        if not isinstance(payload, dict):
+            message = "Persisted analysis job payload is invalid"
+            mark_job_failed(video_id, message, "invalid_job_payload")
+            fail_analysis(video_id, message, "invalid_job_payload")
+            return
+
+        video_path = payload.get("video_path")
+        upload_folder = app_config.get("UPLOAD_FOLDER")
+        if not _is_safe_saved_video(video_path, upload_folder):
+            message = "Saved analysis video is missing or outside the upload directory"
+            mark_job_failed(video_id, message, "saved_video_unavailable")
+            fail_analysis(video_id, message, "saved_video_unavailable")
+            return
+
+        success, error_message = process_video_background(
+            video_path,
+            video_id,
+            payload.get("patient_id", "unknown"),
+            payload.get("manual_test_type"),
+            app_config,
+            payload.get("scoring_method", "coral"),
+            payload.get("ml_model_type", "rf"),
+            payload.get("physio_context"),
+            payload.get("assessment_session_id"),
+            payload.get("medication_context"),
+        )
+        if success:
+            mark_job_completed(video_id)
+        else:
+            mark_job_failed(
+                video_id,
+                error_message or "Analysis failed",
+                "analysis_failed",
+            )
+    except Exception as exc:
+        message = f"Persisted analysis job failed: {exc}"
+        mark_job_failed(video_id, message, "job_runner_failed")
+        fail_analysis(video_id, message, "job_runner_failed")
+    finally:
+        with _ACTIVE_JOB_IDS_LOCK:
+            _ACTIVE_JOB_IDS.discard(video_id)
+
+
+def start_persisted_analysis_job(video_id, app_config):
+    """Start a persisted job once per application process."""
+    with _ACTIVE_JOB_IDS_LOCK:
+        if video_id in _ACTIVE_JOB_IDS:
+            return False
+        _ACTIVE_JOB_IDS.add(video_id)
+
+    try:
+        thread = threading.Thread(
+            target=_run_persisted_analysis_job,
+            args=(video_id, app_config),
+        )
+        thread.daemon = True
+        thread.start()
+        return True
+    except Exception:
+        with _ACTIVE_JOB_IDS_LOCK:
+            _ACTIVE_JOB_IDS.discard(video_id)
+        raise
+
+
+def resume_interrupted_analysis_jobs(app_config):
+    """Resume queued/running jobs after a single-worker service restart."""
+    summary = {"completed": [], "resumed": [], "failed": []}
+    upload_folder = app_config["UPLOAD_FOLDER"]
+    jobs_to_start = []
+
+    for job in list_resumable_jobs():
+        video_id = job.get("video_id")
+        if not isinstance(video_id, str) or not video_id:
+            continue
+
+        if _has_valid_result(video_id, upload_folder):
+            mark_job_completed(video_id)
+            complete_analysis(video_id)
+            summary["completed"].append(video_id)
+            continue
+
+        attempts = int(job.get("attempts", 0))
+        if attempts >= MAX_RESUME_ATTEMPTS:
+            message = "Analysis resume limit reached. Please submit the video again."
+            mark_job_failed(video_id, message, "resume_limit_reached")
+            fail_analysis(video_id, message, "resume_limit_reached", retryable=True)
+            summary["failed"].append(video_id)
+            continue
+
+        payload = job.get("payload")
+        video_path = payload.get("video_path") if isinstance(payload, dict) else None
+        if not _is_safe_saved_video(video_path, upload_folder):
+            message = "Saved analysis video is unavailable. Please submit it again."
+            mark_job_failed(video_id, message, "saved_video_unavailable")
+            fail_analysis(video_id, message, "saved_video_unavailable", retryable=True)
+            summary["failed"].append(video_id)
+            continue
+
+        if job.get("status") == "running":
+            requeue_interrupted_job(video_id)
+
+        task_type = payload.get("manual_test_type") or "auto_detect"
+        resume_analysis(video_id, task_type, attempts + 1)
+        jobs_to_start.append(video_id)
+
+    # Resolve legacy progress before threads can write new step state. This
+    # avoids overwriting a resumed job with a stale whole-file snapshot.
+    recover_interrupted_analyses(exclude_video_ids=jobs_to_start)
+
+    for video_id in jobs_to_start:
+        if start_persisted_analysis_job(video_id, app_config):
+            summary["resumed"].append(video_id)
+
+    return summary
 
 
 @bp.route('/analyze', methods=['POST'])
@@ -369,9 +536,6 @@ def start_analysis():
         video_path = os.path.join(current_app.config['UPLOAD_FOLDER'], f"{video_id}_{filename}")
         video_file.save(video_path)
 
-        # Initialize progress tracking
-        init_analysis(video_id, task_type="auto_detect")
-
         # Get optional parameters
         physio_context = {
             "subject_person_id": request.form.get("physio_subject_person_id"),
@@ -399,25 +563,20 @@ def start_analysis():
         # - 'ensemble': Rule + ML average
         scoring_method = request.form.get('scoring_method', 'coral')  # coral (default), rule, ml, ensemble
         ml_model_type = request.form.get('ml_model_type', 'rf')  # rf, xgb, ordinal, feature_baseline, or feature_baseline_seq
-        
-        # Start background thread
-        thread = threading.Thread(
-            target=process_video_background,
-            args=(
-                video_path,
-                video_id,
-                patient_id,
-                manual_test_type,
-                current_app.config.copy(),
-                scoring_method,
-                ml_model_type,
-                physio_context or None,
-                assessment_session_id,
-                medication_context,
-            )
-        )
-        thread.daemon = True
-        thread.start()
+
+        # Persist the complete, non-secret job input before starting the thread.
+        create_job(video_id, {
+            "video_path": video_path,
+            "patient_id": patient_id,
+            "manual_test_type": manual_test_type,
+            "scoring_method": scoring_method,
+            "ml_model_type": ml_model_type,
+            "physio_context": physio_context or None,
+            "assessment_session_id": assessment_session_id,
+            "medication_context": medication_context,
+        })
+        init_analysis(video_id, task_type=manual_test_type or "auto_detect")
+        start_persisted_analysis_job(video_id, current_app.config.copy())
 
         return jsonify({
             "success": True,

@@ -56,6 +56,11 @@ function AnalyzingContent() {
         const data = await getAnalysisProgress(videoId)
         pollCount++
 
+        if (data.resumed && pollCount === 1) {
+          setStatusMessage("서비스 재시작 후 분석을 자동으로 재개했습니다.")
+          addLog(`> 저장된 작업 재개 (시도 ${data.resume_attempt ?? 2})`)
+        }
+
         // Update status message based on backend status
         if (data.steps) {
           if (data.steps.roi_detection?.status === 'in_progress') {

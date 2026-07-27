@@ -72,3 +72,53 @@ def test_recovery_rejects_invalid_result_json(monkeypatch, tmp_path):
 
     assert recovered == {"completed": [], "interrupted": ["invalid-result"]}
     assert tracker.get_progress("invalid-result")["error_code"] == "service_restarted"
+
+
+def test_resume_analysis_resets_steps_and_records_attempt(monkeypatch, tmp_path):
+    tracker = _load_tracker(monkeypatch, tmp_path)
+    tracker.atomic_write_json(
+        tracker.PROGRESS_FILE,
+        {
+            "resume-me": {
+                "status": "in_progress",
+                "steps": {"skeleton": {"status": "in_progress"}},
+            }
+        },
+    )
+
+    tracker.resume_analysis("resume-me", "finger_tapping", 2)
+
+    progress = tracker.get_progress("resume-me")
+    assert progress["status"] == "in_progress"
+    assert progress["task_type"] == "finger_tapping"
+    assert progress["resumed"] is True
+    assert progress["resume_attempt"] == 2
+    assert progress["steps"]["skeleton"]["status"] == "pending"
+
+
+def test_complete_analysis_normalizes_active_step(monkeypatch, tmp_path):
+    tracker = _load_tracker(monkeypatch, tmp_path)
+    tracker.init_analysis("completed-after-restart", "finger_tapping")
+    tracker.update_step("completed-after-restart", "metrics", "in_progress")
+
+    tracker.complete_analysis("completed-after-restart")
+
+    progress = tracker.get_progress("completed-after-restart")
+    assert progress["status"] == "completed"
+    assert progress["steps"]["metrics"]["status"] == "completed"
+
+
+def test_fail_analysis_creates_missing_progress_entry(monkeypatch, tmp_path):
+    tracker = _load_tracker(monkeypatch, tmp_path)
+
+    tracker.fail_analysis(
+        "missing-video",
+        "Saved video is unavailable",
+        "saved_video_unavailable",
+        retryable=True,
+    )
+
+    progress = tracker.get_progress("missing-video")
+    assert progress["status"] == "error"
+    assert progress["error_code"] == "saved_video_unavailable"
+    assert progress["retryable"] is True
