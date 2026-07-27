@@ -67,7 +67,7 @@ NEXT_PUBLIC_UPLOAD_API_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-p
 
 The preview backend runs separately from production on port `5892` and stores
 uploads, progress, and completed result JSON under the persistent path
-`/home/yk/.local/state/hawkeye-preview/uploads`. Install the checked-in user
+`/home/yk/previews/hawkeye-uploads`. Install the checked-in user
 service after updating the preview worktree:
 
 ```bash
