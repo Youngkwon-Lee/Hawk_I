@@ -28,6 +28,9 @@ class ClinicalAgent(BaseAgent):
 
     def process(self, ctx: AnalysisContext) -> AnalysisContext:
         try:
+            if ctx.requested_scoring_method is None:
+                ctx.requested_scoring_method = ctx.scoring_method
+
             if ctx.status != "vision_done":
                 ctx.log("clinical", "Skipping clinical analysis: Vision not completed.")
                 return ctx
@@ -54,6 +57,12 @@ class ClinicalAgent(BaseAgent):
                     return ctx
                 else:
                     ctx.log("clinical", "CORAL scoring failed, falling back to rule-based.")
+                    if ctx.scoring_fallback is None:
+                        ctx.scoring_fallback = {
+                            "from": "coral",
+                            "to": "rule",
+                            "reason": "coral_prediction_failed",
+                        }
                     ctx.scoring_method = "rule"  # Fallback
 
             # 1. Calculate Kinematic Metrics via Model Selector
@@ -172,6 +181,11 @@ class ClinicalAgent(BaseAgent):
 
             if skeleton_array is None:
                 ctx.log("clinical", "CORAL: Failed to convert landmarks to array")
+                ctx.scoring_fallback = {
+                    "from": "coral",
+                    "to": "rule",
+                    "reason": "landmark_conversion_failed",
+                }
                 return None
 
             ctx.log("clinical", f"CORAL: Skeleton shape {skeleton_array.shape}")
@@ -181,7 +195,11 @@ class ClinicalAgent(BaseAgent):
             prediction = ml_scorer.predict_coral(skeleton_array, coral_task)
 
             if prediction is None:
+                from models.coral_scorer import get_coral_scorer
+
+                reason = get_coral_scorer().get_load_error(coral_task) or "prediction_failed"
                 ctx.log("clinical", "CORAL: Model prediction failed")
+                ctx.scoring_fallback = {"from": "coral", "to": "rule", "reason": reason}
                 return None
 
             # Map score to severity
@@ -267,4 +285,3 @@ class ClinicalAgent(BaseAgent):
         except Exception as e:
             ctx.log("clinical", f"Failed to generate charts: {e}")
             ctx.clinical_charts = "Error generating charts."
-

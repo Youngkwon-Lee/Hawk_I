@@ -42,6 +42,12 @@ _script_dir = os.path.dirname(os.path.abspath(__file__))
 _backend_dir = os.path.dirname(_script_dir)
 _project_root = os.path.dirname(_backend_dir)
 MODEL_DIR = os.path.join(_project_root, "models", "trained")
+MODEL_FILES = {
+    'gait': 'gait_coral_raw_kfold_best.pth',
+    'finger_tapping': 'finger_coral_raw_kfold_best.pth',
+    'hand_movement': 'hand_coral_raw_kfold_best.pth',
+    'leg_agility': 'leg_coral_raw_kfold_best.pth',
+}
 
 
 @dataclass
@@ -187,6 +193,7 @@ class CORALScorer:
             cls._instance._configs = {}
             cls._instance._device = None
             cls._instance._loaded = False
+            cls._instance._load_errors = {}
         return cls._instance
 
     def _get_device(self):
@@ -197,59 +204,81 @@ class CORALScorer:
                 self._device = torch.device('cpu')
         return self._device
 
-    def load_models(self, model_dir: str = MODEL_DIR) -> bool:
-        """Load all available CORAL models"""
+    @staticmethod
+    def _resolve_model_dir(model_dir: Optional[str] = None) -> str:
+        return model_dir or os.environ.get("HAWKEYE_CORAL_MODEL_DIR", MODEL_DIR)
+
+    @staticmethod
+    def _safe_load_checkpoint(path: str, device):
+        """Load tensor weights without allowing arbitrary pickle execution."""
+        safe_types = [
+            (np.core.multiarray.scalar, "numpy._core.multiarray.scalar"),
+            np.dtype,
+            type(np.dtype(np.float64)),
+        ]
+        with torch.serialization.safe_globals(safe_types):
+            return torch.load(path, map_location=device, weights_only=True)
+
+    def _load_model(self, task: str, model_dir: Optional[str] = None) -> bool:
         if not TORCH_AVAILABLE:
             logger.error("PyTorch not available")
+            self._load_errors[task] = "pytorch_unavailable"
             return False
 
-        if self._loaded:
+        if task in self._models:
             return True
 
+        filename = MODEL_FILES.get(task)
+        if filename is None:
+            self._load_errors[task] = "unsupported_task"
+            logger.warning(f"Unsupported CORAL task: {task}")
+            return False
+
+        model_dir = self._resolve_model_dir(model_dir)
+        path = os.path.join(model_dir, filename)
+        if not os.path.isfile(path):
+            self._load_errors[task] = "model_not_found"
+            logger.warning(f"Model not found: {path}")
+            return False
+
         device = self._get_device()
-        logger.info(f"Loading CORAL models on {device}")
+        logger.info(f"Loading CORAL {task} model on {device}")
+        try:
+            checkpoint = self._safe_load_checkpoint(path, device)
+            config = checkpoint['config']
 
-        # Model files
-        model_files = {
-            'gait': 'gait_coral_raw_kfold_best.pth',
-            'finger_tapping': 'finger_coral_raw_kfold_best.pth',
-            'hand_movement': 'hand_coral_raw_kfold_best.pth',
-            'leg_agility': 'leg_coral_raw_kfold_best.pth',
-        }
+            model = MambaCoralModel(
+                input_size=config['input_size'],
+                hidden_size=config['hidden_size'],
+                num_layers=config['num_layers'],
+                num_classes=config['num_classes'],
+                dropout=config['dropout']
+            ).to(device)
 
-        for task, filename in model_files.items():
-            path = os.path.join(model_dir, filename)
-            if os.path.exists(path):
-                try:
-                    checkpoint = torch.load(path, map_location=device, weights_only=False)
-                    config = checkpoint['config']
+            model.load_state_dict(checkpoint['model_state_dict'])
+            model.eval()
 
-                    model = MambaCoralModel(
-                        input_size=config['input_size'],
-                        hidden_size=config['hidden_size'],
-                        num_layers=config['num_layers'],
-                        num_classes=config['num_classes'],
-                        dropout=config['dropout']
-                    ).to(device)
+            self._models[task] = model
+            self._configs[task] = config
+            self._load_errors.pop(task, None)
+            self._loaded = True
+            logger.info(f"Loaded {task} model: input_size={config['input_size']}")
+            return True
+        except Exception as exc:
+            self._load_errors[task] = "model_load_failed"
+            logger.error(f"Failed to load {task} model: {exc}")
+            return False
 
-                    model.load_state_dict(checkpoint['model_state_dict'])
-                    model.eval()
+    def load_models(self, model_dir: Optional[str] = None) -> bool:
+        """Load every available CORAL model, primarily for health checks."""
+        loaded = [self._load_model(task, model_dir) for task in MODEL_FILES]
+        return any(loaded)
 
-                    self._models[task] = model
-                    self._configs[task] = config
-                    logger.info(f"Loaded {task} model: input_size={config['input_size']}")
+    def is_loaded(self, task: Optional[str] = None) -> bool:
+        return task in self._models if task else bool(self._models)
 
-                except Exception as e:
-                    logger.error(f"Failed to load {task} model: {e}")
-            else:
-                logger.warning(f"Model not found: {path}")
-
-        self._loaded = len(self._models) > 0
-        logger.info(f"Loaded {len(self._models)} CORAL models")
-        return self._loaded
-
-    def is_loaded(self) -> bool:
-        return self._loaded
+    def get_load_error(self, task: str) -> Optional[str]:
+        return self._load_errors.get(task)
 
     def get_available_tasks(self) -> List[str]:
         return list(self._models.keys())
@@ -270,10 +299,7 @@ class CORALScorer:
         if not TORCH_AVAILABLE:
             return None
 
-        if not self._loaded:
-            self.load_models()
-
-        if task not in self._models:
+        if not self._load_model(task):
             logger.warning(f"No model loaded for task: {task}")
             return None
 

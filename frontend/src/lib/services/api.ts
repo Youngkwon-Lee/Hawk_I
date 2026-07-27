@@ -101,6 +101,13 @@ export interface AnalysisResult {
   auto_detected: boolean
   patient_id: string
   assessment_session_id?: string | null
+  scoring_method?: ScoringMethod
+  requested_scoring_method?: ScoringMethod
+  scoring_fallback?: {
+    from: ScoringMethod
+    to: ScoringMethod
+    reason: string
+  } | null
   medication_context?: MedicationContext | null
   medication_timing?: MedicationTiming | null
   physio_context?: PhysioAnalysisContext | null

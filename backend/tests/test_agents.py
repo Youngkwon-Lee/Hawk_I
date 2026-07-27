@@ -43,6 +43,29 @@ class TestClinicalAgent:
         assert result.clinical_charts is not None, "Should generate clinical charts"
         assert isinstance(result.clinical_charts, str)
 
+    def test_coral_fallback_keeps_requested_method_visible(
+        self, mock_finger_tapping_landmarks, analysis_context, monkeypatch, tmp_path
+    ):
+        from agents.clinical_agent import ClinicalAgent
+        from models.coral_scorer import CORALScorer
+
+        monkeypatch.setenv("HAWKEYE_CORAL_MODEL_DIR", str(tmp_path))
+        CORALScorer._instance = None
+        analysis_context.task_type = "finger_tapping"
+        analysis_context.status = "vision_done"
+        analysis_context.vision_meta = {"fps": 30.0}
+        analysis_context.skeleton_data = {"landmarks": mock_finger_tapping_landmarks}
+
+        result = ClinicalAgent().process(analysis_context)
+
+        assert result.requested_scoring_method == "coral"
+        assert result.scoring_method == "rule"
+        assert result.scoring_fallback == {
+            "from": "coral",
+            "to": "rule",
+            "reason": "model_not_found",
+        }
+
 
 class TestModelSelectorAgent:
     """Tests for Model Selector Agent"""

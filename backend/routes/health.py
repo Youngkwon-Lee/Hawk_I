@@ -3,8 +3,11 @@ Health Check Route
 """
 
 from flask import Blueprint, jsonify
+import os
 import cv2
 import mediapipe as mp
+
+from models.coral_scorer import MODEL_DIR, MODEL_FILES
 
 # PyTorch is optional (for UPDRS prediction)
 try:
@@ -40,6 +43,13 @@ def health_check():
             cuda_available = False
             cuda_device = None
 
+        coral_model_dir = os.environ.get("HAWKEYE_CORAL_MODEL_DIR", MODEL_DIR)
+        coral_tasks = [
+            task
+            for task, filename in MODEL_FILES.items()
+            if os.path.isfile(os.path.join(coral_model_dir, filename))
+        ]
+
         return jsonify({
             "status": "healthy",
             "service": "HawkEye PD Backend",
@@ -54,7 +64,11 @@ def health_check():
                 "roi_detection": True,
                 "task_classification": True,
                 "skeleton_extraction": True,
-                "updrs_prediction": False  # Will be True after model integration
+                "updrs_prediction": TORCH_AVAILABLE and bool(coral_tasks),
+                "coral_scoring": {
+                    "available": TORCH_AVAILABLE and bool(coral_tasks),
+                    "tasks": coral_tasks,
+                },
             }
         }), 200
 

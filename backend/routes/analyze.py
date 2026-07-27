@@ -113,6 +113,7 @@ def process_video_background(
             video_path=video_path, 
             video_id=video_id,
             scoring_method=scoring_method,
+            requested_scoring_method=scoring_method,
             ml_model_type=ml_model_type,
             manual_test_type=manual_test_type,
         )
@@ -281,6 +282,8 @@ def process_video_background(
                 "fps": ctx.vision_meta.get("fps", 30.0)  # For video sync
             },
             "scoring_method": ctx.scoring_method,
+            "requested_scoring_method": ctx.requested_scoring_method or scoring_method,
+            "scoring_fallback": ctx.scoring_fallback,
             "ml_model_type": ctx.ml_model_type,
             "performability_assessment": performability,
             "score_advisory": score_advisory,

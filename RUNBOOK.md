@@ -89,6 +89,23 @@ again. Legacy progress entries without a durable job remain covered by the
 retryable `service_restarted` fallback. Keep automatic resume limited to a
 single-worker service.
 
+CORAL checkpoints stay outside Git and are copied from the home desktop D drive
+to a preview-only, owner-readable directory. Refresh them before installing or
+restarting the preview service:
+
+```bash
+install -d -m 0700 /home/yk/previews/hawkeye-models/coral
+install -m 0600 /mnt/d/Hawkeye/models/trained/{gait,finger,hand,leg}_coral_raw_kfold_best.pth \
+  /home/yk/previews/hawkeye-models/coral/
+sha256sum /home/yk/previews/hawkeye-models/coral/*_coral_raw_kfold_best.pth
+```
+
+The backend loads only the requested task model, uses PyTorch's
+`weights_only=True` loader with a narrow NumPy allowlist, and exposes
+`requested_scoring_method` plus `scoring_fallback` if a checkpoint cannot be
+used. The effective `scoring_method` remains `coral` after successful CORAL
+inference.
+
 The backend CORS policy allows the bounded Hawk I and ParkiCheck Vercel origins by default. Additional exact origins can be supplied as a comma-separated `CORS_ALLOWED_ORIGINS` backend environment variable.
 
 ## Verified Smoke Checks
