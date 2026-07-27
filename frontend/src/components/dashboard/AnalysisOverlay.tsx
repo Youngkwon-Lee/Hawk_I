@@ -32,7 +32,7 @@ export function AnalysisOverlay({
     const [activeStep, setActiveStep] = useState(0)
     const [currentReasoning, setCurrentReasoning] = useState("시스템 초기화 중...")
     const [logs, setLogs] = useState<LogEntry[]>([])
-    const [startTime] = useState(Date.now())
+    const [startTime] = useState(() => Date.now())
     const [estimatedTime, setEstimatedTime] = useState<string | null>(null)
     const [frameInfo, setFrameInfo] = useState<string | null>(null)
     const logsEndRef = useRef<HTMLDivElement>(null)
