@@ -6,6 +6,7 @@ Movement-based ROI Detection & Video Analysis API
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
+import re
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -21,23 +22,40 @@ def add_private_network_access_header(response):
         response.headers['Access-Control-Allow-Private-Network'] = 'true'
     return response
 
-# Enable CORS for Next.js frontend
+def build_cors_origins():
+    """Return the bounded browser origins allowed to call the public API."""
+    origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        re.compile(r"^https://hawkeye-labeling-tool(?:-[a-z0-9-]+)*\.vercel\.app$"),
+        re.compile(r"^https://finger-tap(?:-fx)?(?:-[a-z0-9-]+)*\.vercel\.app$"),
+    ]
+
+    for env_name in ("FRONTEND_URL", "PARKICHECK_FRONTEND_URL"):
+        configured = os.getenv(env_name, "").strip().rstrip("/")
+        if configured and configured not in origins:
+            origins.append(configured)
+
+    configured_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    for configured in configured_origins.split(","):
+        origin = configured.strip().rstrip("/")
+        if origin and origin not in origins:
+            origins.append(origin)
+
+    return origins
+
+
+# Enable CORS for the Hawk I and ParkiCheck browser surfaces. The endpoint is
+# public, but bounding browser origins prevents accidental cross-site uploads.
+CORS_ORIGINS = build_cors_origins()
 CORS(app, resources={
     r"/api/*": {
-        "origins": [
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:3001",
-            os.getenv("FRONTEND_URL", "http://localhost:3000")
-        ]
+        "origins": CORS_ORIGINS
     },
     r"/uploads/*": {
-        "origins": [
-            "http://localhost:3000",
-            "http://localhost:3001",
-            os.getenv("FRONTEND_URL", "http://localhost:3000")
-        ]
+        "origins": CORS_ORIGINS
     },
     r"/files/*": {
         "origins": "*"

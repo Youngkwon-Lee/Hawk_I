@@ -57,7 +57,15 @@ Open:
 http://127.0.0.1:3000
 ```
 
-The frontend uses `BACKEND_URL` for Next.js rewrites and `NEXT_PUBLIC_API_URL` for browser-side API calls.
+The frontend uses `BACKEND_URL` for Next.js rewrites and `NEXT_PUBLIC_API_URL` for browser-side API calls. Set `NEXT_PUBLIC_UPLOAD_API_URL` to the public backend prefix when large multipart uploads must bypass the Vercel request-body proxy. Only `POST /api/analyze` uses this direct URL; progress, result, history, and file reads remain on the active frontend origin.
+
+For the isolated home-desktop preview:
+
+```bash
+NEXT_PUBLIC_UPLOAD_API_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-preview
+```
+
+The backend CORS policy allows the bounded Hawk I and ParkiCheck Vercel origins by default. Additional exact origins can be supplied as a comma-separated `CORS_ALLOWED_ORIGINS` backend environment variable.
 
 ## Verified Smoke Checks
 

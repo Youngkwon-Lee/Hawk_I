@@ -5,6 +5,14 @@ export const API_BASE_URL = typeof window === 'undefined'
   ? (process.env.NEXT_PUBLIC_API_URL || '')
   : ''
 
+// Large multipart uploads bypass the Vercel rewrite so request bodies are sent
+// directly to the environment-specific Hawk I backend. Read/progress requests
+// remain same-origin through API_BASE_URL.
+export const UPLOAD_API_BASE_URL = (typeof window === 'undefined'
+  ? (process.env.NEXT_PUBLIC_UPLOAD_API_URL || process.env.NEXT_PUBLIC_API_URL || '')
+  : (process.env.NEXT_PUBLIC_UPLOAD_API_URL || '')
+).replace(/\/+$/, '')
+
 export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
 }
@@ -366,7 +374,7 @@ export async function analyzeVideo(
   }
   appendPhysioContext(formData, physioContext)
 
-  const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+  const response = await fetch(`${UPLOAD_API_BASE_URL}/api/analyze`, {
     method: 'POST',
     body: formData,
   })
@@ -457,7 +465,7 @@ export async function analyzeVideoWithProgress(
     appendPhysioContext(formData, physioContext)
     formData.append('scoring_method', scoringMethod)
 
-    xhr.open('POST', `${API_BASE_URL}/api/analyze`)
+    xhr.open('POST', `${UPLOAD_API_BASE_URL}/api/analyze`)
     xhr.send(formData)
   })
 }
