@@ -398,10 +398,22 @@ export interface AnalysisStartResponse {
 export interface AnalysisProgress {
   status: string
   task_type?: string
+  error?: string
+  error_code?: string
+  retryable?: boolean
+  recovered_at?: string
   steps?: Record<string, {
     status: string
     result_url?: string | null
   }>
+}
+
+export function getAnalysisProgressErrorMessage(progress: AnalysisProgress): string {
+  if (progress.error_code === 'service_restarted') {
+    return '서버가 재시작되어 진행 중인 분석이 중단되었습니다. 영상을 다시 제출해 주세요.'
+  }
+
+  return progress.error || '분석 중 오류가 발생했습니다. 다시 시도해 주세요.'
 }
 
 /**

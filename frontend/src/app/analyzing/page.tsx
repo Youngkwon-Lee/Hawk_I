@@ -1,6 +1,6 @@
 "use client"
 
-import { getAnalysisProgress, getAnalysisResult } from "@/lib/services/api"
+import { getAnalysisProgress, getAnalysisProgressErrorMessage, getAnalysisResult } from "@/lib/services/api"
 import { useAnalysisStore } from "@/store/analysisStore"
 
 import * as React from "react"
@@ -23,6 +23,7 @@ function AnalyzingContent() {
   const [progress, setProgress] = useState(0)
   const [statusMessage, setStatusMessage] = useState("시스템 초기화 중...")
   const [logs, setLogs] = useState<string[]>([])
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
 
   const addLog = (message: string) => {
     setLogs(prev => {
@@ -112,6 +113,16 @@ function AnalyzingContent() {
           }
         }
 
+        if (data.status === 'error') {
+          clearInterval(progressInterval)
+          const message = getAnalysisProgressErrorMessage(data)
+          setAnalysisError(message)
+          setError(message)
+          setStatusMessage(message)
+          addLog("> 분석이 중단되었습니다. 다시 제출해 주세요.")
+          return true
+        }
+
         if (pollCount >= MAX_POLLS) return true
         return false
       } catch (error) {
@@ -160,9 +171,9 @@ function AnalyzingContent() {
         {/* Status Text */}
         <div className="text-center space-y-2 mb-8">
           <h1 className="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/50">
-            AI 영상 분석 중
+            {analysisError ? '분석이 중단되었습니다' : 'AI 영상 분석 중'}
           </h1>
-          <p className="text-lg text-muted-foreground font-medium animate-pulse">
+          <p className={`text-lg font-medium ${analysisError ? 'text-red-500' : 'text-muted-foreground animate-pulse'}`}>
             {statusMessage}
           </p>
         </div>
@@ -202,6 +213,16 @@ function AnalyzingContent() {
             />
           </div>
         </div>
+
+        {analysisError && (
+          <button
+            type="button"
+            onClick={() => router.push('/test')}
+            className="mt-8 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            다시 분석하기
+          </button>
+        )}
 
         <style jsx global>{`
             @keyframes scan {

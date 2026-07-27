@@ -80,7 +80,12 @@ systemctl --user enable --now hawkeye-preview-backend.service
 The service deliberately uses one analysis worker so it can run beside the
 two-worker production backend without exhausting the WSL runtime. Its upload
 directory is overridden after loading the shared backend secrets, so preview
-results never mix with production result files.
+results never mix with production result files. It also enables
+`HAWKEYE_RECOVER_INTERRUPTED_ON_START`: after a service restart, a stale
+in-progress entry is restored as completed when a valid result JSON exists;
+otherwise it becomes a retryable `service_restarted` error so the browser stops
+polling and asks the user to submit the video again. Keep this startup recovery
+flag limited to a single-worker service.
 
 The backend CORS policy allows the bounded Hawk I and ParkiCheck Vercel origins by default. Additional exact origins can be supplied as a comma-separated `CORS_ALLOWED_ORIGINS` backend environment variable.
 

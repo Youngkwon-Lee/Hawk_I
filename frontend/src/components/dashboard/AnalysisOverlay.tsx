@@ -4,7 +4,7 @@ import * as React from "react"
 import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent } from "@/components/ui/Card"
 import { Activity, UploadCloud, Eye, Stethoscope, FileText, CheckCircle2, Sparkles, Zap } from 'lucide-react'
-import { getAnalysisProgress, getAnalysisResult, type AnalysisResult } from "@/lib/services/api"
+import { getAnalysisProgress, getAnalysisProgressErrorMessage, getAnalysisResult, type AnalysisResult } from "@/lib/services/api"
 import { cn } from "@/lib/utils"
 
 interface AnalysisOverlayProps {
@@ -209,6 +209,14 @@ export function AnalysisOverlay({
                         onErrorRef.current('결과를 가져오는데 실패했습니다.')
                         return true
                     }
+                }
+
+                if (data.status === 'error') {
+                    clearInterval(progressInterval)
+                    const message = getAnalysisProgressErrorMessage(data)
+                    addLog(message, 'info')
+                    onErrorRef.current(message)
+                    return true
                 }
 
                 if (pollCount >= MAX_POLLS) return true

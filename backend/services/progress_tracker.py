@@ -7,6 +7,7 @@ Persists to JSON file to survive Flask restarts in debug mode
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from services.json_store import atomic_write_json
 
@@ -21,6 +22,11 @@ PROGRESS_FILE = Path(UPLOAD_DIR) / "analysis_progress.json"
 # Global dictionary to track analysis progress
 # Structure: {video_id: {status, steps: {step_name: {status, result_url}}}}
 ANALYSIS_PROGRESS = {}
+
+
+def _utc_now():
+    """Return an ISO-8601 UTC timestamp for persisted recovery metadata."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _load_progress():
@@ -118,6 +124,63 @@ def fail_analysis(video_id: str, error_message: str):
         ANALYSIS_PROGRESS[video_id]["error"] = error_message
         _save_progress()
         print(f"[Progress Tracker] Analysis failed for video_id: {video_id} - {error_message}")
+
+
+def recover_interrupted_analyses():
+    """Resolve analyses left in progress by a previous single-worker process.
+
+    A complete, atomically-written result wins over stale progress. Otherwise the
+    interrupted analysis becomes a retryable error so clients stop polling and
+    can ask the user to submit the video again.
+    """
+    _load_progress()
+
+    recovered = {"completed": [], "interrupted": []}
+    recovered_at = _utc_now()
+
+    for video_id, progress in ANALYSIS_PROGRESS.items():
+        if not isinstance(progress, dict) or progress.get("status") != "in_progress":
+            continue
+
+        result_path = PROGRESS_FILE.parent / f"{video_id}_result.json"
+        result_is_valid = False
+        if result_path.exists():
+            try:
+                with open(result_path, "r", encoding="utf-8") as result_file:
+                    result_is_valid = isinstance(json.load(result_file), dict)
+            except (OSError, json.JSONDecodeError):
+                result_is_valid = False
+
+        if result_is_valid:
+            progress["status"] = "completed"
+            progress["recovered_at"] = recovered_at
+            progress.pop("error", None)
+            progress.pop("error_code", None)
+            progress.pop("retryable", None)
+            recovered["completed"].append(video_id)
+            continue
+
+        progress["status"] = "error"
+        progress["error"] = (
+            "Analysis was interrupted because the backend restarted. "
+            "Please submit the video again."
+        )
+        progress["error_code"] = "service_restarted"
+        progress["retryable"] = True
+        progress["recovered_at"] = recovered_at
+
+        steps = progress.get("steps")
+        if isinstance(steps, dict):
+            for step in steps.values():
+                if isinstance(step, dict) and step.get("status") == "in_progress":
+                    step["status"] = "error"
+
+        recovered["interrupted"].append(video_id)
+
+    if recovered["completed"] or recovered["interrupted"]:
+        _save_progress()
+
+    return recovered
 
 
 def get_progress(video_id: str):

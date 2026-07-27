@@ -74,7 +74,19 @@ app.config['UPLOAD_FOLDER'] = upload_dir
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Import progress tracker
-from services.progress_tracker import get_progress
+from services.progress_tracker import get_progress, recover_interrupted_analyses
+
+if os.getenv('HAWKEYE_RECOVER_INTERRUPTED_ON_START', '').strip().lower() in {
+    '1', 'true', 'yes', 'on'
+}:
+    recovery = recover_interrupted_analyses()
+    recovered_count = len(recovery['completed']) + len(recovery['interrupted'])
+    if recovered_count:
+        print(
+            "[Progress Tracker] Startup recovery resolved "
+            f"{len(recovery['completed'])} completed and "
+            f"{len(recovery['interrupted'])} interrupted analyses"
+        )
 
 # Import routes
 from routes import analyze, chat, health, timeline, streaming, population_stats, history, vlm, physio_context
