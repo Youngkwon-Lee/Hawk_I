@@ -121,9 +121,11 @@ Current production setup verified on 2026-07-23:
 Vercel env:
 
 ```text
-NEXT_PUBLIC_API_URL=https://hawkeye-labeling-tool.vercel.app
 BACKEND_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-api
 ```
+
+Browser requests use relative same-origin `/api/*` and `/files/*` paths. Do not
+set a preview deployment's browser API URL to the production application.
 
 Optional backend env for writing completed analyses into physio_app
 `public.activity_sessions` and `public.observations`:

@@ -1,4 +1,9 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+// Browser requests must stay on the active deployment origin so previews never
+// leak API traffic to a hard-coded production URL. Next.js rewrites proxy these
+// relative paths to the environment-specific BACKEND_URL.
+export const API_BASE_URL = typeof window === 'undefined'
+  ? (process.env.NEXT_PUBLIC_API_URL || '')
+  : ''
 
 export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
