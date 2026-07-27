@@ -624,7 +624,7 @@ export async function getHistory(filters?: HistoryFilters): Promise<HistoryRespo
     if (filters.sort) params.set('sort', filters.sort)
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/history/?${params.toString()}`)
+  const response = await fetch(`${API_BASE_URL}/api/history?${params.toString()}`)
 
   if (!response.ok) {
     throw new Error('Failed to fetch history')
