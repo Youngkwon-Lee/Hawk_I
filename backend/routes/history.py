@@ -51,7 +51,7 @@ def parse_result_file(filepath: str) -> dict:
         return None
 
 
-@bp.route('/', methods=['GET'])
+@bp.route('/', methods=['GET'], strict_slashes=False)
 def get_history():
     """
     Get analysis history with optional filters

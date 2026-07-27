@@ -2,6 +2,17 @@ import shutil
 from pathlib import Path
 
 
+def test_history_accepts_slashless_proxy_path(tmp_path):
+    from app import app
+
+    app.config["UPLOAD_FOLDER"] = str(tmp_path)
+
+    response = app.test_client().get("/api/history?limit=20")
+
+    assert response.status_code == 200
+    assert response.get_json()["success"] is True
+
+
 def test_history_stats_exposes_safe_repeated_medication_comparison(tmp_path):
     from app import app
 
