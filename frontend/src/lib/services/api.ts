@@ -52,6 +52,25 @@ export interface ScoreAdvisory {
   summary: string
 }
 
+export interface MedicationContext {
+  available: boolean
+  source: "patient_reported_local"
+  medication?: string | null
+  dose_mg?: number | null
+  taken_at?: string
+  assessment_at?: string
+  hours_before_assessment?: number | null
+}
+
+export interface MedicationTiming {
+  available: boolean
+  relationship?: "after_patient_reported_dose"
+  hours_after_reported_dose?: number | null
+  timing_window?: "within_2_hours" | "between_2_and_6_hours" | "over_6_hours" | "unknown"
+  evidence_level: "none" | "single_observation"
+  can_infer_medication_effect: false
+}
+
 export interface SkeletonKeypoint {
   x: number
   y: number
@@ -74,6 +93,8 @@ export interface AnalysisResult {
   auto_detected: boolean
   patient_id: string
   assessment_session_id?: string | null
+  medication_context?: MedicationContext | null
+  medication_timing?: MedicationTiming | null
   physio_context?: PhysioAnalysisContext | null
   integrations?: {
     supabase_observation?: {

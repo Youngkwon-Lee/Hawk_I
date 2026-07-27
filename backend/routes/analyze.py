@@ -25,6 +25,7 @@ from services.interpretation_agent import InterpretationAgent
 from services.progress_tracker import init_analysis, update_step, complete_analysis, fail_analysis
 from services.supabase_observations import save_analysis_observation
 from services.operator_auth import is_authorized_physio_operator
+from services.medication_context import describe_medication_timing, parse_medication_context
 from services.visualization_data_generator import generate_visualization_data, detect_events
 from agents.orchestrator import OrchestratorAgent
 from domain.context import AnalysisContext
@@ -71,6 +72,7 @@ def process_video_background(
     ml_model_type='rf',
     physio_context=None,
     assessment_session_id=None,
+    medication_context=None,
 ):
     """
     Background task for video analysis using Multi-Agent Orchestrator
@@ -223,6 +225,8 @@ def process_video_background(
             "id": video_id,
             "patient_id": patient_id,
             "assessment_session_id": assessment_session_id,
+            "medication_context": medication_context,
+            "medication_timing": describe_medication_timing(medication_context),
             "physio_context": physio_context or None,
             "video_type": ctx.task_type,
             "auto_detected": manual_test_type is None,
@@ -345,6 +349,16 @@ def start_analysis():
                 "error": "Operator authorization is required for physio persistence",
             }), 403
 
+        try:
+            medication_context = parse_medication_context(
+                request.form.get("medication_context")
+            )
+        except ValueError as exc:
+            return jsonify({
+                "success": False,
+                "error": str(exc),
+            }), 400
+
         # Generate unique video_id for progress tracking
         import time
         filename = secure_filename(video_file.filename)
@@ -399,6 +413,7 @@ def start_analysis():
                 ml_model_type,
                 physio_context or None,
                 assessment_session_id,
+                medication_context,
             )
         )
         thread.daemon = True

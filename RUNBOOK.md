@@ -156,6 +156,14 @@ observation to Hawk I with a shared `assessment_session_id` and stores the Hawk 
 provenance itself. The backend never falls back to
 `HAWKEYE_SUPABASE_SUBJECT_PERSON_ID` as an implicit write target.
 
+When the ParkiCheck user explicitly enables Hawk I research review, the request
+may also include a small `medication_context` JSON object containing only the
+patient-reported medication name, dose, reported dose time, assessment time,
+and elapsed hours. The backend validates and whitelists those fields, returns a
+descriptive `medication_timing` relationship, and stores both objects alongside
+the shared assessment session. This is a single-observation time relationship;
+it does not infer efficacy, an ON/OFF state, or a dosing recommendation.
+
 The browser must call the Vercel origin, not the Tailscale URL directly. Direct browser requests to the Tailscale Funnel URL can be blocked by browser Private Network Access checks. Next.js rewrites proxy `/api/*` and `/files/*` server-side to the Tailscale backend.
 
 Home desktop checks:
@@ -183,6 +191,7 @@ HAWKEYE_SMOKE_VIDEO=/path/to/gait.mp4 bash scripts/hawkeye_production_smoke.sh
 
 - The public repo still does not include a de-identified sample video fixture, so the full upload smoke uses a local external gait clip.
 - Production analysis availability depends on the home desktop WSL runtime and Tailscale Funnel staying online.
+- Medication-effect inference requires repeated, comparable assessments and clinician review. The current integration only preserves patient-reported context and displays its time relationship to one assessment.
 - OpenAI-backed chat and VLM paths require `OPENAI_API_KEY`; without it, fallback interpretation is used.
 - `npm audit` reports dependency vulnerabilities; review before production deployment.
 - Next.js warns that `middleware.ts` should migrate to the newer `proxy` convention.

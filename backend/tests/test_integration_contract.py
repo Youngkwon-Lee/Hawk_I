@@ -14,6 +14,23 @@ def _result():
         "video_type": "finger_tapping",
         "updrs_score": {"total_score": 2, "confidence": 0.8},
         "metrics": {"tapping_speed": 3.1},
+        "medication_context": {
+            "available": True,
+            "source": "patient_reported_local",
+            "medication": "레보도파",
+            "dose_mg": 100.0,
+            "taken_at": "2026-07-27T00:00:00Z",
+            "assessment_at": "2026-07-27T01:30:00Z",
+            "hours_before_assessment": 1.5,
+        },
+        "medication_timing": {
+            "available": True,
+            "relationship": "after_patient_reported_dose",
+            "hours_after_reported_dose": 1.5,
+            "timing_window": "within_2_hours",
+            "evidence_level": "single_observation",
+            "can_infer_medication_effect": False,
+        },
     }
 
 
@@ -35,6 +52,10 @@ def test_assessment_session_id_is_persisted_in_hawk_i_rows():
 
     assert activity["metrics"]["assessment_session_id"] == "assessment-123"
     assert observation["measurement_context"]["assessment_session_id"] == "assessment-123"
+    assert activity["metrics"]["medication_context"]["medication"] == "레보도파"
+    assert activity["metrics"]["medication_timing"]["can_infer_medication_effect"] is False
+    assert observation["measurement_context"]["medication_context"]["dose_mg"] == 100.0
+    assert observation["measurement_context"]["medication_timing"]["timing_window"] == "within_2_hours"
 
 
 def test_medication_timeline_is_empty_until_patient_data_is_connected():

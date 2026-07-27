@@ -1,4 +1,5 @@
 from io import BytesIO
+import json
 
 
 def test_analyze_start_echoes_and_forwards_assessment_session(monkeypatch, tmp_path):
@@ -27,13 +28,30 @@ def test_analyze_start_echoes_and_forwards_assessment_session(monkeypatch, tmp_p
             "patient_id": "person-123",
             "assessment_session_id": "assessment-123",
             "test_type": "finger_tapping",
+            "medication_context": json.dumps({
+                "available": True,
+                "medication": "레보도파",
+                "dose_mg": 100,
+                "taken_at": "2026-07-27T00:00:00Z",
+                "assessment_at": "2026-07-27T01:30:00Z",
+                "hours_before_assessment": 1.5,
+            }),
         },
         content_type="multipart/form-data",
     )
 
     assert response.status_code == 202
     assert response.get_json()["assessment_session_id"] == "assessment-123"
-    assert captured["args"][-1] == "assessment-123"
+    assert captured["args"][-2] == "assessment-123"
+    assert captured["args"][-1] == {
+        "available": True,
+        "source": "patient_reported_local",
+        "assessment_at": "2026-07-27T01:30:00Z",
+        "taken_at": "2026-07-27T00:00:00Z",
+        "medication": "레보도파",
+        "dose_mg": 100.0,
+        "hours_before_assessment": 1.5,
+    }
     assert captured["started"] is True
 
 
@@ -54,4 +72,21 @@ def test_analyze_rejects_untrusted_physio_persistence_context(monkeypatch, tmp_p
     )
 
     assert response.status_code == 403
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_analyze_rejects_invalid_medication_context_before_saving_video(tmp_path):
+    from app import app
+
+    app.config["UPLOAD_FOLDER"] = str(tmp_path)
+    response = app.test_client().post(
+        "/api/analyze",
+        data={
+            "video_file": (BytesIO(b"synthetic video"), "finger.mp4"),
+            "medication_context": "{",
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
     assert list(tmp_path.iterdir()) == []

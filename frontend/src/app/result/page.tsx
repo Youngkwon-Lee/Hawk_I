@@ -1082,7 +1082,11 @@ function ResultContent() {
 
                 {activeTab === "timeline" && (
                     <div className="animate-in fade-in slide-in-from-bottom-2">
-                        <MedicationTimeline patientId={analysisResult?.patient_id || "unknown"} />
+                        <MedicationTimeline
+                            patientId={analysisResult?.patient_id || "unknown"}
+                            medicationContext={analysisResult?.medication_context}
+                            medicationTiming={analysisResult?.medication_timing}
+                        />
                     </div>
                 )}
 
