@@ -157,6 +157,11 @@ def recover_interrupted_analyses():
             progress.pop("error", None)
             progress.pop("error_code", None)
             progress.pop("retryable", None)
+            steps = progress.get("steps")
+            if isinstance(steps, dict):
+                for step in steps.values():
+                    if isinstance(step, dict) and step.get("status") == "in_progress":
+                        step["status"] = "completed"
             recovered["completed"].append(video_id)
             continue
 

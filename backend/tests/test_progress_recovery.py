@@ -36,6 +36,7 @@ def test_recovery_completes_valid_result_and_fails_unfinished_job(monkeypatch, t
     persisted = json.loads(tracker.PROGRESS_FILE.read_text())
     assert persisted["has-result"]["status"] == "completed"
     assert persisted["has-result"]["recovered_at"].endswith("Z")
+    assert persisted["has-result"]["steps"]["metrics"]["status"] == "completed"
     assert persisted["needs-retry"]["status"] == "error"
     assert persisted["needs-retry"]["error_code"] == "service_restarted"
     assert persisted["needs-retry"]["retryable"] is True
