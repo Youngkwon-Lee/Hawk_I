@@ -68,6 +68,7 @@ export interface AnalysisResult {
   confidence: number
   auto_detected: boolean
   patient_id: string
+  assessment_session_id?: string | null
   physio_context?: PhysioAnalysisContext | null
   integrations?: {
     supabase_observation?: {
@@ -117,7 +118,7 @@ export interface AnalysisResult {
     keypoints?: SkeletonFrameData[]
   } | null
   updrs_score?: {
-    score: number
+    score?: number
     total_score?: number
     severity: string
     method?: string
@@ -272,6 +273,16 @@ export async function checkHealth(): Promise<HealthStatus> {
 export async function getPhysioSubjects(): Promise<PhysioSubjectsResponse> {
   const response = await fetch(apiUrl('/api/physio/subjects'))
 
+  if (response.status === 403) {
+    return {
+      success: false,
+      enabled: false,
+      organization: null,
+      subjects: [],
+      reason: 'operator_authorization_required',
+    }
+  }
+
   if (!response.ok) {
     const error = await response.json().catch(() => null)
     throw new Error(error?.error || 'Failed to fetch physio_app subjects')
@@ -311,13 +322,17 @@ export async function analyzeVideo(
   videoFile: File,
   patientId?: string,
   manualTestType?: string,
-  physioContext?: PhysioAnalysisContext
+  physioContext?: PhysioAnalysisContext,
+  assessmentSessionId?: string
 ): Promise<AnalysisResult> {
   const formData = new FormData()
   formData.append('video_file', videoFile)
 
   if (patientId) {
     formData.append('patient_id', patientId)
+  }
+  if (assessmentSessionId) {
+    formData.append('assessment_session_id', assessmentSessionId)
   }
 
   if (manualTestType) {
@@ -343,6 +358,7 @@ export interface AnalysisStartResponse {
   message: string
   id: string
   status: string
+  assessment_session_id?: string | null
 }
 
 export interface AnalysisProgress {
@@ -373,7 +389,8 @@ export async function analyzeVideoWithProgress(
   onProgress?: (progress: number) => void,
   manualTestType?: string,
   scoringMethod: ScoringMethod = 'coral',
-  physioContext?: PhysioAnalysisContext
+  physioContext?: PhysioAnalysisContext,
+  assessmentSessionId?: string
 ): Promise<AnalysisStartResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -404,6 +421,9 @@ export async function analyzeVideoWithProgress(
     formData.append('video_file', videoFile)
     if (patientId) {
       formData.append('patient_id', patientId)
+    }
+    if (assessmentSessionId) {
+      formData.append('assessment_session_id', assessmentSessionId)
     }
     if (manualTestType) {
       formData.append('test_type', manualTestType)

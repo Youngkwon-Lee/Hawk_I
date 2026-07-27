@@ -24,6 +24,7 @@ from services.updrs_scorer import UPDRSScorer
 from services.interpretation_agent import InterpretationAgent
 from services.progress_tracker import init_analysis, update_step, complete_analysis, fail_analysis
 from services.supabase_observations import save_analysis_observation
+from services.operator_auth import is_authorized_physio_operator
 from services.visualization_data_generator import generate_visualization_data, detect_events
 from agents.orchestrator import OrchestratorAgent
 from domain.context import AnalysisContext
@@ -69,6 +70,7 @@ def process_video_background(
     scoring_method='ensemble',
     ml_model_type='rf',
     physio_context=None,
+    assessment_session_id=None,
 ):
     """
     Background task for video analysis using Multi-Agent Orchestrator
@@ -220,6 +222,7 @@ def process_video_background(
             "success": True,
             "id": video_id,
             "patient_id": patient_id,
+            "assessment_session_id": assessment_session_id,
             "physio_context": physio_context or None,
             "video_type": ctx.task_type,
             "auto_detected": manual_test_type is None,
@@ -325,6 +328,23 @@ def start_analysis():
                 "error": "Invalid file type. Allowed: mp4, avi, mov, webm, mkv"
             }), 400
 
+        physio_form_fields = (
+            "physio_subject_person_id",
+            "physio_organization_id",
+            "physio_created_by_person_id",
+            "physio_performer_person_id",
+            "physio_subject_display_name",
+            "physio_organization_display_name",
+        )
+        has_physio_context = any(request.form.get(field) for field in physio_form_fields)
+        if has_physio_context and not is_authorized_physio_operator(
+            request.headers.get("Authorization")
+        ):
+            return jsonify({
+                "success": False,
+                "error": "Operator authorization is required for physio persistence",
+            }), 403
+
         # Generate unique video_id for progress tracking
         import time
         filename = secure_filename(video_file.filename)
@@ -354,6 +374,9 @@ def start_analysis():
         }
 
         patient_id = request.form.get('patient_id') or physio_context.get("subject_person_id") or 'unknown'
+        assessment_session_id = request.form.get("assessment_session_id")
+        if assessment_session_id:
+            assessment_session_id = assessment_session_id.strip()[:128]
         manual_test_type = request.form.get('test_type', None)
         # Scoring methods:
         # - 'coral': CORAL Ordinal Regression with Mamba (Best: Gait 0.790, Finger 0.553, Hand 0.598)
@@ -375,6 +398,7 @@ def start_analysis():
                 scoring_method,
                 ml_model_type,
                 physio_context or None,
+                assessment_session_id,
             )
         )
         thread.daemon = True
@@ -384,6 +408,7 @@ def start_analysis():
             "success": True,
             "message": "Analysis started",
             "id": video_id,
+            "assessment_session_id": assessment_session_id,
             "status": "in_progress"
         }), 202
 

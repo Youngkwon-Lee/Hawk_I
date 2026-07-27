@@ -291,6 +291,7 @@ def build_activity_session_row(
             {
                 "app_source": "hawk_i",
                 "analysis_id": analysis_id or None,
+                "assessment_session_id": result.get("assessment_session_id"),
                 "patient_id": result.get("patient_id"),
                 "video_type": video_type,
                 "score_raw": score,
@@ -341,6 +342,7 @@ def build_observation_row(
     measurement_context = {
         "app_source": "hawk_i",
         "analysis_id": analysis_id or None,
+        "assessment_session_id": result.get("assessment_session_id"),
         "patient_id": result.get("patient_id"),
         "physio_context": result.get("physio_context"),
         "video_type": video_type,

@@ -138,17 +138,21 @@ HAWKEYE_SUPABASE_SUBJECT_PERSON_ID=<optional selector hint; only used if it is a
 HAWKEYE_SUPABASE_ACTIVITY_SESSION_ID=<optional existing activity_sessions.id>
 HAWKEYE_SUPABASE_ACTIVITY_SESSIONS_TABLE=activity_sessions
 HAWKEYE_SUPABASE_OBSERVATIONS_TABLE=observations
+HAWKEYE_PHYSIO_CONTEXT_TOKEN=<long random backend-only operator token>
 ```
 
 Do not set these in the Vercel frontend project. They belong on the Flask
 backend runtime only. If `HAWKEYE_SUPABASE_ACTIVITY_SESSION_ID` is omitted, the
 backend creates one completed camera assessment session per saved analysis.
-The frontend reads selectable people from the backend-only endpoint
-`GET /api/physio/subjects`; that route uses the server Supabase key and returns
-only active `org_clients` in the configured organization. Completed analyses are
-written only when the request includes an explicit physio_app subject/organization
-context; the backend does not fall back to `HAWKEYE_SUPABASE_SUBJECT_PERSON_ID`
-as a write target.
+The subject directory endpoint `GET /api/physio/subjects` and any analysis
+request containing `physio_*` write context require `Authorization: Bearer
+<HAWKEYE_PHYSIO_CONTEXT_TOKEN>`. Public browser clients must not receive or
+embed this token. Without an authenticated server-side operator proxy, the
+frontend runs an anonymous research analysis and does not write Hawk I results
+directly into a selected patient record. ParkiCheck links its own signed-in
+observation to Hawk I with a shared `assessment_session_id` and stores the Hawk I
+provenance itself. The backend never falls back to
+`HAWKEYE_SUPABASE_SUBJECT_PERSON_ID` as an implicit write target.
 
 The browser must call the Vercel origin, not the Tailscale URL directly. Direct browser requests to the Tailscale Funnel URL can be blocked by browser Private Network Access checks. Next.js rewrites proxy `/api/*` and `/files/*` server-side to the Tailscale backend.
 
