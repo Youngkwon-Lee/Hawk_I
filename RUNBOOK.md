@@ -65,6 +65,23 @@ For the isolated home-desktop preview:
 NEXT_PUBLIC_UPLOAD_API_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-preview
 ```
 
+The preview backend runs separately from production on port `5892` and stores
+uploads, progress, and completed result JSON under the persistent path
+`/home/yk/.local/state/hawkeye-preview/uploads`. Install the checked-in user
+service after updating the preview worktree:
+
+```bash
+install -m 0644 deploy/systemd/hawkeye-preview-backend.service \
+  ~/.config/systemd/user/hawkeye-preview-backend.service
+systemctl --user daemon-reload
+systemctl --user enable --now hawkeye-preview-backend.service
+```
+
+The service deliberately uses one analysis worker so it can run beside the
+two-worker production backend without exhausting the WSL runtime. Its upload
+directory is overridden after loading the shared backend secrets, so preview
+results never mix with production result files.
+
 The backend CORS policy allows the bounded Hawk I and ParkiCheck Vercel origins by default. Additional exact origins can be supplied as a comma-separated `CORS_ALLOWED_ORIGINS` backend environment variable.
 
 ## Verified Smoke Checks

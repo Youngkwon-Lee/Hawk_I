@@ -26,6 +26,7 @@ from services.progress_tracker import init_analysis, update_step, complete_analy
 from services.supabase_observations import save_analysis_observation
 from services.operator_auth import is_authorized_physio_operator
 from services.medication_context import describe_medication_timing, parse_medication_context
+from services.json_store import atomic_write_json
 from services.visualization_data_generator import generate_visualization_data, detect_events
 from agents.orchestrator import OrchestratorAgent
 from domain.context import AnalysisContext
@@ -283,8 +284,7 @@ def process_video_background(
 
         # Save result
         result_path = os.path.join(app_config['UPLOAD_FOLDER'], f"{video_id}_result.json")
-        with open(result_path, 'w', encoding='utf-8') as f:
-            json.dump(response, f, ensure_ascii=False, indent=2)
+        atomic_write_json(result_path, response, ensure_ascii=False, indent=2)
 
         # Mark analysis as completed
         update_step(video_id, "updrs_calculation", "completed")

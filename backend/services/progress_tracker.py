@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from services.json_store import atomic_write_json
 
 # Progress file path
 # Use absolute path to ensure consistency
@@ -39,8 +40,7 @@ def _save_progress():
     try:
         os.makedirs(PROGRESS_FILE.parent, exist_ok=True)
         sys.stderr.write(f"[Progress Tracker] Saving to {PROGRESS_FILE}\n")
-        with open(PROGRESS_FILE, 'w') as f:
-            json.dump(ANALYSIS_PROGRESS, f, indent=2)
+        atomic_write_json(PROGRESS_FILE, ANALYSIS_PROGRESS, indent=2)
     except Exception as e:
         sys.stderr.write(f"[Progress Tracker] Error saving progress file: {e}\n")
 
