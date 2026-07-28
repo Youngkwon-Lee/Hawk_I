@@ -11,6 +11,8 @@ import sys
 import threading
 import json
 import time
+import re
+from uuid import UUID
 
 # Add services directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -24,12 +26,135 @@ from services.updrs_scorer import UPDRSScorer
 from services.interpretation_agent import InterpretationAgent
 from services.progress_tracker import init_analysis, update_step, complete_analysis, fail_analysis
 from services.supabase_observations import persist_analysis_observation
+from services.supabase_observations import get_supabase_observation_config
+from services.physio_context import PhysioContextError, authorize_physio_subject
+from services.supabase_auth import (
+    SupabaseAuthUnavailable,
+    SupabaseClinicianForbidden,
+    SupabaseInvalidToken,
+    authenticate_clinician,
+    extract_bearer_token,
+)
 from services.visualization_data_generator import generate_visualization_data, detect_events
 from agents.orchestrator import OrchestratorAgent
 from domain.context import AnalysisContext
 # asdict no longer needed - clinical_scores already converted in ClinicalAgent
 
 bp = Blueprint('analyze', __name__, url_prefix='/api')
+ANALYSIS_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,179}$")
+PHYSIO_IDENTITY_FIELDS = (
+    "physio_subject_person_id",
+    "physio_organization_id",
+    "physio_created_by_person_id",
+    "physio_performer_person_id",
+    "physio_subject_display_name",
+    "physio_organization_display_name",
+)
+PHYSIO_PERSISTENCE_OWNERS = frozenset({"hawk_i", "parkicheck"})
+
+
+class InvalidAnalysisContext(ValueError):
+    """Raised when request metadata does not match the integration contract."""
+
+
+def _optional_text(name: str, max_length: int = 160) -> str | None:
+    value = request.form.get(name)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    value = value.strip()
+    if len(value) > max_length:
+        raise InvalidAnalysisContext(f"invalid {name}")
+    return value
+
+
+def _require_uuid(value: str | None, name: str) -> str | None:
+    if value is None:
+        return None
+    try:
+        return str(UUID(value))
+    except (ValueError, AttributeError) as exc:
+        raise InvalidAnalysisContext(f"invalid {name}") from exc
+
+
+def _build_physio_context() -> dict | None:
+    """Authorize patient-linked context and canonicalize privileged fields."""
+    subject_id = _require_uuid(
+        _optional_text("physio_subject_person_id"),
+        "physio_subject_person_id",
+    )
+    supplied_org_id = _require_uuid(
+        _optional_text("physio_organization_id"),
+        "physio_organization_id",
+    )
+    activity_session_id = _require_uuid(
+        _optional_text("physio_activity_session_id")
+        or _optional_text("assessment_session_id"),
+        "physio_activity_session_id",
+    )
+    contract_version = _optional_text("physio_contract_version", max_length=80)
+    persistence_owner = _optional_text("physio_persistence_owner", max_length=32)
+    if persistence_owner:
+        persistence_owner = persistence_owner.lower()
+        if persistence_owner not in PHYSIO_PERSISTENCE_OWNERS:
+            raise InvalidAnalysisContext("invalid physio_persistence_owner")
+
+    has_identity_context = any(_optional_text(name) for name in PHYSIO_IDENTITY_FIELDS)
+    if not has_identity_context:
+        delegated = {
+            "contract_version": contract_version,
+            "activity_session_id": activity_session_id,
+            "persistence_owner": persistence_owner,
+        }
+        return {key: value for key, value in delegated.items() if value} or None
+
+    if not subject_id or not supplied_org_id:
+        raise InvalidAnalysisContext("patient-linked analysis requires subject and organization")
+
+    access_token = extract_bearer_token(request.headers.get("Authorization"))
+    config = get_supabase_observation_config()
+    if config is None:
+        raise SupabaseAuthUnavailable("Supabase authentication is not configured")
+    if supplied_org_id != config.organization_id:
+        raise SupabaseClinicianForbidden("organization access denied")
+
+    clinician = authenticate_clinician(access_token, config=config)
+    context = authorize_physio_subject(
+        clinician,
+        subject_id,
+        activity_session_id=activity_session_id,
+        config=config,
+    )
+    if contract_version:
+        context["contract_version"] = contract_version
+    if persistence_owner:
+        context["persistence_owner"] = persistence_owner
+    return context
+
+
+def _valid_analysis_id(video_id: str) -> bool:
+    return bool(ANALYSIS_ID_PATTERN.fullmatch(video_id)) and ".." not in video_id
+
+
+def _authorize_result_context(result: dict) -> tuple[dict | None, int | None]:
+    context = result.get("physio_context")
+    context = context if isinstance(context, dict) else {}
+    subject_id = context.get("subject_person_id")
+    if not isinstance(subject_id, str) or not subject_id.strip():
+        return None, None
+
+    try:
+        subject_id = str(UUID(subject_id.strip()))
+        access_token = extract_bearer_token(request.headers.get("Authorization"))
+        config = get_supabase_observation_config()
+        clinician = authenticate_clinician(access_token, config=config)
+        authorize_physio_subject(clinician, subject_id, config=config)
+    except SupabaseInvalidToken:
+        return {"success": False, "error": "authentication required"}, 401
+    except (SupabaseClinicianForbidden, ValueError):
+        return {"success": False, "error": "result access denied"}, 403
+    except (SupabaseAuthUnavailable, PhysioContextError):
+        return {"success": False, "error": "authentication unavailable"}, 503
+    return None, None
 
 
 def build_score_advisory(video_type: str, performability: dict | None) -> dict | None:
@@ -329,10 +454,33 @@ def start_analysis():
                 "error": "Invalid file type. Allowed: mp4, avi, mov, webm, mkv"
             }), 400
 
+        try:
+            physio_context = _build_physio_context()
+        except InvalidAnalysisContext as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        except SupabaseInvalidToken:
+            return jsonify({"success": False, "error": "authentication required"}), 401
+        except SupabaseClinicianForbidden:
+            return jsonify({"success": False, "error": "patient access denied"}), 403
+        except SupabaseAuthUnavailable:
+            return jsonify({"success": False, "error": "authentication unavailable"}), 503
+        except PhysioContextError:
+            return jsonify({"success": False, "error": "patient authorization unavailable"}), 502
+
+        try:
+            patient_id = (
+                (physio_context or {}).get("subject_person_id")
+                or _optional_text("patient_id")
+                or 'unknown'
+            )
+        except InvalidAnalysisContext as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
         # Generate unique video_id for progress tracking
-        import time
         filename = secure_filename(video_file.filename)
-        video_id = f"{os.path.splitext(filename)[0]}_{int(time.time())}"
+        from uuid import uuid4
+
+        video_id = f"{os.path.splitext(filename)[0]}_{int(time.time())}_{uuid4().hex[:12]}"
         
         # Save video file
         # Note: We need to save it here before starting the thread
@@ -343,27 +491,6 @@ def start_analysis():
         init_analysis(video_id, task_type="auto_detect")
 
         # Get optional parameters
-        physio_context = {
-            "subject_person_id": request.form.get("physio_subject_person_id"),
-            "organization_id": request.form.get("physio_organization_id"),
-            "created_by_person_id": request.form.get("physio_created_by_person_id"),
-            "performer_person_id": request.form.get("physio_performer_person_id"),
-            "subject_display_name": request.form.get("physio_subject_display_name"),
-            "organization_display_name": request.form.get("physio_organization_display_name"),
-            "contract_version": request.form.get("physio_contract_version"),
-            "activity_session_id": (
-                request.form.get("physio_activity_session_id")
-                or request.form.get("assessment_session_id")
-            ),
-            "persistence_owner": request.form.get("physio_persistence_owner"),
-        }
-        physio_context = {
-            key: value.strip()
-            for key, value in physio_context.items()
-            if isinstance(value, str) and value.strip()
-        }
-
-        patient_id = request.form.get('patient_id') or physio_context.get("subject_person_id") or 'unknown'
         medication_context = None
         medication_context_raw = request.form.get("medication_context")
         if medication_context_raw:
@@ -411,7 +538,7 @@ def start_analysis():
         print(f"Error starting analysis: {e}")
         return jsonify({
             "success": False,
-            "error": str(e)
+            "error": "Unable to start analysis"
         }), 500
 
 
@@ -420,7 +547,13 @@ def get_analysis_result(video_id):
     """
     Get the final result of an analysis
     """
-    result_path = os.path.join(current_app.config['UPLOAD_FOLDER'], f"{video_id}_result.json")
+    if not _valid_analysis_id(video_id):
+        return jsonify({"success": False, "error": "Invalid analysis ID"}), 400
+
+    upload_folder = os.path.abspath(current_app.config['UPLOAD_FOLDER'])
+    result_path = os.path.abspath(os.path.join(upload_folder, f"{video_id}_result.json"))
+    if os.path.commonpath([upload_folder, result_path]) != upload_folder:
+        return jsonify({"success": False, "error": "Invalid analysis ID"}), 400
     
     if not os.path.exists(result_path):
         return jsonify({
@@ -431,11 +564,17 @@ def get_analysis_result(video_id):
     try:
         with open(result_path, 'r', encoding='utf-8') as f:
             result = json.load(f)
-        return jsonify(result)
+        auth_error, status = _authorize_result_context(result)
+        if auth_error:
+            return jsonify(auth_error), status
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "no-store, private"
+        return response
     except Exception as e:
+        print(f"Error reading analysis result: {e}")
         return jsonify({
             "success": False,
-            "error": f"Error reading result: {str(e)}"
+            "error": "Error reading result"
         }), 500
 
 

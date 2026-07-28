@@ -18,6 +18,7 @@ import { PopulationComparison } from "@/components/dashboard/PopulationCompariso
 import { AlertTriangle, CheckCircle2, Download, HelpCircle, Share2, Activity, Brain, ClipboardList, CircleSlash, Database } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiUrl, getAnalysisResult, type FingerPerformabilityAssessment, type FingerTappingMetrics, type GaitMetrics, type TimelineEvent } from "@/lib/services/api"
+import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { ReasoningLogViewer } from "@/components/dashboard/ReasoningLogViewer"
 import { JointAngleChart } from "@/components/dashboard/JointAngleChart"
 import { SymmetryChart } from "@/components/dashboard/SymmetryChart"
@@ -275,7 +276,14 @@ function ResultContent() {
             }
 
             setIsLoading(true)
-            getAnalysisResult(urlId)
+            const loadResult = async () => {
+                const supabase = getSupabaseBrowserClient()
+                const { data } = supabase
+                    ? await supabase.auth.getSession()
+                    : { data: { session: null } }
+                return getAnalysisResult(urlId, data.session?.access_token)
+            }
+            loadResult()
                 .then(data => {
                     // Ensure result has id for future comparisons
                     const resultWithId = { ...data, id: urlId }

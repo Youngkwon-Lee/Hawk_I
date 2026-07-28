@@ -11,6 +11,7 @@ interface AnalysisOverlayProps {
     isUploading: boolean
     uploadProgress: number
     videoId: string | null
+    accessToken?: string
     onComplete: (result: AnalysisResult) => void
     onError: (error: string) => void
 }
@@ -25,6 +26,7 @@ export function AnalysisOverlay({
     isUploading,
     uploadProgress,
     videoId,
+    accessToken,
     onComplete,
     onError
 }: AnalysisOverlayProps) {
@@ -201,7 +203,7 @@ export function AnalysisOverlay({
                     addLog("분석 완료 - 결과 페이지로 이동", 'success')
 
                     try {
-                        const result = await getAnalysisResult(videoId)
+                        const result = await getAnalysisResult(videoId, accessToken)
                         setTimeout(() => onCompleteRef.current(result), 800)
                         return true
                     } catch (err) {
@@ -230,7 +232,7 @@ export function AnalysisOverlay({
             clearInterval(pollInterval)
             clearInterval(progressInterval)
         }
-    }, [videoId])
+    }, [videoId, accessToken])
 
     return (
         <div className="fixed inset-0 bg-slate-950/98 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4 animate-in fade-in duration-500">

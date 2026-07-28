@@ -202,7 +202,8 @@ export default function TestPage() {
                 (progress) => setUploadProgress(progress),
                 manualTestType,
                 "coral",
-                physioAnalysisContext
+                physioAnalysisContext,
+                accessToken ?? undefined
             )
 
             if (DEBUG_LOGS) {
@@ -238,6 +239,7 @@ export default function TestPage() {
                     isUploading={!currentVideoId}
                     uploadProgress={uploadProgress}
                     videoId={currentVideoId}
+                    accessToken={accessToken ?? undefined}
                     onComplete={handleAnalysisComplete}
                     onError={(err) => {
                         setAnalysisError(err)

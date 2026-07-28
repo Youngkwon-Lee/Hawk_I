@@ -10,6 +10,7 @@ import { PageLayout } from "@/components/layout/PageLayout"
 import { ChatInterface } from "@/components/ui/ChatInterface"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Activity } from 'lucide-react'
+import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 
 function AnalyzingContent() {
   const router = useRouter()
@@ -95,7 +96,8 @@ function AnalyzingContent() {
           addLog("> 결과 페이지로 이동합니다.")
 
           try {
-            const result = await getAnalysisResult(videoId)
+            const { data: sessionData } = await getSupabaseBrowserClient()?.auth.getSession() ?? { data: { session: null } }
+            const result = await getAnalysisResult(videoId, sessionData.session?.access_token)
             // Use Zustand store instead of sessionStorage
             setResult(result)
             setTimeout(() => {

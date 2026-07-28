@@ -296,18 +296,6 @@ function appendPhysioContext(formData: FormData, context?: PhysioAnalysisContext
 
   formData.append('physio_subject_person_id', context.subject_person_id)
   formData.append('physio_organization_id', context.organization_id)
-  if (context.created_by_person_id) {
-    formData.append('physio_created_by_person_id', context.created_by_person_id)
-  }
-  if (context.performer_person_id) {
-    formData.append('physio_performer_person_id', context.performer_person_id)
-  }
-  if (context.subject_display_name) {
-    formData.append('physio_subject_display_name', context.subject_display_name)
-  }
-  if (context.organization_display_name) {
-    formData.append('physio_organization_display_name', context.organization_display_name)
-  }
 }
 
 /**
@@ -322,7 +310,8 @@ export async function analyzeVideo(
   videoFile: File,
   patientId?: string,
   manualTestType?: string,
-  physioContext?: PhysioAnalysisContext
+  physioContext?: PhysioAnalysisContext,
+  accessToken?: string
 ): Promise<AnalysisResult> {
   const formData = new FormData()
   formData.append('video_file', videoFile)
@@ -339,6 +328,7 @@ export async function analyzeVideo(
   const response = await fetch(`${API_BASE_URL}/api/analyze`, {
     method: 'POST',
     body: formData,
+    headers: accessToken ? bearerHeaders(accessToken) : undefined,
   })
 
   if (!response.ok) {
@@ -384,7 +374,8 @@ export async function analyzeVideoWithProgress(
   onProgress?: (progress: number) => void,
   manualTestType?: string,
   scoringMethod: ScoringMethod = 'coral',
-  physioContext?: PhysioAnalysisContext
+  physioContext?: PhysioAnalysisContext,
+  accessToken?: string
 ): Promise<AnalysisStartResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -402,7 +393,12 @@ export async function analyzeVideoWithProgress(
       if (xhr.status === 200 || xhr.status === 202) {
         resolve(JSON.parse(xhr.responseText))
       } else {
-        reject(new Error('Video upload failed'))
+        try {
+          const error = JSON.parse(xhr.responseText)
+          reject(new Error(error?.error || 'Video upload failed'))
+        } catch {
+          reject(new Error('Video upload failed'))
+        }
       }
     })
 
@@ -423,6 +419,9 @@ export async function analyzeVideoWithProgress(
     formData.append('scoring_method', scoringMethod)
 
     xhr.open('POST', `${API_BASE_URL}/api/analyze`)
+    if (accessToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`)
+    }
     xhr.send(formData)
   })
 }
@@ -430,11 +429,15 @@ export async function analyzeVideoWithProgress(
 /**
  * Get final analysis result
  */
-export async function getAnalysisResult(videoId: string): Promise<AnalysisResult> {
-  const response = await fetch(apiUrl(`/api/analysis/result/${videoId}`))
+export async function getAnalysisResult(videoId: string, accessToken?: string): Promise<AnalysisResult> {
+  const response = await fetch(apiUrl(`/api/analysis/result/${encodeURIComponent(videoId)}`), {
+    headers: accessToken ? bearerHeaders(accessToken) : undefined,
+    cache: 'no-store',
+  })
 
   if (!response.ok) {
-    throw new Error('Failed to fetch analysis result')
+    const error = await response.json().catch(() => null)
+    throw new Error(error?.error || 'Failed to fetch analysis result')
   }
 
   return response.json()
