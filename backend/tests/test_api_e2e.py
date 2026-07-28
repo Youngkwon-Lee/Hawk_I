@@ -12,6 +12,13 @@ from pathlib import Path
 # Test configuration
 BASE_URL = os.getenv("TEST_API_URL", "http://localhost:5000")
 TEST_TIMEOUT = 120  # 2 minutes for analysis
+HISTORY_ACCESS_TOKEN = os.getenv("HAWKEYE_TEST_ACCESS_TOKEN")
+
+
+def history_headers():
+    if not HISTORY_ACCESS_TOKEN:
+        pytest.skip("HAWKEYE_TEST_ACCESS_TOKEN is required for protected history E2E")
+    return {"Authorization": f"Bearer {HISTORY_ACCESS_TOKEN}"}
 
 
 class TestHealthEndpoints:
@@ -180,9 +187,13 @@ class TestChatAPI:
 class TestHistoryAPI:
     """Test history API endpoints"""
 
+    def test_history_requires_authentication(self):
+        response = requests.get(f"{BASE_URL}/api/history/")
+        assert response.status_code == 401
+
     def test_get_history(self):
         """Test getting analysis history"""
-        response = requests.get(f"{BASE_URL}/api/history/")
+        response = requests.get(f"{BASE_URL}/api/history/", headers=history_headers())
         assert response.status_code == 200
         data = response.json()
         assert data.get("success") is True
@@ -197,14 +208,21 @@ class TestHistoryAPI:
             "limit": 10,
             "sort": "date_desc"
         }
-        response = requests.get(f"{BASE_URL}/api/history/", params=params)
+        response = requests.get(
+            f"{BASE_URL}/api/history/",
+            params=params,
+            headers=history_headers(),
+        )
         assert response.status_code == 200
         data = response.json()
         assert data.get("success") is True
 
     def test_get_history_stats(self):
         """Test getting history statistics"""
-        response = requests.get(f"{BASE_URL}/api/history/stats")
+        response = requests.get(
+            f"{BASE_URL}/api/history/stats",
+            headers=history_headers(),
+        )
         assert response.status_code == 200
         data = response.json()
         assert data.get("success") is True
@@ -216,7 +234,10 @@ class TestHistoryAPI:
 
     def test_get_nonexistent_history_item(self):
         """Test getting non-existent history item"""
-        response = requests.get(f"{BASE_URL}/api/history/nonexistent_video_123")
+        response = requests.get(
+            f"{BASE_URL}/api/history/nonexistent_video_123",
+            headers=history_headers(),
+        )
         assert response.status_code == 404
 
 

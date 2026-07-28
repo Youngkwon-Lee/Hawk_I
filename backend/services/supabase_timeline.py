@@ -12,6 +12,7 @@ from typing import Any
 
 import requests
 
+from services.supabase_auth import caller_headers
 from services.supabase_observations import (
     SupabaseObservationConfig,
     get_supabase_observation_config,
@@ -76,6 +77,7 @@ def normalize_observation(row: dict[str, Any]) -> dict[str, Any]:
 
 def fetch_timeline(
     subject_person_id: str,
+    access_token: str,
     limit: int = 100,
     config: SupabaseObservationConfig | None = None,
 ) -> list[dict[str, Any]] | None:
@@ -92,14 +94,11 @@ def fetch_timeline(
         params={
             "select": OBSERVATION_SELECT,
             "subject_person_id": f"eq.{subject_person_id}",
+            "organization_id": f"eq.{config.organization_id}",
             "order": "effective_datetime.desc.nullslast",
             "limit": str(limit),
         },
-        headers={
-            "apikey": config.key,
-            "Authorization": f"Bearer {config.key}",
-            "Accept": "application/json",
-        },
+        headers=caller_headers(config, access_token),
         timeout=config.timeout_seconds,
     )
     response.raise_for_status()

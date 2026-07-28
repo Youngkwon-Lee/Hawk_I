@@ -123,6 +123,8 @@ Vercel env:
 ```text
 NEXT_PUBLIC_API_URL=https://hawkeye-labeling-tool.vercel.app
 BACKEND_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-api
+NEXT_PUBLIC_SUPABASE_URL=https://iwtyzcwiovuvmsodtusx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<physio_app public anon/publishable key>
 ```
 
 Optional backend env for writing completed analyses into physio_app
@@ -143,9 +145,14 @@ HAWKEYE_SUPABASE_OBSERVATIONS_TABLE=observations
 Do not set these in the Vercel frontend project. They belong on the Flask
 backend runtime only. If `HAWKEYE_SUPABASE_ACTIVITY_SESSION_ID` is omitted, the
 backend creates one completed camera assessment session per saved analysis.
-The frontend reads selectable people from the backend-only endpoint
-`GET /api/physio/subjects`; that route uses the server Supabase key and returns
-only active `org_clients` in the configured organization. Completed analyses are
+The frontend reads selectable people from the protected backend endpoint
+`GET /api/physio/subjects`. History, statistics, single-result, delete, and
+unified-timeline routes require a Supabase bearer token from an active
+`owner`, `admin`, or `provider` in the configured organization. The backend
+uses its server key only as the Data API `apikey`; it forwards the caller JWT
+as `Authorization`, so physio_app RLS remains the final authorization layer.
+The subjects route returns only active `org_clients` visible to that caller.
+Completed analyses are
 written only when the request includes an explicit physio_app subject/organization
 context; the backend does not fall back to `HAWKEYE_SUPABASE_SUBJECT_PERSON_ID`
 as a write target.

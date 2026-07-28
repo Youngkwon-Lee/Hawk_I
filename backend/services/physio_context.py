@@ -11,10 +11,8 @@ from typing import Any
 
 import requests
 
-from services.supabase_observations import (
-    SupabaseObservationConfig,
-    get_supabase_observation_config,
-)
+from services.supabase_auth import caller_headers
+from services.supabase_observations import SupabaseObservationConfig, get_supabase_observation_config
 
 
 class PhysioContextError(RuntimeError):
@@ -45,27 +43,20 @@ class PhysioSubject:
         }
 
 
-def _headers(config: SupabaseObservationConfig) -> dict[str, str]:
-    return {
-        "apikey": config.key,
-        "Authorization": f"Bearer {config.key}",
-        "Accept": "application/json",
-    }
-
-
 def _get_rest(
     config: SupabaseObservationConfig,
+    access_token: str,
     table: str,
     params: dict[str, str],
 ) -> list[dict[str, Any]]:
     response = requests.get(
         f"{config.url}/rest/v1/{table}",
-        headers=_headers(config),
+        headers=caller_headers(config, access_token),
         params=params,
         timeout=config.timeout_seconds,
     )
     if response.status_code >= 400:
-        raise PhysioContextError(f"{table} lookup failed: {response.text[:260]}")
+        raise PhysioContextError(f"{table} lookup failed with status {response.status_code}")
     data = response.json()
     if not isinstance(data, list):
         raise PhysioContextError(f"{table} lookup returned an unexpected payload")
@@ -76,8 +67,12 @@ def _in_filter(ids: list[str]) -> str:
     return f"in.({','.join(ids)})"
 
 
-def load_physio_subject_context(limit: int = 80) -> dict[str, Any]:
-    config = get_supabase_observation_config()
+def load_physio_subject_context(
+    access_token: str,
+    limit: int = 80,
+    config: SupabaseObservationConfig | None = None,
+) -> dict[str, Any]:
+    config = config or get_supabase_observation_config()
     if not config:
         return {
             "success": True,
@@ -90,6 +85,7 @@ def load_physio_subject_context(limit: int = 80) -> dict[str, Any]:
 
     organizations = _get_rest(
         config,
+        access_token,
         "organizations",
         {
             "select": "id,name,display_name,slug,org_type,status",
@@ -104,6 +100,7 @@ def load_physio_subject_context(limit: int = 80) -> dict[str, Any]:
 
     clients = _get_rest(
         config,
+        access_token,
         "org_clients",
         {
             "select": "person_id,status,intake_date,created_at",
@@ -137,6 +134,7 @@ def load_physio_subject_context(limit: int = 80) -> dict[str, Any]:
 
     people = _get_rest(
         config,
+        access_token,
         "persons",
         {
             "select": "id,display_name,email,user_type,source_type",

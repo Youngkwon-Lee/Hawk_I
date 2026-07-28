@@ -3,13 +3,21 @@ Analysis History Route
 Provides API to list and filter past analysis results
 """
 
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, g, jsonify, request, current_app
 import os
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
+from services.supabase_auth import require_clinician
+
 bp = Blueprint('history', __name__, url_prefix='/api/history')
+VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _valid_video_id(video_id: str) -> bool:
+    return bool(VIDEO_ID_PATTERN.fullmatch(video_id)) and ".." not in video_id
 
 
 def parse_result_file(filepath: str) -> dict:
@@ -43,6 +51,7 @@ def parse_result_file(filepath: str) -> dict:
 
 
 @bp.route('/', methods=['GET'])
+@require_clinician
 def get_history():
     """
     Get analysis history with optional filters
@@ -127,6 +136,7 @@ def get_history():
 
 
 @bp.route('/timeline', methods=['GET'])
+@require_clinician
 def get_timeline():
     """
     Unified patient timeline from the shared physio_app Supabase project.
@@ -153,11 +163,15 @@ def get_timeline():
     from services.supabase_timeline import fetch_timeline
 
     try:
-        items = fetch_timeline(subject_person_id, limit=limit)
-    except Exception as e:
+        items = fetch_timeline(
+            subject_person_id,
+            access_token=g.authenticated_clinician.access_token,
+            limit=limit,
+        )
+    except Exception:
         return jsonify({
             "success": False,
-            "error": f"failed to read timeline: {e}"
+            "error": "failed to read timeline"
         }), 502
 
     if items is None:
@@ -178,6 +192,7 @@ def get_timeline():
 
 
 @bp.route('/stats', methods=['GET'])
+@require_clinician
 def get_stats():
     """
     Get aggregated statistics for history
@@ -259,8 +274,11 @@ def get_stats():
 
 
 @bp.route('/<video_id>', methods=['GET'])
+@require_clinician
 def get_single_result(video_id: str):
     """Get a single analysis result by video ID"""
+    if not _valid_video_id(video_id):
+        return jsonify({"success": False, "error": "Invalid analysis ID"}), 400
     upload_folder = current_app.config.get('UPLOAD_FOLDER', './uploads')
     result_path = os.path.join(upload_folder, f"{video_id}_result.json")
 
@@ -286,8 +304,11 @@ def get_single_result(video_id: str):
 
 
 @bp.route('/<video_id>', methods=['DELETE'])
+@require_clinician
 def delete_result(video_id: str):
     """Delete an analysis result"""
+    if not _valid_video_id(video_id):
+        return jsonify({"success": False, "error": "Invalid analysis ID"}), 400
     upload_folder = current_app.config.get('UPLOAD_FOLDER', './uploads')
     result_path = os.path.join(upload_folder, f"{video_id}_result.json")
 

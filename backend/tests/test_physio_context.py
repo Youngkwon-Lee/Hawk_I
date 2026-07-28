@@ -51,7 +51,7 @@ def test_load_physio_subject_context_returns_active_clients(monkeypatch):
 
     monkeypatch.setattr(physio_context.requests, "get", fake_get)
 
-    result = physio_context.load_physio_subject_context()
+    result = physio_context.load_physio_subject_context("caller-token")
 
     assert result["success"] is True
     assert result["enabled"] is True
@@ -60,7 +60,8 @@ def test_load_physio_subject_context_returns_active_clients(monkeypatch):
     assert [subject["id"] for subject in result["subjects"]] == ["person-2"]
     assert result["subjects"][0]["is_default"] is True
     assert result["subjects"][0]["role"] == "client"
-    assert calls[0]["headers"]["Authorization"] == "Bearer server-secret"
+    assert calls[0]["headers"]["apikey"] == "server-secret"
+    assert calls[0]["headers"]["Authorization"] == "Bearer caller-token"
 
 
 def test_load_physio_subject_context_returns_no_subjects_without_active_clients(monkeypatch):
@@ -92,7 +93,7 @@ def test_load_physio_subject_context_returns_no_subjects_without_active_clients(
 
     monkeypatch.setattr(physio_context.requests, "get", fake_get)
 
-    result = physio_context.load_physio_subject_context()
+    result = physio_context.load_physio_subject_context("caller-token")
 
     assert result["success"] is True
     assert result["enabled"] is True
@@ -117,7 +118,7 @@ def test_load_physio_subject_context_disabled_without_env(monkeypatch):
     ]:
         monkeypatch.delenv(name, raising=False)
 
-    result = load_physio_subject_context()
+    result = load_physio_subject_context("caller-token")
 
     assert result["success"] is True
     assert result["enabled"] is False

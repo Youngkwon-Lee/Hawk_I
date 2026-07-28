@@ -31,13 +31,17 @@ export interface TimelineResponse {
 
 export async function getUnifiedTimeline(
   subjectPersonId: string,
-  limit = 100
+  accessToken: string,
+  limit = 100,
 ): Promise<TimelineResponse> {
   const params = new URLSearchParams({
     subject_person_id: subjectPersonId,
     limit: String(limit),
   })
-  const response = await fetch(`${API_BASE_URL}/api/history/timeline?${params.toString()}`)
+  const response = await fetch(`${API_BASE_URL}/api/history/timeline?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  })
   if (!response.ok) {
     let detail = `HTTP ${response.status}`
     try {

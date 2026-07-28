@@ -88,7 +88,7 @@ def test_fetch_timeline_returns_none_when_not_configured(monkeypatch):
     monkeypatch.setattr(
         supabase_timeline, "get_supabase_observation_config", lambda: None
     )
-    assert supabase_timeline.fetch_timeline("person-1") is None
+    assert supabase_timeline.fetch_timeline("person-1", "caller-token") is None
 
 
 def test_fetch_timeline_queries_subject_and_normalizes(monkeypatch):
@@ -110,11 +110,18 @@ def test_fetch_timeline_queries_subject_and_normalizes(monkeypatch):
 
     monkeypatch.setattr(supabase_timeline.requests, "get", fake_get)
 
-    items = supabase_timeline.fetch_timeline("person-1", limit=50, config=_config())
+    items = supabase_timeline.fetch_timeline(
+        "person-1",
+        "caller-token",
+        limit=50,
+        config=_config(),
+    )
 
     assert captured["url"] == "https://example.supabase.co/rest/v1/observations"
     assert captured["params"]["subject_person_id"] == "eq.person-1"
+    assert captured["params"]["organization_id"] == "eq.org-1"
     assert captured["params"]["limit"] == "50"
     assert captured["headers"]["apikey"] == "service-key"
+    assert captured["headers"]["Authorization"] == "Bearer caller-token"
     assert len(items) == 2
     assert {item["app_source"] for item in items} == {"parkicheck", "hawk_i"}
