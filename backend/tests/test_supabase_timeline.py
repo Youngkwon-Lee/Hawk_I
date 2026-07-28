@@ -56,6 +56,24 @@ def _hawk_i_row():
     }
 
 
+def _medication_row():
+    return {
+        "fhir_id": "parkicheck-medication-med-1",
+        "status": "completed",
+        "medication_code": "LEVODOPA",
+        "medication_display": "레보도파",
+        "effective_start": "2026-07-28T08:00:00Z",
+        "date_asserted": "2026-07-28T08:01:00Z",
+        "dosage": {
+            "dose_mg": 125,
+            "unit": "mg",
+            "app_source": "parkicheck",
+        },
+        "information_source_type": "patient",
+        "subject_person_id": "person-1",
+    }
+
+
 def test_normalize_parkicheck_row():
     item = supabase_timeline.normalize_observation(_parkicheck_row())
     assert item["app_source"] == "parkicheck"
@@ -63,6 +81,8 @@ def test_normalize_parkicheck_row():
     assert item["score"] == 2
     assert item["confidence"] == "HIGH"
     assert item["has_medication_context"] is True
+    assert item["medication_name"] == "levodopa"
+    assert item["medication_dose_mg"] is None
     assert item["has_hawk_i_review"] is True
     assert item["observed_at"] == "2026-07-28T10:00:00Z"
 
@@ -125,3 +145,47 @@ def test_fetch_timeline_queries_subject_and_normalizes(monkeypatch):
     assert captured["headers"]["Authorization"] == "Bearer caller-token"
     assert len(items) == 2
     assert {item["app_source"] for item in items} == {"parkicheck", "hawk_i"}
+
+
+def test_normalize_medication_statement_uses_patient_reported_dose():
+    item = supabase_timeline.normalize_medication_statement(_medication_row())
+    assert item == {
+        "event_id": "parkicheck-medication-med-1",
+        "observed_at": "2026-07-28T08:00:00Z",
+        "status": "completed",
+        "medication_code": "LEVODOPA",
+        "medication_display": "레보도파",
+        "dose_mg": 125,
+        "dose_unit": "mg",
+        "information_source_type": "patient",
+        "subject_person_id": "person-1",
+        "app_source": "parkicheck",
+    }
+
+
+def test_fetch_medication_statements_queries_subject_and_normalizes(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [_medication_row()]
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        captured["url"] = url
+        captured["params"] = params
+        captured["headers"] = headers
+        return FakeResponse()
+
+    monkeypatch.setattr(supabase_timeline.requests, "get", fake_get)
+    items = supabase_timeline.fetch_medication_statements(
+        "person-1", "caller-token", limit=20, config=_config()
+    )
+
+    assert captured["url"].endswith("/rest/v1/medication_statements")
+    assert captured["params"]["subject_person_id"] == "eq.person-1"
+    assert captured["params"]["organization_id"] == "eq.org-1"
+    assert captured["headers"]["Authorization"] == "Bearer caller-token"
+    assert items[0]["medication_display"] == "레보도파"

@@ -160,10 +160,15 @@ def get_timeline():
     except ValueError:
         limit = 100
 
-    from services.supabase_timeline import fetch_timeline
+    from services.supabase_timeline import fetch_medication_statements, fetch_timeline
 
     try:
         items = fetch_timeline(
+            subject_person_id,
+            access_token=g.authenticated_clinician.access_token,
+            limit=limit,
+        )
+        medications = fetch_medication_statements(
             subject_person_id,
             access_token=g.authenticated_clinician.access_token,
             limit=limit,
@@ -179,6 +184,7 @@ def get_timeline():
             "success": True,
             "enabled": False,
             "items": [],
+            "medications": [],
             "reason": "supabase integration is not configured on this backend"
         })
 
@@ -187,7 +193,9 @@ def get_timeline():
         "enabled": True,
         "subject_person_id": subject_person_id,
         "items": items,
-        "total": len(items)
+        "medications": medications or [],
+        "total": len(items),
+        "medication_total": len(medications or [])
     })
 
 

@@ -16,7 +16,7 @@ import {
   getHistory, getHistoryStats, deleteAnalysis, formatVideoType, getPhysioSubjects,
   type HistoryItem, type HistoryStats, type HistoryFilters, type PhysioSubjectsResponse
 } from "@/lib/services/api"
-import { getUnifiedTimeline, type TimelineItem } from "@/lib/services/timeline"
+import { getUnifiedTimeline, type MedicationEvent, type TimelineItem } from "@/lib/services/timeline"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -61,6 +61,7 @@ export default function HistoryPage() {
   const [physioData, setPhysioData] = React.useState<PhysioSubjectsResponse | null>(null)
   const [selectedSubjectId, setSelectedSubjectId] = React.useState("")
   const [timeline, setTimeline] = React.useState<TimelineItem[]>([])
+  const [timelineMedications, setTimelineMedications] = React.useState<MedicationEvent[]>([])
   const [timelineEnabled, setTimelineEnabled] = React.useState<boolean | null>(null)
   const [timelineLoading, setTimelineLoading] = React.useState(false)
   const [timelineError, setTimelineError] = React.useState<string | null>(null)
@@ -98,6 +99,7 @@ export default function HistoryPage() {
     if (!accessToken) {
       setPhysioData(null)
       setSelectedSubjectId("")
+      setTimelineMedications([])
       return
     }
     const loadSubjects = async () => {
@@ -123,9 +125,11 @@ export default function HistoryPage() {
         const res = await getUnifiedTimeline(selectedSubjectId, accessToken)
         setTimelineEnabled(res.enabled)
         setTimeline(res.items)
+        setTimelineMedications(res.medications || [])
       } catch (err) {
         setTimelineError(err instanceof Error ? err.message : '타임라인을 불러오지 못했습니다')
         setTimeline([])
+        setTimelineMedications([])
       } finally {
         setTimelineLoading(false)
       }
@@ -203,6 +207,7 @@ export default function HistoryPage() {
     setHistory([])
     setStats(null)
     setTimeline([])
+    setTimelineMedications([])
     setPhysioData(null)
   }
 
@@ -436,10 +441,31 @@ export default function HistoryPage() {
                 <p className="text-sm text-rose-400 py-4">{timelineError}</p>
               ) : timelineEnabled === false ? (
                 <p className="text-sm text-slate-500 py-4">이 백엔드에는 physio_app 연동이 설정되어 있지 않습니다.</p>
-              ) : timeline.length === 0 ? (
+              ) : timeline.length === 0 && timelineMedications.length === 0 ? (
                 <p className="text-sm text-slate-500 py-4">이 환자의 기록이 아직 없습니다.</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-5">
+                  {timelineMedications.length > 0 && (
+                    <div>
+                      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-300">
+                        최근 환자 보고 복약 기록
+                        <span className="text-xs font-normal text-slate-500">효과·ON/OFF는 추정하지 않음</span>
+                      </div>
+                      <div className="space-y-2">
+                        {timelineMedications.slice(0, 5).map((medication) => (
+                          <div key={medication.event_id || `${medication.medication_code}-${medication.observed_at}`} className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                            <span className="text-sm font-semibold text-amber-200">{medication.medication_display || medication.medication_code || '약물명 미입력'}</span>
+                            {medication.dose_mg !== null && (
+                              <span className="text-sm text-slate-300">{medication.dose_mg}{medication.dose_unit || 'mg'}</span>
+                            )}
+                            <span className="text-xs text-slate-500">{medication.app_source === 'parkicheck' ? 'ParkiCheck 환자 보고' : 'physio_app 기록'}</span>
+                            <span className="ml-auto text-xs text-slate-500">{medication.observed_at ? new Date(medication.observed_at).toLocaleString('ko-KR') : '시각 미상'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-2">
                   {timeline.map((item, idx) => (
                     <div
                       key={item.fhir_id || idx}
@@ -478,6 +504,7 @@ export default function HistoryPage() {
                       )}
                     </div>
                   ))}
+                  </div>
                 </div>
               )}
             </CardContent>
