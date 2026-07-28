@@ -79,6 +79,7 @@ def index():
         "status": "running",
         "endpoints": {
             "/health": "Health check",
+            "/api/health": "Health check through the public API proxy",
             "/api/analyze": "Video analysis with ROI detection and task classification",
             "/api/extract-skeleton": "Extract skeleton keypoints using MediaPipe",
             "/api/predict-updrs": "Predict UPDRS score (0-3)",

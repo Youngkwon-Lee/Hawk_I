@@ -157,9 +157,14 @@ Home desktop checks:
 ```bash
 ssh yk@100.125.26.99 'systemctl --user status hawkeye-backend.service --no-pager'
 ssh yk@100.125.26.99 'tailscale funnel status'
+curl -sS https://hawkeye-labeling-tool.vercel.app/api/health
 curl -sS https://hawkeye-labeling-tool.vercel.app/api/physio/subjects
 curl -sS https://hawkeye-labeling-tool.vercel.app/api/vlm/status
 ```
+
+The backend keeps `/health` for direct runtime checks and also exposes
+`/api/health` so the Vercel `/api/*` rewrite can provide the same check on the
+public app origin.
 
 Production smoke test:
 

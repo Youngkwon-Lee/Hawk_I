@@ -18,6 +18,7 @@ bp = Blueprint('health', __name__)
 
 
 @bp.route('/health')
+@bp.route('/api/health')
 def health_check():
     """
     Health check endpoint

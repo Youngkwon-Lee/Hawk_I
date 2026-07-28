@@ -25,9 +25,10 @@ class TestHealthEndpoints:
         assert data["service"] == "HawkEye PD Backend"
         assert data["status"] == "running"
 
-    def test_health_endpoint(self):
-        """Test health check endpoint"""
-        response = requests.get(f"{BASE_URL}/health")
+    @pytest.mark.parametrize("path", ["/health", "/api/health"])
+    def test_health_endpoint(self, path):
+        """Test local and public-proxy health check endpoints."""
+        response = requests.get(f"{BASE_URL}{path}")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] in ["healthy", "ok"]
