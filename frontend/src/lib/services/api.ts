@@ -68,6 +68,8 @@ export interface AnalysisResult {
   confidence: number
   auto_detected: boolean
   patient_id: string
+  assessment_session_id?: string | null
+  timeline_contract_version?: string | null
   physio_context?: PhysioAnalysisContext | null
   integrations?: {
     supabase_observation?: {
@@ -78,6 +80,8 @@ export interface AnalysisResult {
       observation_id?: string
       activity_session_id?: string
       status_code?: number
+      persistence_owner?: string
+      delegated?: boolean
     }
   }
   roi: {
