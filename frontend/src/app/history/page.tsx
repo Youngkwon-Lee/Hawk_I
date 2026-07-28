@@ -12,9 +12,10 @@ import {
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import {
-  getHistory, getHistoryStats, deleteAnalysis, formatVideoType,
-  type HistoryItem, type HistoryStats, type HistoryFilters
+  getHistory, getHistoryStats, deleteAnalysis, formatVideoType, getPhysioSubjects,
+  type HistoryItem, type HistoryStats, type HistoryFilters, type PhysioSubjectsResponse
 } from "@/lib/services/api"
+import { getUnifiedTimeline, type TimelineItem } from "@/lib/services/timeline"
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell
@@ -46,6 +47,48 @@ export default function HistoryPage() {
     limit: 20
   })
   const [searchTerm, setSearchTerm] = React.useState("")
+
+  // Unified patient timeline (ParkiCheck + Hawk I via shared Supabase)
+  const [physioData, setPhysioData] = React.useState<PhysioSubjectsResponse | null>(null)
+  const [selectedSubjectId, setSelectedSubjectId] = React.useState("")
+  const [timeline, setTimeline] = React.useState<TimelineItem[]>([])
+  const [timelineEnabled, setTimelineEnabled] = React.useState<boolean | null>(null)
+  const [timelineLoading, setTimelineLoading] = React.useState(false)
+  const [timelineError, setTimelineError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    const loadSubjects = async () => {
+      try {
+        const data = await getPhysioSubjects()
+        setPhysioData(data)
+        if (data.enabled && data.subjects.length > 0) {
+          setSelectedSubjectId(data.default_subject_id || data.subjects[0].id)
+        }
+      } catch {
+        setPhysioData(null)
+      }
+    }
+    void loadSubjects()
+  }, [])
+
+  React.useEffect(() => {
+    if (!selectedSubjectId) return
+    const loadTimeline = async () => {
+      setTimelineLoading(true)
+      setTimelineError(null)
+      try {
+        const res = await getUnifiedTimeline(selectedSubjectId)
+        setTimelineEnabled(res.enabled)
+        setTimeline(res.items)
+      } catch (err) {
+        setTimelineError(err instanceof Error ? err.message : '타임라인을 불러오지 못했습니다')
+        setTimeline([])
+      } finally {
+        setTimelineLoading(false)
+      }
+    }
+    void loadTimeline()
+  }, [selectedSubjectId])
 
   // Fetch data
   React.useEffect(() => {
@@ -191,6 +234,88 @@ export default function HistoryPage() {
             )}
           </div>
         </div>
+
+        {/* Unified Patient Timeline (ParkiCheck + Hawk I) */}
+        {physioData?.enabled && physioData.subjects.length > 0 && (
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-emerald-400" />
+                    환자 통합 타임라인
+                  </CardTitle>
+                  <CardDescription>
+                    ParkiCheck 검사와 Hawk I AI 분석이 공통 기록(physio_app)에서 함께 표시됩니다
+                  </CardDescription>
+                </div>
+                <select
+                  value={selectedSubjectId}
+                  onChange={(e) => setSelectedSubjectId(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                >
+                  {physioData.subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.display_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {timelineLoading ? (
+                <p className="text-sm text-slate-500 py-4">타임라인을 불러오는 중...</p>
+              ) : timelineError ? (
+                <p className="text-sm text-rose-400 py-4">{timelineError}</p>
+              ) : timelineEnabled === false ? (
+                <p className="text-sm text-slate-500 py-4">이 백엔드에는 physio_app 연동이 설정되어 있지 않습니다.</p>
+              ) : timeline.length === 0 ? (
+                <p className="text-sm text-slate-500 py-4">이 환자의 기록이 아직 없습니다.</p>
+              ) : (
+                <div className="space-y-2">
+                  {timeline.map((item, idx) => (
+                    <div
+                      key={item.fhir_id || idx}
+                      className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-slate-800/40 border border-slate-700/50"
+                    >
+                      <span
+                        className={cn(
+                          "text-xs px-2 py-1 rounded-full border font-medium",
+                          item.app_source === 'parkicheck'
+                            ? "text-sky-400 bg-sky-500/10 border-sky-500/30"
+                            : "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                        )}
+                      >
+                        {item.app_source === 'parkicheck' ? 'ParkiCheck 검사' : 'Hawk I AI 분석'}
+                      </span>
+                      <span className="text-sm text-slate-300">{item.code || '—'}</span>
+                      <span className="text-sm font-semibold text-white">
+                        {item.score !== null && item.score !== undefined ? `점수 ${item.score}` : '점수 없음'}
+                      </span>
+                      {item.confidence !== null && item.confidence !== undefined && (
+                        <span className="text-xs text-slate-500">신뢰도 {String(item.confidence)}</span>
+                      )}
+                      {item.has_medication_context && (
+                        <span className="text-xs text-amber-400/80">복약 기록됨</span>
+                      )}
+                      <span className="text-xs text-slate-500 ml-auto flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {item.observed_at ? new Date(item.observed_at).toLocaleString('ko-KR') : '시각 미상'}
+                      </span>
+                      {item.app_source !== 'parkicheck' && item.analysis_id && (
+                        <Link href={`/result?id=${item.analysis_id}`}>
+                          <Button variant="outline" size="sm" className="gap-1 border-slate-700 hover:bg-slate-700 h-7 px-2 text-xs">
+                            <Eye className="h-3 w-3" /> 결과
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Stats Overview */}
         {stats && stats.total_analyses > 0 && (
