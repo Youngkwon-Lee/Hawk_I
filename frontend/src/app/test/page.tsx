@@ -17,6 +17,7 @@ import {
 } from "@/lib/services/api"
 import { useAnalysisStore } from "@/store/analysisStore"
 import { AnalysisOverlay } from "@/components/dashboard/AnalysisOverlay"
+import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime']
@@ -36,12 +37,46 @@ export default function TestPage() {
     const [selectedSubjectId, setSelectedSubjectId] = React.useState("")
     const [isLoadingPhysio, setIsLoadingPhysio] = React.useState(true)
     const [physioError, setPhysioError] = React.useState("")
+    const [authReady, setAuthReady] = React.useState(false)
+    const [accessToken, setAccessToken] = React.useState<string | null>(null)
+
+    React.useEffect(() => {
+        const supabase = getSupabaseBrowserClient()
+        if (!supabase) {
+            setAuthReady(true)
+            return
+        }
+
+        let mounted = true
+        void supabase.auth.getSession().then(({ data }) => {
+            if (!mounted) return
+            setAccessToken(data.session?.access_token ?? null)
+            setAuthReady(true)
+        })
+        const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (!mounted) return
+            setAccessToken(session?.access_token ?? null)
+            setAuthReady(true)
+        })
+        return () => {
+            mounted = false
+            listener.subscription.unsubscribe()
+        }
+    }, [])
 
     const loadPhysioSubjects = React.useCallback(async () => {
+        if (!authReady) return
         setIsLoadingPhysio(true)
         setPhysioError("")
+        if (!accessToken) {
+            setPhysioData(null)
+            setSelectedSubjectId("")
+            setPhysioError("분석 이력 화면에서 임상 계정으로 먼저 로그인해 주세요.")
+            setIsLoadingPhysio(false)
+            return
+        }
         try {
-            const data = await getPhysioSubjects()
+            const data = await getPhysioSubjects(accessToken)
             setPhysioData(data)
             if (data.enabled && data.subjects.length > 0) {
                 setSelectedSubjectId((current) => {
@@ -60,11 +95,11 @@ export default function TestPage() {
         } finally {
             setIsLoadingPhysio(false)
         }
-    }, [])
+    }, [accessToken, authReady])
 
     React.useEffect(() => {
-        void loadPhysioSubjects()
-    }, [loadPhysioSubjects])
+        if (authReady) void loadPhysioSubjects()
+    }, [authReady, loadPhysioSubjects])
 
     const selectedSubject = React.useMemo(() => {
         return physioData?.subjects.find((subject) => subject.id === selectedSubjectId) ?? null

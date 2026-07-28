@@ -4,6 +4,10 @@ export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
 }
 
+function bearerHeaders(accessToken: string): HeadersInit {
+  return { Authorization: `Bearer ${accessToken}` }
+}
+
 export interface FingerTappingMetrics {
   tapping_speed: number
   amplitude_mean: number
@@ -68,6 +72,8 @@ export interface AnalysisResult {
   confidence: number
   auto_detected: boolean
   patient_id: string
+  assessment_session_id?: string | null
+  timeline_contract_version?: string | null
   physio_context?: PhysioAnalysisContext | null
   integrations?: {
     supabase_observation?: {
@@ -78,6 +84,8 @@ export interface AnalysisResult {
       observation_id?: string
       activity_session_id?: string
       status_code?: number
+      persistence_owner?: string
+      delegated?: boolean
     }
   }
   roi: {
@@ -269,8 +277,11 @@ export async function checkHealth(): Promise<HealthStatus> {
   return response.json()
 }
 
-export async function getPhysioSubjects(): Promise<PhysioSubjectsResponse> {
-  const response = await fetch(apiUrl('/api/physio/subjects'))
+export async function getPhysioSubjects(accessToken: string): Promise<PhysioSubjectsResponse> {
+  const response = await fetch(apiUrl('/api/physio/subjects'), {
+    headers: bearerHeaders(accessToken),
+    cache: 'no-store',
+  })
 
   if (!response.ok) {
     const error = await response.json().catch(() => null)
@@ -526,7 +537,10 @@ export interface HistoryFilters {
 /**
  * Get analysis history with filters
  */
-export async function getHistory(filters?: HistoryFilters): Promise<HistoryResponse> {
+export async function getHistory(
+  accessToken: string,
+  filters?: HistoryFilters,
+): Promise<HistoryResponse> {
   const params = new URLSearchParams()
 
   if (filters) {
@@ -539,7 +553,10 @@ export async function getHistory(filters?: HistoryFilters): Promise<HistoryRespo
     if (filters.sort) params.set('sort', filters.sort)
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/history/?${params.toString()}`)
+  const response = await fetch(`${API_BASE_URL}/api/history/?${params.toString()}`, {
+    headers: bearerHeaders(accessToken),
+    cache: 'no-store',
+  })
 
   if (!response.ok) {
     throw new Error('Failed to fetch history')
@@ -551,12 +568,19 @@ export async function getHistory(filters?: HistoryFilters): Promise<HistoryRespo
 /**
  * Get aggregated history statistics
  */
-export async function getHistoryStats(task_type?: string, patient_id?: string): Promise<HistoryStats> {
+export async function getHistoryStats(
+  accessToken: string,
+  task_type?: string,
+  patient_id?: string,
+): Promise<HistoryStats> {
   const params = new URLSearchParams()
   if (task_type) params.set('task_type', task_type)
   if (patient_id) params.set('patient_id', patient_id)
 
-  const response = await fetch(`${API_BASE_URL}/api/history/stats?${params.toString()}`)
+  const response = await fetch(`${API_BASE_URL}/api/history/stats?${params.toString()}`, {
+    headers: bearerHeaders(accessToken),
+    cache: 'no-store',
+  })
 
   if (!response.ok) {
     throw new Error('Failed to fetch history stats')
@@ -568,9 +592,13 @@ export async function getHistoryStats(task_type?: string, patient_id?: string): 
 /**
  * Delete an analysis result
  */
-export async function deleteAnalysis(videoId: string): Promise<{ success: boolean; message?: string }> {
+export async function deleteAnalysis(
+  accessToken: string,
+  videoId: string,
+): Promise<{ success: boolean; message?: string }> {
   const response = await fetch(`${API_BASE_URL}/api/history/${videoId}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: bearerHeaders(accessToken),
   })
 
   return response.json()

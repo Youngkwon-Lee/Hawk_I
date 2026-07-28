@@ -332,6 +332,7 @@ function ResultContent() {
     const performabilityAssessment = isFinger ? analysisResult?.performability_assessment : null
     const scoreAdvisory = isFinger ? analysisResult?.score_advisory : null
     const supabaseObservation = analysisResult?.integrations?.supabase_observation
+    const isParkiCheckDelegated = supabaseObservation?.delegated === true
     const subjectDisplayName = analysisResult?.physio_context?.subject_display_name
 
     // Use original video with canvas overlay (Method A - Frontend Canvas Overlay)
@@ -431,12 +432,16 @@ function ResultContent() {
                                 {supabaseObservation?.enabled && (
                                     <span className={cn(
                                         "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1",
-                                        supabaseObservation.saved
+                                        supabaseObservation.saved || isParkiCheckDelegated
                                             ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-500"
                                             : "border-yellow-500/20 bg-yellow-500/5 text-yellow-500"
                                     )}>
                                         <Database className="h-4 w-4" />
-                                        {supabaseObservation.saved ? "physio_app 저장됨" : "physio_app 저장 대기"}
+                                        {supabaseObservation.saved
+                                            ? "physio_app 저장됨"
+                                            : isParkiCheckDelegated
+                                                ? "ParkiCheck 동일 세션 저장 위임됨"
+                                                : "physio_app 저장 대기"}
                                     </span>
                                 )}
                             </div>
@@ -1112,7 +1117,10 @@ function ResultContent() {
 
                 {activeTab === "timeline" && (
                     <div className="animate-in fade-in slide-in-from-bottom-2">
-                        <MedicationTimeline patientId={analysisResult?.patient_id || "unknown"} />
+                        <MedicationTimeline
+                            subjectPersonId={analysisResult?.physio_context?.subject_person_id}
+                            subjectDisplayName={analysisResult?.physio_context?.subject_display_name}
+                        />
                     </div>
                 )}
 

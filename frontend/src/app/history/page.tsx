@@ -7,14 +7,17 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/Button"
 import {
   Calendar, Activity, ChevronRight, Filter, TrendingUp,
-  BarChart3, Clock, Trash2, Eye, Search, ChevronDown
+  BarChart3, Clock, Trash2, Eye, Search, ChevronDown,
+  LoaderCircle, LockKeyhole, LogOut, ShieldCheck
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import {
-  getHistory, getHistoryStats, deleteAnalysis, formatVideoType,
-  type HistoryItem, type HistoryStats, type HistoryFilters
+  getHistory, getHistoryStats, deleteAnalysis, formatVideoType, getPhysioSubjects,
+  type HistoryItem, type HistoryStats, type HistoryFilters, type PhysioSubjectsResponse
 } from "@/lib/services/api"
+import { getUnifiedTimeline, type MedicationEvent, type TimelineItem } from "@/lib/services/timeline"
+import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell
@@ -33,6 +36,13 @@ const severityColors: Record<string, string> = {
 const scoreColors = ["#10b981", "#3b82f6", "#f59e0b", "#f97316", "#ef4444"]
 
 export default function HistoryPage() {
+  const [authReady, setAuthReady] = React.useState(false)
+  const [accessToken, setAccessToken] = React.useState<string | null>(null)
+  const [signedInEmail, setSignedInEmail] = React.useState<string | null>(null)
+  const [loginEmail, setLoginEmail] = React.useState("")
+  const [loginPassword, setLoginPassword] = React.useState("")
+  const [authError, setAuthError] = React.useState<string | null>(null)
+  const [authSubmitting, setAuthSubmitting] = React.useState(false)
   const [history, setHistory] = React.useState<HistoryItem[]>([])
   const [stats, setStats] = React.useState<HistoryStats['data'] | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -47,14 +57,100 @@ export default function HistoryPage() {
   })
   const [searchTerm, setSearchTerm] = React.useState("")
 
+  // Unified patient timeline (ParkiCheck + Hawk I via shared Supabase)
+  const [physioData, setPhysioData] = React.useState<PhysioSubjectsResponse | null>(null)
+  const [selectedSubjectId, setSelectedSubjectId] = React.useState("")
+  const [timeline, setTimeline] = React.useState<TimelineItem[]>([])
+  const [timelineMedications, setTimelineMedications] = React.useState<MedicationEvent[]>([])
+  const [timelineEnabled, setTimelineEnabled] = React.useState<boolean | null>(null)
+  const [timelineLoading, setTimelineLoading] = React.useState(false)
+  const [timelineError, setTimelineError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase) {
+      setAuthError('로그인 설정을 불러오지 못했습니다. 관리자에게 문의해 주세요.')
+      setAuthReady(true)
+      return
+    }
+
+    let mounted = true
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return
+      setAccessToken(data.session?.access_token ?? null)
+      setSignedInEmail(data.session?.user.email ?? null)
+      setAuthReady(true)
+    })
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return
+      setAccessToken(session?.access_token ?? null)
+      setSignedInEmail(session?.user.email ?? null)
+      setAuthReady(true)
+    })
+
+    return () => {
+      mounted = false
+      listener.subscription.unsubscribe()
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (!accessToken) {
+      setPhysioData(null)
+      setSelectedSubjectId("")
+      setTimelineMedications([])
+      return
+    }
+    const loadSubjects = async () => {
+      try {
+        const data = await getPhysioSubjects(accessToken)
+        setPhysioData(data)
+        if (data.enabled && data.subjects.length > 0) {
+          setSelectedSubjectId(data.default_subject_id || data.subjects[0].id)
+        }
+      } catch {
+        setPhysioData(null)
+      }
+    }
+    void loadSubjects()
+  }, [accessToken])
+
+  React.useEffect(() => {
+    if (!accessToken || !selectedSubjectId) return
+    const loadTimeline = async () => {
+      setTimelineLoading(true)
+      setTimelineError(null)
+      try {
+        const res = await getUnifiedTimeline(selectedSubjectId, accessToken)
+        setTimelineEnabled(res.enabled)
+        setTimeline(res.items)
+        setTimelineMedications(res.medications || [])
+      } catch (err) {
+        setTimelineError(err instanceof Error ? err.message : '타임라인을 불러오지 못했습니다')
+        setTimeline([])
+        setTimelineMedications([])
+      } finally {
+        setTimelineLoading(false)
+      }
+    }
+    void loadTimeline()
+  }, [accessToken, selectedSubjectId])
+
   // Fetch data
   React.useEffect(() => {
+    if (!accessToken) {
+      setHistory([])
+      setStats(null)
+      setIsLoading(false)
+      return
+    }
     const fetchData = async () => {
       setIsLoading(true)
       try {
         const [historyRes, statsRes] = await Promise.all([
-          getHistory(filters),
-          getHistoryStats(filters.task_type)
+          getHistory(accessToken, filters),
+          getHistoryStats(accessToken, filters.task_type)
         ])
         setHistory(historyRes.data.items)
         setStats(statsRes.data)
@@ -67,16 +163,52 @@ export default function HistoryPage() {
       }
     }
     fetchData()
-  }, [filters])
+  }, [accessToken, filters])
 
   const handleDelete = async (videoId: string) => {
+    if (!accessToken) return
     try {
-      await deleteAnalysis(videoId)
+      await deleteAnalysis(accessToken, videoId)
       setHistory(prev => prev.filter(h => h.video_id !== videoId))
       setDeleteConfirm(null)
     } catch (err) {
       console.error('Failed to delete:', err)
     }
+  }
+
+  const handleSignIn = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase) return
+
+    setAuthSubmitting(true)
+    setAuthError(null)
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword,
+      })
+      if (signInError) {
+        setAuthError('이메일 또는 비밀번호를 확인해 주세요.')
+      } else {
+        setLoginPassword("")
+      }
+    } catch {
+      setAuthError('로그인 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+    } finally {
+      setAuthSubmitting(false)
+    }
+  }
+
+  const handleSignOut = async () => {
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase) return
+    await supabase.auth.signOut()
+    setHistory([])
+    setStats(null)
+    setTimeline([])
+    setTimelineMedications([])
+    setPhysioData(null)
   }
 
   const filteredHistory = history.filter(item => {
@@ -87,6 +219,77 @@ export default function HistoryPage() {
       item.patient_id.toLowerCase().includes(searchTerm.toLowerCase())
     )
   })
+
+  if (!authReady) {
+    return (
+      <PageLayout>
+        <div className="min-h-[70vh] grid place-items-center">
+          <div className="flex items-center gap-3 text-slate-400">
+            <LoaderCircle className="h-5 w-5 animate-spin" />
+            임상 기록 접근 권한을 확인하고 있습니다
+          </div>
+        </div>
+      </PageLayout>
+    )
+  }
+
+  if (!accessToken) {
+    return (
+      <PageLayout>
+        <div className="min-h-[75vh] grid place-items-center px-4 py-10">
+          <Card className="w-full max-w-md overflow-hidden border-slate-700/70 bg-slate-950/90 shadow-2xl shadow-sky-950/30">
+            <div className="h-1 bg-gradient-to-r from-sky-400 via-emerald-400 to-cyan-300" />
+            <CardHeader className="space-y-4 pt-8">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-400/30 bg-emerald-400/10">
+                <LockKeyhole className="h-6 w-6 text-emerald-300" />
+              </div>
+              <div>
+                <CardTitle className="text-2xl text-white">임상 기록 로그인</CardTitle>
+                <CardDescription className="mt-2 leading-6 text-slate-400">
+                  physio_app에 등록된 임상 계정만 환자 이력과 통합 타임라인을 볼 수 있습니다.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <form className="space-y-4" onSubmit={handleSignIn}>
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-300">이메일</span>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={loginEmail}
+                    onChange={(event) => setLoginEmail(event.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none transition focus:border-emerald-400/70 focus:ring-2 focus:ring-emerald-400/15"
+                  />
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-300">비밀번호</span>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    value={loginPassword}
+                    onChange={(event) => setLoginPassword(event.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none transition focus:border-emerald-400/70 focus:ring-2 focus:ring-emerald-400/15"
+                  />
+                </label>
+                {authError && (
+                  <p role="alert" className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+                    {authError}
+                  </p>
+                )}
+                <Button type="submit" className="w-full gap-2" disabled={authSubmitting}>
+                  {authSubmitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                  {authSubmitting ? '확인 중...' : '안전하게 로그인'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      </PageLayout>
+    )
+  }
 
   return (
     <PageLayout agentPanel={<ChatInterface initialMessages={[{
@@ -114,6 +317,9 @@ export default function HistoryPage() {
               </div>
 
               <div className="flex gap-3">
+                <div className="hidden lg:flex items-center rounded-lg border border-slate-700 bg-slate-800/40 px-3 text-xs text-slate-400">
+                  {signedInEmail || '인증된 임상 계정'}
+                </div>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
                   <input
@@ -133,6 +339,15 @@ export default function HistoryPage() {
                   <Filter className="h-4 w-4" />
                   필터
                   <ChevronDown className={cn("h-4 w-4 transition-transform", showFilters && "rotate-180")} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 bg-slate-800/50 border-slate-700 hover:bg-slate-700"
+                  onClick={handleSignOut}
+                >
+                  <LogOut className="h-4 w-4" />
+                  로그아웃
                 </Button>
               </div>
             </div>
@@ -191,6 +406,110 @@ export default function HistoryPage() {
             )}
           </div>
         </div>
+
+        {/* Unified Patient Timeline (ParkiCheck + Hawk I) */}
+        {physioData?.enabled && physioData.subjects.length > 0 && (
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-emerald-400" />
+                    환자 통합 타임라인
+                  </CardTitle>
+                  <CardDescription>
+                    ParkiCheck 검사와 Hawk I AI 분석이 공통 기록(physio_app)에서 함께 표시됩니다
+                  </CardDescription>
+                </div>
+                <select
+                  value={selectedSubjectId}
+                  onChange={(e) => setSelectedSubjectId(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                >
+                  {physioData.subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.display_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {timelineLoading ? (
+                <p className="text-sm text-slate-500 py-4">타임라인을 불러오는 중...</p>
+              ) : timelineError ? (
+                <p className="text-sm text-rose-400 py-4">{timelineError}</p>
+              ) : timelineEnabled === false ? (
+                <p className="text-sm text-slate-500 py-4">이 백엔드에는 physio_app 연동이 설정되어 있지 않습니다.</p>
+              ) : timeline.length === 0 && timelineMedications.length === 0 ? (
+                <p className="text-sm text-slate-500 py-4">이 환자의 기록이 아직 없습니다.</p>
+              ) : (
+                <div className="space-y-5">
+                  {timelineMedications.length > 0 && (
+                    <div>
+                      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-300">
+                        최근 환자 보고 복약 기록
+                        <span className="text-xs font-normal text-slate-500">효과·ON/OFF는 추정하지 않음</span>
+                      </div>
+                      <div className="space-y-2">
+                        {timelineMedications.slice(0, 5).map((medication) => (
+                          <div key={medication.event_id || `${medication.medication_code}-${medication.observed_at}`} className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                            <span className="text-sm font-semibold text-amber-200">{medication.medication_display || medication.medication_code || '약물명 미입력'}</span>
+                            {medication.dose_mg !== null && (
+                              <span className="text-sm text-slate-300">{medication.dose_mg}{medication.dose_unit || 'mg'}</span>
+                            )}
+                            <span className="text-xs text-slate-500">{medication.app_source === 'parkicheck' ? 'ParkiCheck 환자 보고' : 'physio_app 기록'}</span>
+                            <span className="ml-auto text-xs text-slate-500">{medication.observed_at ? new Date(medication.observed_at).toLocaleString('ko-KR') : '시각 미상'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                  {timeline.map((item, idx) => (
+                    <div
+                      key={item.fhir_id || idx}
+                      className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-slate-800/40 border border-slate-700/50"
+                    >
+                      <span
+                        className={cn(
+                          "text-xs px-2 py-1 rounded-full border font-medium",
+                          item.app_source === 'parkicheck'
+                            ? "text-sky-400 bg-sky-500/10 border-sky-500/30"
+                            : "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                        )}
+                      >
+                        {item.app_source === 'parkicheck' ? 'ParkiCheck 검사' : 'Hawk I AI 분석'}
+                      </span>
+                      <span className="text-sm text-slate-300">{item.code || '—'}</span>
+                      <span className="text-sm font-semibold text-white">
+                        {item.score !== null && item.score !== undefined ? `점수 ${item.score}` : '점수 없음'}
+                      </span>
+                      {item.confidence !== null && item.confidence !== undefined && (
+                        <span className="text-xs text-slate-500">신뢰도 {String(item.confidence)}</span>
+                      )}
+                      {item.has_medication_context && (
+                        <span className="text-xs text-amber-400/80">복약 기록됨</span>
+                      )}
+                      <span className="text-xs text-slate-500 ml-auto flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {item.observed_at ? new Date(item.observed_at).toLocaleString('ko-KR') : '시각 미상'}
+                      </span>
+                      {item.app_source !== 'parkicheck' && item.analysis_id && (
+                        <Link href={`/result?id=${item.analysis_id}`}>
+                          <Button variant="outline" size="sm" className="gap-1 border-slate-700 hover:bg-slate-700 h-7 px-2 text-xs">
+                            <Eye className="h-3 w-3" /> 결과
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Stats Overview */}
         {stats && stats.total_analyses > 0 && (

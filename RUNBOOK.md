@@ -123,6 +123,8 @@ Vercel env:
 ```text
 NEXT_PUBLIC_API_URL=https://hawkeye-labeling-tool.vercel.app
 BACKEND_URL=https://desktop-t43sn5m-1.tailde3b80.ts.net/hawkeye-api
+NEXT_PUBLIC_SUPABASE_URL=https://iwtyzcwiovuvmsodtusx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<physio_app public anon/publishable key>
 ```
 
 Optional backend env for writing completed analyses into physio_app
@@ -143,12 +145,24 @@ HAWKEYE_SUPABASE_OBSERVATIONS_TABLE=observations
 Do not set these in the Vercel frontend project. They belong on the Flask
 backend runtime only. If `HAWKEYE_SUPABASE_ACTIVITY_SESSION_ID` is omitted, the
 backend creates one completed camera assessment session per saved analysis.
-The frontend reads selectable people from the backend-only endpoint
-`GET /api/physio/subjects`; that route uses the server Supabase key and returns
-only active `org_clients` in the configured organization. Completed analyses are
+The frontend reads selectable people from the protected backend endpoint
+`GET /api/physio/subjects`. History, statistics, single-result, delete, and
+unified-timeline routes require a Supabase bearer token from an active
+`owner`, `admin`, or `provider` in the configured organization. The backend
+uses its server key only as the Data API `apikey`; it forwards the caller JWT
+as `Authorization`, so physio_app RLS remains the final authorization layer.
+The subjects route returns only active `org_clients` visible to that caller.
+Completed analyses are
 written only when the request includes an explicit physio_app subject/organization
 context; the backend does not fall back to `HAWKEYE_SUPABASE_SUBJECT_PERSON_ID`
 as a write target.
+
+The authenticated `GET /api/history/timeline?subject_person_id=<uuid>` response
+combines real `observations` with real `medication_statements` from the shared
+Supabase project. The UI can compare repeated observations under the same
+reported medication context, but it does not infer medication effect, clinical
+ON/OFF state, a next dose time, or treatment recommendations. The legacy public
+`GET /api/timeline/<patient_id>` simulation is retired and returns HTTP 410.
 
 The browser must call the Vercel origin, not the Tailscale URL directly. Direct browser requests to the Tailscale Funnel URL can be blocked by browser Private Network Access checks. Next.js rewrites proxy `/api/*` and `/files/*` server-side to the Tailscale backend.
 
@@ -158,9 +172,13 @@ Home desktop checks:
 ssh yk@100.125.26.99 'systemctl --user status hawkeye-backend.service --no-pager'
 ssh yk@100.125.26.99 'tailscale funnel status'
 curl -sS https://hawkeye-labeling-tool.vercel.app/api/health
-curl -sS https://hawkeye-labeling-tool.vercel.app/api/physio/subjects
+curl -sS -o /dev/null -w '%{http_code}\n' https://hawkeye-labeling-tool.vercel.app/api/physio/subjects
 curl -sS https://hawkeye-labeling-tool.vercel.app/api/vlm/status
 ```
+
+The unauthenticated subjects check should return HTTP 401. Use a short-lived
+Supabase access token from an authorized test account for an authenticated
+timeline smoke test; never paste a production token into this runbook.
 
 The backend keeps `/health` for direct runtime checks and also exposes
 `/api/health` so the Vercel `/api/*` rewrite can provide the same check on the
@@ -185,4 +203,4 @@ HAWKEYE_SMOKE_VIDEO=/path/to/gait.mp4 bash scripts/hawkeye_production_smoke.sh
 - OpenAI-backed chat and VLM paths require `OPENAI_API_KEY`; without it, fallback interpretation is used.
 - `npm audit` reports dependency vulnerabilities; review before production deployment.
 - Next.js warns that `middleware.ts` should migrate to the newer `proxy` convention.
-- Several frontend lint warnings remain for unused imports/variables and `<img>` usage, but there are no lint errors.
+- Several frontend lint warnings remain for `<img>` usage, but there are no lint errors.

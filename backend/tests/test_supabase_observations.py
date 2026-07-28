@@ -214,6 +214,7 @@ def test_config_for_analysis_result_uses_physio_context_overrides():
         "created_by_person_id": "creator-selected",
         "performer_person_id": "performer-selected",
         "activity_session_id": "session-selected",
+        "contract_version": "parkicheck-hawk-i/v1",
     }
 
     config = config_for_analysis_result(base, result)
@@ -224,6 +225,7 @@ def test_config_for_analysis_result_uses_physio_context_overrides():
     assert row["created_by"] == "creator-selected"
     assert row["performer_person_id"] == "performer-selected"
     assert row["activity_session_id"] == "session-selected"
+    assert row["measurement_context"]["contract_version"] == "parkicheck-hawk-i/v1"
     assert row["measurement_context"]["physio_context"]["subject_person_id"] == "person-selected"
 
 
