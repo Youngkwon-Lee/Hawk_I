@@ -50,7 +50,7 @@ def parse_result_file(filepath: str) -> dict:
         return None
 
 
-@bp.route('/', methods=['GET'])
+@bp.route('/', methods=['GET'], strict_slashes=False)
 @require_clinician
 def get_history():
     """

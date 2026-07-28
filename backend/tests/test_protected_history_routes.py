@@ -17,6 +17,7 @@ def test_history_routes_require_bearer_authentication():
     client = _app().test_client()
 
     assert client.get("/api/history/").status_code == 401
+    assert client.get("/api/history").status_code == 401
     assert client.get("/api/history/stats").status_code == 401
     assert client.get("/api/history/timeline?subject_person_id=person-1").status_code == 401
     assert client.get("/api/history/analysis-1").status_code == 401
