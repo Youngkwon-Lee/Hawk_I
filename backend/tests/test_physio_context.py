@@ -2,6 +2,79 @@
 Tests for server-side physio_app context lookup.
 """
 
+import pytest
+
+from services.supabase_auth import AuthenticatedClinician, SupabaseClinicianForbidden
+from services.supabase_observations import SupabaseObservationConfig
+
+
+def _authorization_config():
+    return SupabaseObservationConfig(
+        url="https://example.supabase.co",
+        key="server-secret",
+        subject_person_id=None,
+        organization_id="org-1",
+        created_by="configured-creator",
+        performer_person_id="configured-performer",
+    )
+
+
+def _clinician():
+    return AuthenticatedClinician(
+        user_id="auth-user-1",
+        person_id="clinician-1",
+        organization_id="org-1",
+        role="provider",
+        access_token="caller-token",
+    )
+
+
+def test_authorize_physio_subject_uses_rls_and_server_canonical_values(monkeypatch):
+    from services import physio_context
+
+    calls = []
+
+    def fake_get_rest(config, access_token, table, params):
+        calls.append((table, params, access_token))
+        if table == "org_clients":
+            return [{"person_id": "patient-1", "status": "active"}]
+        if table == "persons":
+            return [{"id": "patient-1", "display_name": "Synthetic Patient"}]
+        if table == "organizations":
+            return [{"id": "org-1", "display_name": "Synthetic Clinic"}]
+        raise AssertionError(table)
+
+    monkeypatch.setattr(physio_context, "_get_rest", fake_get_rest)
+    context = physio_context.authorize_physio_subject(
+        _clinician(),
+        "patient-1",
+        config=_authorization_config(),
+    )
+
+    assert context == {
+        "subject_person_id": "patient-1",
+        "organization_id": "org-1",
+        "created_by_person_id": "clinician-1",
+        "performer_person_id": "configured-performer",
+        "subject_display_name": "Synthetic Patient",
+        "organization_display_name": "Synthetic Clinic",
+    }
+    assert calls[0][0] == "org_clients"
+    assert calls[0][1]["person_id"] == "eq.patient-1"
+    assert all(call[2] == "caller-token" for call in calls)
+
+
+def test_authorize_physio_subject_denies_invisible_subject(monkeypatch):
+    from services import physio_context
+
+    monkeypatch.setattr(physio_context, "_get_rest", lambda *args, **kwargs: [])
+    with pytest.raises(SupabaseClinicianForbidden):
+        physio_context.authorize_physio_subject(
+            _clinician(),
+            "other-patient",
+            config=_authorization_config(),
+        )
+
 
 def test_load_physio_subject_context_returns_active_clients(monkeypatch):
     from services import physio_context

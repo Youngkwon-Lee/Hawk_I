@@ -11,7 +11,11 @@ from typing import Any
 
 import requests
 
-from services.supabase_auth import caller_headers
+from services.supabase_auth import (
+    AuthenticatedClinician,
+    SupabaseClinicianForbidden,
+    caller_headers,
+)
 from services.supabase_observations import SupabaseObservationConfig, get_supabase_observation_config
 
 
@@ -49,15 +53,21 @@ def _get_rest(
     table: str,
     params: dict[str, str],
 ) -> list[dict[str, Any]]:
-    response = requests.get(
-        f"{config.url}/rest/v1/{table}",
-        headers=caller_headers(config, access_token),
-        params=params,
-        timeout=config.timeout_seconds,
-    )
+    try:
+        response = requests.get(
+            f"{config.url}/rest/v1/{table}",
+            headers=caller_headers(config, access_token),
+            params=params,
+            timeout=config.timeout_seconds,
+        )
+    except requests.RequestException as exc:
+        raise PhysioContextError(f"{table} lookup unavailable") from exc
     if response.status_code >= 400:
         raise PhysioContextError(f"{table} lookup failed with status {response.status_code}")
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise PhysioContextError(f"{table} lookup returned invalid data") from exc
     if not isinstance(data, list):
         raise PhysioContextError(f"{table} lookup returned an unexpected payload")
     return [item for item in data if isinstance(item, dict)]
@@ -65,6 +75,101 @@ def _get_rest(
 
 def _in_filter(ids: list[str]) -> str:
     return f"in.({','.join(ids)})"
+
+
+def authorize_physio_subject(
+    clinician: AuthenticatedClinician,
+    subject_person_id: str,
+    activity_session_id: str | None = None,
+    config: SupabaseObservationConfig | None = None,
+) -> dict[str, Any]:
+    """Return server-canonical context after caller-JWT/RLS authorization.
+
+    Browser-supplied organization, author, performer, and display names are
+    intentionally ignored. The selected subject and optional existing session
+    must be visible to the authenticated clinician through physio_app RLS.
+    """
+    config = config or get_supabase_observation_config()
+    if not config:
+        raise PhysioContextError("Supabase context is not configured")
+    if clinician.organization_id != config.organization_id:
+        raise SupabaseClinicianForbidden("organization access denied")
+
+    clients = _get_rest(
+        config,
+        clinician.access_token,
+        "org_clients",
+        {
+            "select": "person_id,status",
+            "organization_id": f"eq.{config.organization_id}",
+            "person_id": f"eq.{subject_person_id}",
+            "status": "eq.active",
+            "limit": "1",
+        },
+    )
+    if not clients:
+        raise SupabaseClinicianForbidden("subject access denied")
+
+    people = _get_rest(
+        config,
+        clinician.access_token,
+        "persons",
+        {
+            "select": "id,display_name,email",
+            "id": f"eq.{subject_person_id}",
+            "is_active": "eq.true",
+            "limit": "1",
+        },
+    )
+    if not people:
+        raise SupabaseClinicianForbidden("subject access denied")
+    person = people[0]
+
+    organizations = _get_rest(
+        config,
+        clinician.access_token,
+        "organizations",
+        {
+            "select": "id,name,display_name",
+            "id": f"eq.{config.organization_id}",
+            "limit": "1",
+        },
+    )
+    if not organizations:
+        raise SupabaseClinicianForbidden("organization access denied")
+    organization = organizations[0]
+
+    if activity_session_id:
+        sessions = _get_rest(
+            config,
+            clinician.access_token,
+            config.activity_sessions_table,
+            {
+                "select": "id",
+                "id": f"eq.{activity_session_id}",
+                "organization_id": f"eq.{config.organization_id}",
+                "subject_person_id": f"eq.{subject_person_id}",
+                "limit": "1",
+            },
+        )
+        if not sessions:
+            raise SupabaseClinicianForbidden("activity session access denied")
+
+    subject_display_name = person.get("display_name") or person.get("email")
+    organization_display_name = organization.get("display_name") or organization.get("name")
+    context = {
+        "subject_person_id": subject_person_id,
+        "organization_id": config.organization_id,
+        "created_by_person_id": clinician.person_id,
+        "performer_person_id": config.performer_person_id,
+    }
+    if subject_display_name:
+        context["subject_display_name"] = str(subject_display_name)
+    if organization_display_name:
+        context["organization_display_name"] = str(organization_display_name)
+    if activity_session_id:
+        context["activity_session_id"] = activity_session_id
+    return context
 
 
 def load_physio_subject_context(
