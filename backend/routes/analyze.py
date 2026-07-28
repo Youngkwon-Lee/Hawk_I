@@ -222,6 +222,8 @@ def process_video_background(
             "id": video_id,
             "patient_id": patient_id,
             "physio_context": physio_context or None,
+            "assessment_session_id": (physio_context or {}).get("activity_session_id"),
+            "timeline_contract_version": (physio_context or {}).get("contract_version"),
             "medication_context": medication_context or None,
             "video_type": ctx.task_type,
             "auto_detected": manual_test_type is None,
@@ -349,7 +351,10 @@ def start_analysis():
             "subject_display_name": request.form.get("physio_subject_display_name"),
             "organization_display_name": request.form.get("physio_organization_display_name"),
             "contract_version": request.form.get("physio_contract_version"),
-            "activity_session_id": request.form.get("physio_activity_session_id"),
+            "activity_session_id": (
+                request.form.get("physio_activity_session_id")
+                or request.form.get("assessment_session_id")
+            ),
             "persistence_owner": request.form.get("physio_persistence_owner"),
         }
         physio_context = {

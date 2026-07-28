@@ -361,6 +361,12 @@ def build_observation_row(
     skeleton_data = result.get("skeleton_data") if isinstance(result.get("skeleton_data"), dict) else {}
 
     measurement_context = {
+        "contract_version": _get_result_context_value(
+            result,
+            "timeline_contract_version",
+            "physio_contract_version",
+            "contract_version",
+        ),
         "app_source": "hawk_i",
         "analysis_id": analysis_id or None,
         "patient_id": result.get("patient_id"),
