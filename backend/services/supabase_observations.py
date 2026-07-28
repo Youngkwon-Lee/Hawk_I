@@ -53,6 +53,8 @@ class SupabaseObservationResult:
     observation_id: str | None = None
     activity_session_id: str | None = None
     status_code: int | None = None
+    persistence_owner: str | None = None
+    delegated: bool = False
 
     def as_public_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -68,6 +70,10 @@ class SupabaseObservationResult:
             payload["activity_session_id"] = self.activity_session_id
         if self.status_code:
             payload["status_code"] = self.status_code
+        if self.persistence_owner:
+            payload["persistence_owner"] = self.persistence_owner
+        if self.delegated:
+            payload["delegated"] = True
         return payload
 
 
@@ -189,6 +195,12 @@ def config_for_analysis_result(
         "physio_performer_person_id",
         "performer_person_id",
     ) or config.performer_person_id or created_by
+    activity_session_id = _get_result_context_value(
+        result,
+        "physio_activity_session_id",
+        "activity_session_id",
+        "assessment_session_id",
+    ) or config.activity_session_id
 
     return replace(
         config,
@@ -196,6 +208,7 @@ def config_for_analysis_result(
         organization_id=organization_id,
         created_by=created_by,
         performer_person_id=performer_person_id,
+        activity_session_id=activity_session_id,
     )
 
 
@@ -213,6 +226,15 @@ def has_explicit_subject_context(result: dict[str, Any]) -> bool:
         "organization_id",
     )
     return bool(subject_person_id and organization_id)
+
+
+def persistence_owner_for_result(result: dict[str, Any]) -> str | None:
+    owner = _get_result_context_value(
+        result,
+        "physio_persistence_owner",
+        "persistence_owner",
+    )
+    return owner.lower() if owner else None
 
 
 def _json_safe(value: Any) -> Any:
@@ -343,6 +365,13 @@ def build_observation_row(
         "analysis_id": analysis_id or None,
         "patient_id": result.get("patient_id"),
         "physio_context": result.get("physio_context"),
+        "assessment_session_id": _get_result_context_value(
+            result,
+            "physio_activity_session_id",
+            "activity_session_id",
+            "assessment_session_id",
+        ),
+        "medication_context": result.get("medication_context"),
         "video_type": video_type,
         "auto_detected": result.get("auto_detected"),
         "confidence": result.get("confidence"),
@@ -497,3 +526,28 @@ def save_analysis_observation(result: dict[str, Any]) -> SupabaseObservationResu
         activity_session_id=activity_session_id,
         status_code=response.status_code,
     )
+
+
+def persist_analysis_observation(result: dict[str, Any]) -> SupabaseObservationResult:
+    """Persist unless the authenticated caller owns the canonical observation.
+
+    ParkiCheck writes the combined local score, medication context, and Hawk I
+    result through the signed-in user's Supabase session. Hawk I must not create
+    a duplicate service-role observation from browser-supplied person/org IDs.
+    """
+    owner = persistence_owner_for_result(result)
+    if owner == "parkicheck":
+        return SupabaseObservationResult(
+            enabled=True,
+            saved=False,
+            reason="canonical observation is persisted by the authenticated ParkiCheck caller",
+            activity_session_id=_get_result_context_value(
+                result,
+                "physio_activity_session_id",
+                "activity_session_id",
+                "assessment_session_id",
+            ),
+            persistence_owner="parkicheck",
+            delegated=True,
+        )
+    return save_analysis_observation(result)

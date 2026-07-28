@@ -23,7 +23,7 @@ from services.finger_performability import get_finger_performability_gate
 from services.updrs_scorer import UPDRSScorer
 from services.interpretation_agent import InterpretationAgent
 from services.progress_tracker import init_analysis, update_step, complete_analysis, fail_analysis
-from services.supabase_observations import save_analysis_observation
+from services.supabase_observations import persist_analysis_observation
 from services.visualization_data_generator import generate_visualization_data, detect_events
 from agents.orchestrator import OrchestratorAgent
 from domain.context import AnalysisContext
@@ -69,6 +69,7 @@ def process_video_background(
     scoring_method='ensemble',
     ml_model_type='rf',
     physio_context=None,
+    medication_context=None,
 ):
     """
     Background task for video analysis using Multi-Agent Orchestrator
@@ -221,6 +222,7 @@ def process_video_background(
             "id": video_id,
             "patient_id": patient_id,
             "physio_context": physio_context or None,
+            "medication_context": medication_context or None,
             "video_type": ctx.task_type,
             "auto_detected": manual_test_type is None,
             "confidence": ctx.vision_meta.get("confidence", 0.0),
@@ -271,7 +273,7 @@ def process_video_background(
         }
 
         response["integrations"] = {
-            "supabase_observation": save_analysis_observation(response).as_public_dict()
+            "supabase_observation": persist_analysis_observation(response).as_public_dict()
         }
 
         # Save result
@@ -346,6 +348,9 @@ def start_analysis():
             "performer_person_id": request.form.get("physio_performer_person_id"),
             "subject_display_name": request.form.get("physio_subject_display_name"),
             "organization_display_name": request.form.get("physio_organization_display_name"),
+            "contract_version": request.form.get("physio_contract_version"),
+            "activity_session_id": request.form.get("physio_activity_session_id"),
+            "persistence_owner": request.form.get("physio_persistence_owner"),
         }
         physio_context = {
             key: value.strip()
@@ -354,6 +359,15 @@ def start_analysis():
         }
 
         patient_id = request.form.get('patient_id') or physio_context.get("subject_person_id") or 'unknown'
+        medication_context = None
+        medication_context_raw = request.form.get("medication_context")
+        if medication_context_raw:
+            try:
+                parsed_medication_context = json.loads(medication_context_raw)
+                if isinstance(parsed_medication_context, dict):
+                    medication_context = parsed_medication_context
+            except (TypeError, ValueError, json.JSONDecodeError):
+                medication_context = None
         manual_test_type = request.form.get('test_type', None)
         # Scoring methods:
         # - 'coral': CORAL Ordinal Regression with Mamba (Best: Gait 0.790, Finger 0.553, Hand 0.598)
@@ -375,6 +389,7 @@ def start_analysis():
                 scoring_method,
                 ml_model_type,
                 physio_context or None,
+                medication_context,
             )
         )
         thread.daemon = True
