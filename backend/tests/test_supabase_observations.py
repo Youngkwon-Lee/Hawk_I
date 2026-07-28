@@ -213,6 +213,7 @@ def test_config_for_analysis_result_uses_physio_context_overrides():
         "organization_id": "org-selected",
         "created_by_person_id": "creator-selected",
         "performer_person_id": "performer-selected",
+        "activity_session_id": "session-selected",
     }
 
     config = config_for_analysis_result(base, result)
@@ -222,6 +223,7 @@ def test_config_for_analysis_result_uses_physio_context_overrides():
     assert row["organization_id"] == "org-selected"
     assert row["created_by"] == "creator-selected"
     assert row["performer_person_id"] == "performer-selected"
+    assert row["activity_session_id"] == "session-selected"
     assert row["measurement_context"]["physio_context"]["subject_person_id"] == "person-selected"
 
 
@@ -277,3 +279,32 @@ def test_save_analysis_observation_posts_to_supabase(monkeypatch):
     assert captured[1]["json"]["organization_id"] == "org-1"
     assert captured[1]["json"]["performer_person_id"] == "person-1"
     assert captured[1]["json"]["activity_session_id"] == "session-1"
+
+
+def test_parkicheck_caller_owned_persistence_does_not_use_service_role(monkeypatch):
+    from services import supabase_observations
+
+    def fake_post(*args, **kwargs):
+        raise AssertionError("caller-owned ParkiCheck persistence must not call Supabase")
+
+    monkeypatch.setattr(supabase_observations.requests, "post", fake_post)
+    result_payload = _sample_result(score=2)
+    result_payload["physio_context"] = {
+        **_sample_physio_context(),
+        "activity_session_id": "assessment-1",
+        "persistence_owner": "parkicheck",
+    }
+    result_payload["medication_context"] = {
+        "available": True,
+        "medication": "levodopa",
+        "dose_mg": 100,
+    }
+
+    result = supabase_observations.persist_analysis_observation(result_payload)
+
+    assert result.enabled is True
+    assert result.saved is False
+    assert result.delegated is True
+    assert result.persistence_owner == "parkicheck"
+    assert result.activity_session_id == "assessment-1"
+    assert result.as_public_dict()["delegated"] is True
