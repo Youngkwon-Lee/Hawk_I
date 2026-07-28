@@ -126,6 +126,57 @@ def get_history():
     })
 
 
+@bp.route('/timeline', methods=['GET'])
+def get_timeline():
+    """
+    Unified patient timeline from the shared physio_app Supabase project.
+
+    Merges ParkiCheck device observations and Hawk I ai observations for one
+    subject (both apps write to the same `observations` table).
+
+    Query params:
+    - subject_person_id: physio_app person UUID (required)
+    - limit: max rows (default: 100)
+    """
+    subject_person_id = (request.args.get('subject_person_id') or '').strip()
+    if not subject_person_id:
+        return jsonify({
+            "success": False,
+            "error": "subject_person_id is required"
+        }), 400
+
+    try:
+        limit = max(1, min(int(request.args.get('limit', 100)), 500))
+    except ValueError:
+        limit = 100
+
+    from services.supabase_timeline import fetch_timeline
+
+    try:
+        items = fetch_timeline(subject_person_id, limit=limit)
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"failed to read timeline: {e}"
+        }), 502
+
+    if items is None:
+        return jsonify({
+            "success": True,
+            "enabled": False,
+            "items": [],
+            "reason": "supabase integration is not configured on this backend"
+        })
+
+    return jsonify({
+        "success": True,
+        "enabled": True,
+        "subject_person_id": subject_person_id,
+        "items": items,
+        "total": len(items)
+    })
+
+
 @bp.route('/stats', methods=['GET'])
 def get_stats():
     """
