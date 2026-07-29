@@ -76,6 +76,50 @@ def test_authorize_physio_subject_denies_invisible_subject(monkeypatch):
         )
 
 
+def test_authorize_parkicheck_session_uses_caller_rls_and_canonical_row(monkeypatch):
+    from services import physio_context
+    from services.supabase_auth import AuthenticatedPerson
+
+    calls = []
+    monkeypatch.setattr(
+        physio_context,
+        "authenticate_person",
+        lambda token, config: AuthenticatedPerson(
+            user_id="auth-user-1",
+            person_id="person-caller",
+            access_token=token,
+        ),
+    )
+
+    def fake_get_rest(config, token, table, params):
+        calls.append({"token": token, "table": table, "params": params})
+        return [{
+            "id": "session-1",
+            "subject_person_id": "person-subject",
+            "organization_id": "org-personal",
+            "created_by": "person-subject",
+        }]
+
+    monkeypatch.setattr(physio_context, "_get_rest", fake_get_rest)
+    context = physio_context.authorize_parkicheck_session(
+        "caller-token",
+        "session-1",
+        subject_person_id="person-subject",
+        organization_id="org-personal",
+        config=_authorization_config(),
+    )
+
+    assert calls[0]["token"] == "caller-token"
+    assert calls[0]["params"]["id"] == "eq.session-1"
+    assert context == {
+        "subject_person_id": "person-subject",
+        "organization_id": "org-personal",
+        "created_by_person_id": "person-caller",
+        "performer_person_id": "person-subject",
+        "activity_session_id": "session-1",
+    }
+
+
 def test_load_physio_subject_context_returns_active_clients(monkeypatch):
     from services import physio_context
 

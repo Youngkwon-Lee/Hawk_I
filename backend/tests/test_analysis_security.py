@@ -182,7 +182,25 @@ def test_public_unlinked_analysis_remains_available(tmp_path, monkeypatch):
     assert response.status_code == 202
 
 
-def test_parkicheck_delegated_context_remains_available_without_auth(tmp_path, monkeypatch):
+def test_parkicheck_context_requires_auth_before_file_save(tmp_path, monkeypatch):
+    session_id = "66666666-6666-4666-8666-666666666666"
+    response = _app(tmp_path).test_client().post(
+        "/api/analyze",
+        data=_video_form(
+            assessment_session_id=session_id,
+            physio_subject_person_id=SUBJECT_ID,
+            physio_organization_id=ORG_ID,
+            physio_contract_version="parkicheck-hawk-i/v1",
+            physio_persistence_owner="parkicheck",
+        ),
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 401
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_parkicheck_context_uses_authorized_activity_session(tmp_path, monkeypatch):
     captured = {}
 
     class FakeThread:
@@ -195,6 +213,19 @@ def test_parkicheck_delegated_context_remains_available_without_auth(tmp_path, m
             return None
 
     session_id = "66666666-6666-4666-8666-666666666666"
+    canonical_context = {
+        "subject_person_id": SUBJECT_ID,
+        "organization_id": ORG_ID,
+        "created_by_person_id": SUBJECT_ID,
+        "performer_person_id": SUBJECT_ID,
+        "activity_session_id": session_id,
+    }
+    monkeypatch.setattr(analyze, "get_supabase_observation_config", _config)
+    monkeypatch.setattr(
+        analyze,
+        "authorize_parkicheck_session",
+        lambda *args, **kwargs: canonical_context.copy(),
+    )
     monkeypatch.setattr(analyze.threading, "Thread", FakeThread)
     monkeypatch.setattr(analyze, "init_analysis", lambda *args, **kwargs: None)
 
@@ -202,15 +233,18 @@ def test_parkicheck_delegated_context_remains_available_without_auth(tmp_path, m
         "/api/analyze",
         data=_video_form(
             assessment_session_id=session_id,
+            physio_subject_person_id=SUBJECT_ID,
+            physio_organization_id=ORG_ID,
             physio_contract_version="parkicheck-hawk-i/v1",
             physio_persistence_owner="parkicheck",
         ),
+        headers={"Authorization": "Bearer caller-token"},
         content_type="multipart/form-data",
     )
 
     assert response.status_code == 202
     assert captured["args"][7] == {
-        "activity_session_id": session_id,
+        **canonical_context,
         "contract_version": "parkicheck-hawk-i/v1",
         "persistence_owner": "parkicheck",
     }
@@ -272,6 +306,27 @@ def test_patient_linked_result_allows_authorized_clinician(tmp_path, monkeypatch
     )
 
     assert response.status_code == 200
+
+
+def test_legacy_parkicheck_result_requires_session_authorization(tmp_path, monkeypatch):
+    session_id = "66666666-6666-4666-8666-666666666666"
+    _write_result(tmp_path, "parkicheck_123", {
+        "activity_session_id": session_id,
+        "persistence_owner": "parkicheck",
+    })
+
+    unauthenticated = _app(tmp_path).test_client().get(
+        "/api/analysis/result/parkicheck_123"
+    )
+    assert unauthenticated.status_code == 401
+
+    monkeypatch.setattr(analyze, "get_supabase_observation_config", _config)
+    monkeypatch.setattr(analyze, "authorize_parkicheck_session", lambda *args, **kwargs: {})
+    authorized = _app(tmp_path).test_client().get(
+        "/api/analysis/result/parkicheck_123",
+        headers={"Authorization": "Bearer caller-token"},
+    )
+    assert authorized.status_code == 200
 
 
 def test_result_rejects_unsafe_analysis_id(tmp_path):

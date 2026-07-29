@@ -27,7 +27,11 @@ from services.interpretation_agent import InterpretationAgent
 from services.progress_tracker import init_analysis, update_step, complete_analysis, fail_analysis
 from services.supabase_observations import persist_analysis_observation, SupabaseObservationResult
 from services.supabase_observations import get_supabase_observation_config
-from services.physio_context import PhysioContextError, authorize_physio_subject
+from services.physio_context import (
+    PhysioContextError,
+    authorize_parkicheck_session,
+    authorize_physio_subject,
+)
 from services.analysis_media import (
     MEDIA_ASSETS,
     load_analysis_result,
@@ -104,6 +108,28 @@ def _build_physio_context() -> dict | None:
         if persistence_owner not in PHYSIO_PERSISTENCE_OWNERS:
             raise InvalidAnalysisContext("invalid physio_persistence_owner")
 
+    if persistence_owner == "parkicheck":
+        access_token = extract_bearer_token(request.headers.get("Authorization"))
+        if contract_version != "parkicheck-hawk-i/v1":
+            raise InvalidAnalysisContext("invalid ParkiCheck contract version")
+        if not subject_id or not supplied_org_id or not activity_session_id:
+            raise InvalidAnalysisContext(
+                "ParkiCheck analysis requires subject, organization, and activity session"
+            )
+        config = get_supabase_observation_config()
+        if config is None:
+            raise SupabaseAuthUnavailable("Supabase authentication is not configured")
+        context = authorize_parkicheck_session(
+            access_token,
+            activity_session_id,
+            subject_person_id=subject_id,
+            organization_id=supplied_org_id,
+            config=config,
+        )
+        context["contract_version"] = contract_version
+        context["persistence_owner"] = persistence_owner
+        return context
+
     has_identity_context = any(_optional_text(name) for name in PHYSIO_IDENTITY_FIELDS)
     if not has_identity_context:
         delegated = {
@@ -145,15 +171,40 @@ def _authorize_result_context(result: dict) -> tuple[dict | None, int | None]:
     context = result.get("physio_context")
     context = context if isinstance(context, dict) else {}
     subject_id = context.get("subject_person_id")
-    if not isinstance(subject_id, str) or not subject_id.strip():
+    persistence_owner = context.get("persistence_owner")
+    activity_session_id = context.get("activity_session_id")
+    is_parkicheck = persistence_owner == "parkicheck"
+    if not is_parkicheck and (not isinstance(subject_id, str) or not subject_id.strip()):
         return None, None
 
     try:
-        subject_id = str(UUID(subject_id.strip()))
         access_token = extract_bearer_token(request.headers.get("Authorization"))
         config = get_supabase_observation_config()
-        clinician = authenticate_clinician(access_token, config=config)
-        authorize_physio_subject(clinician, subject_id, config=config)
+        if is_parkicheck:
+            activity_session_id = str(UUID(str(activity_session_id).strip()))
+            canonical_subject_id = (
+                str(UUID(subject_id.strip()))
+                if isinstance(subject_id, str) and subject_id.strip()
+                else None
+            )
+            canonical_organization_id = context.get("organization_id")
+            canonical_organization_id = (
+                str(UUID(canonical_organization_id.strip()))
+                if isinstance(canonical_organization_id, str)
+                and canonical_organization_id.strip()
+                else None
+            )
+            authorize_parkicheck_session(
+                access_token,
+                activity_session_id,
+                subject_person_id=canonical_subject_id,
+                organization_id=canonical_organization_id,
+                config=config,
+            )
+        else:
+            subject_id = str(UUID(subject_id.strip()))
+            clinician = authenticate_clinician(access_token, config=config)
+            authorize_physio_subject(clinician, subject_id, config=config)
     except SupabaseInvalidToken:
         return {"success": False, "error": "authentication required"}, 401
     except (SupabaseClinicianForbidden, ValueError):

@@ -164,6 +164,42 @@ def test_public_unlinked_media_remains_public(tmp_path):
     assert decision.protected_result is None
 
 
+def test_legacy_parkicheck_result_is_treated_as_patient_linked(tmp_path):
+    analysis_id = "parkicheck_123"
+    filename = f"{analysis_id}_skeleton.mp4"
+    payload = {
+        "success": True,
+        "id": analysis_id,
+        "physio_context": {
+            "activity_session_id": "66666666-6666-4666-8666-666666666666",
+            "persistence_owner": "parkicheck",
+        },
+        "skeleton_data": {"skeleton_video_url": f"/files/{filename}"},
+    }
+    (tmp_path / f"{analysis_id}_result.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    decision = analysis_media.classify_direct_file_access(str(tmp_path), filename)
+    assert decision.protected_result is not None
+
+
+def test_patient_linked_progress_requires_authentication(tmp_path, monkeypatch):
+    from app import app as full_app
+
+    analysis_media.write_analysis_access_record(
+        str(tmp_path),
+        "private_123",
+        {"subject_person_id": SUBJECT_ID, "organization_id": ORG_ID},
+    )
+    monkeypatch.setitem(full_app.config, "UPLOAD_FOLDER", str(tmp_path))
+    monkeypatch.setitem(full_app.config, "TESTING", True)
+
+    response = full_app.test_client().get("/api/analysis/progress/private_123")
+    assert response.status_code == 401
+
+
 def test_direct_file_routes_cannot_bypass_patient_media_auth(tmp_path, monkeypatch):
     from app import app as full_app
 
