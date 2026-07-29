@@ -37,7 +37,9 @@ function backendBaseUrl(): URL | null {
   try {
     const url = new URL(raw)
     if (!new Set(["http:", "https:"]).has(url.protocol)) return null
-    url.pathname = "/"
+    // BACKEND_URL may include a trusted reverse-proxy mount such as
+    // /hawkeye-api. Preserve that server-configured base path.
+    if (!url.pathname.endsWith("/")) url.pathname = `${url.pathname}/`
     url.search = ""
     url.hash = ""
     return url
