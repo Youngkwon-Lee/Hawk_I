@@ -27,14 +27,18 @@ CORS(app, resources={
         "origins": [
             "http://localhost:3000",
             "http://localhost:3001",
-            os.getenv("FRONTEND_URL", "http://localhost:3000")
+            os.getenv("FRONTEND_URL", "http://localhost:3000"),
+            # ParkiCheck can call the consented research-review endpoints only
+            # from its production origin; do not use a wildcard for /api routes.
+            os.getenv("PARKICHECK_ORIGIN", "https://finger-tap-fx.vercel.app"),
         ]
     },
     r"/uploads/*": {
         "origins": [
             "http://localhost:3000",
             "http://localhost:3001",
-            os.getenv("FRONTEND_URL", "http://localhost:3000")
+            os.getenv("FRONTEND_URL", "http://localhost:3000"),
+            os.getenv("PARKICHECK_ORIGIN", "https://finger-tap-fx.vercel.app"),
         ]
     },
     r"/files/*": {
@@ -58,6 +62,7 @@ from services.progress_tracker import get_progress
 
 # Import routes
 from routes import analyze, chat, health, timeline, streaming, population_stats, history, vlm, physio_context
+from services.analysis_media import classify_direct_file_access
 
 # Register blueprints
 app.register_blueprint(analyze.bp)
@@ -92,8 +97,14 @@ def index():
 @app.route('/files/<path:filename>')
 def serve_upload(filename):
     """Serve uploaded files and analysis results with Range request support"""
-    print(f"[FILE] Serving: {filename}")
     try:
+        access = classify_direct_file_access(app.config['UPLOAD_FOLDER'], filename)
+        if access.internal:
+            return jsonify({"error": "File not found"}), 404
+        if access.protected_result:
+            auth_error, status = analyze._authorize_result_context(access.protected_result)
+            if auth_error:
+                return jsonify(auth_error), status
         # Use conditional=True to enable HTTP 206 Partial Content for video streaming
         response = send_from_directory(
             app.config['UPLOAD_FOLDER'],
@@ -102,13 +113,17 @@ def serve_upload(filename):
         )
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS, HEAD'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Range'
+        response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, Range'
         response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Accept-Ranges'
         response.headers['Accept-Ranges'] = 'bytes'
+        if access.protected_result:
+            response.headers['Cache-Control'] = 'no-store, private'
+            response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
     except Exception as e:
-        print(f"[ERROR] Serving file failed: {e}")
-        return jsonify({"error": str(e)}), 404
+        print(f"[ERROR] Serving file failed: {type(e).__name__}")
+        return jsonify({"error": "File not found"}), 404
 
 @app.route('/files/<path:filename>', methods=['OPTIONS'])
 @app.route('/uploads/<path:filename>', methods=['OPTIONS'])
@@ -117,29 +132,14 @@ def serve_options(filename):
     response = app.make_default_options_response()
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS, HEAD'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Range'
+    response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, Range'
     response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Accept-Ranges'
     return response
 
 @app.route('/uploads/<path:filename>')
 def serve_upload_legacy(filename):
     """Serve uploaded files (legacy route for backward compatibility)"""
-    print(f"[FILE-LEGACY] Serving: {filename}")
-    try:
-        response = send_from_directory(
-            app.config['UPLOAD_FOLDER'],
-            filename,
-            conditional=True
-        )
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS, HEAD'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Range'
-        response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Accept-Ranges'
-        response.headers['Accept-Ranges'] = 'bytes'
-        return response
-    except Exception as e:
-        print(f"[ERROR] Serving file failed: {e}")
-        return jsonify({"error": str(e)}), 404
+    return serve_upload(filename)
 
 
 @app.route('/api/analysis/progress/<video_id>', methods=['GET'])

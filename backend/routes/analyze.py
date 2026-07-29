@@ -3,7 +3,7 @@ Video Analysis Route
 ROI Detection + Task Classification
 """
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_from_directory
 import os
 import cv2
 from werkzeug.utils import secure_filename
@@ -25,9 +25,15 @@ from services.finger_performability import get_finger_performability_gate
 from services.updrs_scorer import UPDRSScorer
 from services.interpretation_agent import InterpretationAgent
 from services.progress_tracker import init_analysis, update_step, complete_analysis, fail_analysis
-from services.supabase_observations import persist_analysis_observation
+from services.supabase_observations import persist_analysis_observation, SupabaseObservationResult
 from services.supabase_observations import get_supabase_observation_config
 from services.physio_context import PhysioContextError, authorize_physio_subject
+from services.analysis_media import (
+    MEDIA_ASSETS,
+    load_analysis_result,
+    resolve_media_path,
+    write_analysis_access_record,
+)
 from services.supabase_auth import (
     SupabaseAuthUnavailable,
     SupabaseClinicianForbidden,
@@ -176,6 +182,33 @@ def build_score_advisory(video_type: str, performability: dict | None) -> dict |
     return {
         "level": "reference_only",
         "summary": "자동 점수는 참고용으로만 보고, 수기 판정 또는 재촬영을 우선 권장합니다.",
+    }
+
+
+def build_analysis_trace(
+    video_id: str,
+    response: dict,
+    observation_result: SupabaseObservationResult,
+) -> dict:
+    activity_session_id = (
+        observation_result.activity_session_id
+        or response.get("assessment_session_id")
+    )
+    observation_fhir_id = None
+    if observation_result.persistence_owner == "parkicheck" and activity_session_id:
+        observation_fhir_id = f"parkicheck-{activity_session_id}"
+    elif observation_result.saved:
+        observation_fhir_id = f"hawkeye-{video_id}"
+    return {
+        key: value
+        for key, value in {
+            "analysis_id": video_id,
+            "activity_session_id": activity_session_id,
+            "observation_id": observation_result.observation_id,
+            "observation_fhir_id": observation_fhir_id,
+            "persistence_owner": observation_result.persistence_owner or "hawk_i",
+        }.items()
+        if value is not None
     }
 
 
@@ -399,9 +432,15 @@ def process_video_background(
             "gait_cycle_analysis": gait_analysis  # Include raw gait cycle data
         }
 
+        observation_result = persist_analysis_observation(response)
         response["integrations"] = {
-            "supabase_observation": persist_analysis_observation(response).as_public_dict()
+            "supabase_observation": observation_result.as_public_dict()
         }
+        response["analysis_trace"] = build_analysis_trace(
+            video_id,
+            response,
+            observation_result,
+        )
 
         # Save result
         result_path = os.path.join(app_config['UPLOAD_FOLDER'], f"{video_id}_result.json")
@@ -481,6 +520,15 @@ def start_analysis():
         from uuid import uuid4
 
         video_id = f"{os.path.splitext(filename)[0]}_{int(time.time())}_{uuid4().hex[:12]}"
+
+        # Persist the authorization boundary before the original video is saved.
+        # This closes the processing-time window where /files could otherwise
+        # serve a patient upload before the final result JSON exists.
+        write_analysis_access_record(
+            current_app.config['UPLOAD_FOLDER'],
+            video_id,
+            physio_context or None,
+        )
         
         # Save video file
         # Note: We need to save it here before starting the thread
@@ -576,6 +624,37 @@ def get_analysis_result(video_id):
             "success": False,
             "error": "Error reading result"
         }), 500
+
+
+@bp.route('/analysis/media/<video_id>/<asset>', methods=['GET', 'HEAD'])
+def get_analysis_media(video_id, asset):
+    """Serve one allowlisted analysis asset after result authorization."""
+    if not _valid_analysis_id(video_id) or asset not in MEDIA_ASSETS:
+        return jsonify({"success": False, "error": "Invalid media request"}), 400
+
+    upload_folder = os.path.abspath(current_app.config['UPLOAD_FOLDER'])
+    result = load_analysis_result(upload_folder, video_id)
+    if result is None:
+        return jsonify({"success": False, "error": "Result not found"}), 404
+
+    auth_error, status = _authorize_result_context(result)
+    if auth_error:
+        return jsonify(auth_error), status
+
+    media_path = resolve_media_path(upload_folder, result, asset)
+    if media_path is None:
+        return jsonify({"success": False, "error": "Media not found"}), 404
+
+    response = send_from_directory(
+        upload_folder,
+        media_path.name,
+        conditional=True,
+    )
+    response.headers["Accept-Ranges"] = "bytes"
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @bp.route('/analyze-status/<analysis_id>', methods=['GET'])

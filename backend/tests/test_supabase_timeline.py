@@ -20,6 +20,7 @@ def _config():
 
 def _parkicheck_row():
     return {
+        "id": "observation-1",
         "fhir_id": "parkicheck-session-1",
         "code": "UPDRS_3_4",
         "status": "final",
@@ -84,6 +85,8 @@ def test_normalize_parkicheck_row():
     assert item["medication_name"] == "levodopa"
     assert item["medication_dose_mg"] is None
     assert item["has_hawk_i_review"] is True
+    assert item["analysis_id"] == "ft_123"
+    assert item["observation_id"] == "observation-1"
     assert item["observed_at"] == "2026-07-28T10:00:00Z"
 
 

@@ -88,6 +88,13 @@ export interface AnalysisResult {
       delegated?: boolean
     }
   }
+  analysis_trace?: {
+    analysis_id?: string
+    activity_session_id?: string
+    observation_id?: string
+    observation_fhir_id?: string
+    persistence_owner?: string
+  }
   roi: {
     x: number
     y: number
@@ -441,6 +448,17 @@ export async function getAnalysisResult(videoId: string, accessToken?: string): 
   }
 
   return response.json()
+}
+
+export async function establishMediaSession(accessToken: string): Promise<void> {
+  const response = await fetch('/api/media/session', {
+    method: 'POST',
+    headers: bearerHeaders(accessToken),
+    cache: 'no-store',
+  })
+  if (!response.ok) {
+    throw new Error('Failed to establish protected media session')
+  }
 }
 
 export async function getAnalysisProgress(videoId: string): Promise<AnalysisProgress> {
