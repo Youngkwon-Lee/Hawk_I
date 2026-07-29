@@ -8,20 +8,24 @@ const nextConfig: NextConfig = {
 
   // Proxy backend requests to avoid CORS issues with video files
   async rewrites() {
-    return [
-      {
-        source: '/api/backend/:path*',
-        destination: `${backendUrl}/api/:path*`,
-      },
-      {
-        source: '/api/:path*',
-        destination: `${backendUrl}/api/:path*`,
-      },
-      {
-        source: '/files/:path*',
-        destination: `${backendUrl}/files/:path*`,
-      },
-    ]
+    return {
+      // Run these only after Next.js app routes (including /api/media) have
+      // had a chance to match. Array-form rewrites run before dynamic routes.
+      fallback: [
+        {
+          source: '/api/backend/:path*',
+          destination: `${backendUrl}/api/:path*`,
+        },
+        {
+          source: '/api/:path*',
+          destination: `${backendUrl}/api/:path*`,
+        },
+        {
+          source: '/files/:path*',
+          destination: `${backendUrl}/files/:path*`,
+        },
+      ],
+    }
   },
 };
 

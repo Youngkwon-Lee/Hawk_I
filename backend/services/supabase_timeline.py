@@ -20,6 +20,7 @@ from services.supabase_observations import (
 
 OBSERVATION_SELECT = ",".join(
     [
+        "id",
         "fhir_id",
         "code",
         "status",
@@ -71,6 +72,7 @@ def normalize_observation(row: dict[str, Any]) -> dict[str, Any]:
     medication_context = context.get("medication_context")
     medication_context = medication_context if isinstance(medication_context, dict) else {}
     hawk_i = context.get("hawk_i")
+    hawk_i = hawk_i if isinstance(hawk_i, dict) else {}
 
     return {
         "observed_at": row.get("effective_datetime"),
@@ -80,7 +82,8 @@ def normalize_observation(row: dict[str, Any]) -> dict[str, Any]:
         "source_type": row.get("source_type"),
         "app_source": _resolve_app_source(row, context),
         "confidence": context.get("confidence"),
-        "analysis_id": context.get("analysis_id"),
+        "analysis_id": context.get("analysis_id") or hawk_i.get("analysis_id"),
+        "observation_id": row.get("id"),
         "activity_session_id": row.get("activity_session_id"),
         "subject_person_id": row.get("subject_person_id"),
         "fhir_id": row.get("fhir_id"),
@@ -89,7 +92,7 @@ def normalize_observation(row: dict[str, Any]) -> dict[str, Any]:
         "medication_dose_mg": medication_context.get("dose_mg"),
         "medication_taken_at": medication_context.get("taken_at"),
         "hours_after_reported_dose": medication_context.get("hours_before_assessment"),
-        "has_hawk_i_review": isinstance(hawk_i, dict) and bool(hawk_i),
+        "has_hawk_i_review": bool(hawk_i),
     }
 
 

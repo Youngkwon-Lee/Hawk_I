@@ -495,10 +495,15 @@ export default function HistoryPage() {
                         <Clock className="h-3 w-3" />
                         {item.observed_at ? new Date(item.observed_at).toLocaleString('ko-KR') : '시각 미상'}
                       </span>
-                      {item.app_source !== 'parkicheck' && item.analysis_id && (
+                      <div className="basis-full flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-slate-600">
+                        {item.activity_session_id && <span>session: {item.activity_session_id}</span>}
+                        {item.observation_id && <span>observation: {item.observation_id}</span>}
+                        {item.fhir_id && <span>FHIR: {item.fhir_id}</span>}
+                      </div>
+                      {item.analysis_id && (
                         <Link href={`/result?id=${item.analysis_id}`}>
                           <Button variant="outline" size="sm" className="gap-1 border-slate-700 hover:bg-slate-700 h-7 px-2 text-xs">
-                            <Eye className="h-3 w-3" /> 결과
+                            <Eye className="h-3 w-3" /> Hawk I 결과
                           </Button>
                         </Link>
                       )}

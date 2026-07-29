@@ -12,6 +12,7 @@ export interface TimelineItem {
   app_source: "parkicheck" | "hawk_i" | "unknown" | string
   confidence: string | number | null
   analysis_id: string | null
+  observation_id: string | null
   activity_session_id: string | null
   subject_person_id: string | null
   fhir_id: string | null

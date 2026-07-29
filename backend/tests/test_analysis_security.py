@@ -11,6 +11,7 @@ from services.supabase_auth import (
     SupabaseClinicianForbidden,
 )
 from services.supabase_observations import SupabaseObservationConfig
+from services.supabase_observations import SupabaseObservationResult
 
 
 ORG_ID = "11111111-1111-4111-8111-111111111111"
@@ -276,3 +277,43 @@ def test_patient_linked_result_allows_authorized_clinician(tmp_path, monkeypatch
 def test_result_rejects_unsafe_analysis_id(tmp_path):
     response = _app(tmp_path).test_client().get("/api/analysis/result/bad..id")
     assert response.status_code == 400
+
+
+def test_parkicheck_trace_uses_shared_session_and_deterministic_fhir_id():
+    session_id = "66666666-6666-4666-8666-666666666666"
+    trace = analyze.build_analysis_trace(
+        "analysis-123",
+        {"assessment_session_id": session_id},
+        SupabaseObservationResult(
+            enabled=True,
+            saved=False,
+            activity_session_id=session_id,
+            persistence_owner="parkicheck",
+            delegated=True,
+        ),
+    )
+
+    assert trace == {
+        "analysis_id": "analysis-123",
+        "activity_session_id": session_id,
+        "observation_fhir_id": f"parkicheck-{session_id}",
+        "persistence_owner": "parkicheck",
+    }
+
+
+def test_hawk_i_trace_includes_persisted_observation_id():
+    trace = analyze.build_analysis_trace(
+        "analysis-456",
+        {},
+        SupabaseObservationResult(
+            enabled=True,
+            saved=True,
+            observation_id="observation-456",
+            activity_session_id="session-456",
+        ),
+    )
+
+    assert trace["analysis_id"] == "analysis-456"
+    assert trace["activity_session_id"] == "session-456"
+    assert trace["observation_id"] == "observation-456"
+    assert trace["observation_fhir_id"] == "hawkeye-analysis-456"
