@@ -14,6 +14,7 @@ import requests
 from services.supabase_auth import (
     AuthenticatedClinician,
     SupabaseClinicianForbidden,
+    authenticate_person,
     caller_headers,
 )
 from services.supabase_observations import SupabaseObservationConfig, get_supabase_observation_config
@@ -170,6 +171,58 @@ def authorize_physio_subject(
     if activity_session_id:
         context["activity_session_id"] = activity_session_id
     return context
+
+
+def authorize_parkicheck_session(
+    access_token: str,
+    activity_session_id: str,
+    subject_person_id: str | None = None,
+    organization_id: str | None = None,
+    config: SupabaseObservationConfig | None = None,
+) -> dict[str, Any]:
+    """Authorize one ParkiCheck session with the caller JWT and database RLS.
+
+    Unlike Hawk I's clinic workflow, ParkiCheck users can belong to personal
+    organizations. The activity-session row is therefore the canonical source
+    for subject and organization instead of the backend's configured clinic.
+    """
+    config = config or get_supabase_observation_config()
+    if not config:
+        raise PhysioContextError("Supabase context is not configured")
+
+    caller = authenticate_person(access_token, config=config)
+    params = {
+        "select": "id,subject_person_id,organization_id,created_by",
+        "id": f"eq.{activity_session_id}",
+        "limit": "1",
+    }
+    if subject_person_id:
+        params["subject_person_id"] = f"eq.{subject_person_id}"
+    if organization_id:
+        params["organization_id"] = f"eq.{organization_id}"
+
+    sessions = _get_rest(
+        config,
+        caller.access_token,
+        config.activity_sessions_table,
+        params,
+    )
+    if not sessions:
+        raise SupabaseClinicianForbidden("activity session access denied")
+
+    session = sessions[0]
+    canonical_subject_id = str(session.get("subject_person_id") or "").strip()
+    canonical_organization_id = str(session.get("organization_id") or "").strip()
+    if not canonical_subject_id or not canonical_organization_id:
+        raise PhysioContextError("activity session context is incomplete")
+
+    return {
+        "subject_person_id": canonical_subject_id,
+        "organization_id": canonical_organization_id,
+        "created_by_person_id": caller.person_id,
+        "performer_person_id": canonical_subject_id,
+        "activity_session_id": activity_session_id,
+    }
 
 
 def load_physio_subject_context(

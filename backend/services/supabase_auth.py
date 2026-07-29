@@ -49,6 +49,13 @@ class AuthenticatedClinician:
     access_token: str
 
 
+@dataclass(frozen=True)
+class AuthenticatedPerson:
+    user_id: str
+    person_id: str
+    access_token: str
+
+
 def extract_bearer_token(authorization_header: str | None) -> str:
     if not authorization_header:
         raise SupabaseInvalidToken("authentication required")
@@ -103,11 +110,11 @@ def _read_rows(
     return [row for row in payload if isinstance(row, dict)]
 
 
-def authenticate_clinician(
+def authenticate_person(
     access_token: str,
     config: SupabaseObservationConfig | None = None,
-) -> AuthenticatedClinician:
-    """Validate a Supabase user token and require an active clinician role."""
+) -> AuthenticatedPerson:
+    """Validate a Supabase user token and resolve its active person through RLS."""
     config = config or get_supabase_observation_config()
     if config is None:
         raise SupabaseAuthUnavailable("Supabase authentication is not configured")
@@ -149,6 +156,23 @@ def authenticate_clinician(
     if not person_id:
         raise SupabaseClinicianForbidden("active physio_app person not found")
 
+    return AuthenticatedPerson(
+        user_id=user_id,
+        person_id=person_id,
+        access_token=access_token,
+    )
+
+
+def authenticate_clinician(
+    access_token: str,
+    config: SupabaseObservationConfig | None = None,
+) -> AuthenticatedClinician:
+    """Validate a Supabase user token and require an active clinician role."""
+    config = config or get_supabase_observation_config()
+    if config is None:
+        raise SupabaseAuthUnavailable("Supabase authentication is not configured")
+
+    person = authenticate_person(access_token, config=config)
     memberships = _read_rows(
         config,
         access_token,
@@ -156,7 +180,7 @@ def authenticate_clinician(
         {
             "select": "organization_id,person_id,role,status",
             "organization_id": f"eq.{config.organization_id}",
-            "person_id": f"eq.{person_id}",
+            "person_id": f"eq.{person.person_id}",
             "status": "eq.active",
             "deleted_at": "is.null",
             "limit": "1",
@@ -168,8 +192,8 @@ def authenticate_clinician(
         raise SupabaseClinicianForbidden("active clinician membership required")
 
     return AuthenticatedClinician(
-        user_id=user_id,
-        person_id=person_id,
+        user_id=person.user_id,
+        person_id=person.person_id,
         organization_id=config.organization_id,
         role=role,
         access_token=access_token,

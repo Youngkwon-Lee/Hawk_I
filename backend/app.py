@@ -59,6 +59,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Import progress tracker
 from services.progress_tracker import get_progress
+from services.analysis_media import load_analysis_access_record, load_analysis_result
 
 # Import routes
 from routes import analyze, chat, health, timeline, streaming, population_stats, history, vlm, physio_context
@@ -145,6 +146,17 @@ def serve_upload_legacy(filename):
 @app.route('/api/analysis/progress/<video_id>', methods=['GET'])
 def get_analysis_progress(video_id):
     """Get real-time analysis progress for a video"""
+    if not analyze._valid_analysis_id(video_id):
+        return jsonify({"success": False, "error": "Invalid analysis ID"}), 400
+    upload_folder = app.config['UPLOAD_FOLDER']
+    protected_context = (
+        load_analysis_result(upload_folder, video_id)
+        or load_analysis_access_record(upload_folder, video_id)
+    )
+    if protected_context:
+        auth_error, status = analyze._authorize_result_context(protected_context)
+        if auth_error:
+            return jsonify(auth_error), status
     progress = get_progress(video_id)
     return jsonify(progress)
 

@@ -52,6 +52,12 @@ def load_analysis_result(upload_folder: str, analysis_id: str) -> dict[str, Any]
     return _load_json(Path(upload_folder).resolve() / f"{analysis_id}_result.json")
 
 
+def load_analysis_access_record(upload_folder: str, analysis_id: str) -> dict[str, Any] | None:
+    if not ANALYSIS_ID_PATTERN.fullmatch(analysis_id) or ".." in analysis_id:
+        return None
+    return _load_json(Path(upload_folder).resolve() / f"{analysis_id}_access.json")
+
+
 def _field_value(result: dict[str, Any], section: str, field: str) -> str | None:
     payload = result.get(section)
     payload = payload if isinstance(payload, dict) else {}
@@ -128,17 +134,34 @@ def write_analysis_access_record(
     """Write protection metadata before patient media becomes reachable."""
     context = physio_context if isinstance(physio_context, dict) else {}
     subject_id = context.get("subject_person_id")
+    activity_session_id = context.get("activity_session_id")
+    is_parkicheck = context.get("persistence_owner") == "parkicheck"
     if not isinstance(subject_id, str) or not subject_id.strip():
+        if (
+            not is_parkicheck
+            or not isinstance(activity_session_id, str)
+            or not activity_session_id.strip()
+        ):
+            return
+
+    protected_context = {
+        key: context.get(key)
+        for key in (
+            "subject_person_id",
+            "organization_id",
+            "activity_session_id",
+            "persistence_owner",
+        )
+        if context.get(key)
+    }
+    if not protected_context:
         return
 
     folder = Path(upload_folder).resolve()
     access_path = folder / f"{analysis_id}_access.json"
     payload = {
         "analysis_id": analysis_id,
-        "physio_context": {
-            "subject_person_id": subject_id.strip(),
-            "organization_id": context.get("organization_id"),
-        },
+        "physio_context": protected_context,
     }
     access_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     access_path.chmod(0o600)
@@ -148,7 +171,14 @@ def _is_patient_linked(result: dict[str, Any]) -> bool:
     context = result.get("physio_context")
     context = context if isinstance(context, dict) else {}
     subject_id = context.get("subject_person_id")
-    return isinstance(subject_id, str) and bool(subject_id.strip())
+    if isinstance(subject_id, str) and bool(subject_id.strip()):
+        return True
+    activity_session_id = context.get("activity_session_id")
+    return (
+        context.get("persistence_owner") == "parkicheck"
+        and isinstance(activity_session_id, str)
+        and bool(activity_session_id.strip())
+    )
 
 
 def classify_direct_file_access(upload_folder: str, filename: str) -> FileAccessDecision:
