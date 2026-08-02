@@ -120,3 +120,81 @@ def test_load_predictions_reports_bad_lines_without_dropping_good_ones():
 def test_severity_mapping_covers_updrs_range():
     for score, expected in [(0, "Normal"), (1, "Slight"), (2, "Mild"), (3, "Moderate"), (4, "Severe")]:
         assert prediction_ingest._severity(score) == expected
+
+
+def _ontology_prediction(**overrides):
+    base = {
+        "clip_id": "PD4T_S12_gait_03",
+        "task": "gait",
+        "dataset": "PD4T",
+        "split": "test",
+        "model": "qwen3-vl-4b-c3",
+        "condition": "C3",
+        "quality_gate": {"status": "pass", "reasons": []},
+        "primitives": {
+            "gait_speed_reduction": {
+                "observability": "observed",
+                "severity": 2,
+                "confidence": "medium",
+                "evidence": [{"start_sec": 2.1, "end_sec": 5.4}],
+            },
+            "freezing_of_gait": {
+                "observability": "unobservable",
+                "severity": None,
+                "confidence": "high",
+            },
+        },
+        "score_anchor": {"updrs_3_10": 2, "source": "trusted_import", "confidence": "medium"},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_ontology_prediction_carries_primitives_and_anchor_score():
+    result = prediction_to_result(_ontology_prediction())
+
+    assert result["updrs_score"]["total_score"] == 2
+    assert result["updrs_score"]["details"]["score_anchor_source"] == "trusted_import"
+    assert result["primitives"]["gait_speed_reduction"]["severity"] == 2
+    assert "gait_speed_reduction 2단계" in result["ai_interpretation"]["summary"]
+
+
+def test_unobserved_primitive_must_not_carry_severity():
+    bad = _ontology_prediction()
+    bad["primitives"]["freezing_of_gait"]["severity"] = 0
+    with pytest.raises(PredictionValidationError) as exc:
+        prediction_to_result(bad)
+    assert "not visible is not the same as normal" in str(exc.value)
+
+
+def test_positive_finding_requires_evidence_span():
+    bad = _ontology_prediction()
+    bad["primitives"]["gait_speed_reduction"].pop("evidence")
+    with pytest.raises(PredictionValidationError) as exc:
+        prediction_to_result(bad)
+    assert "evidence span" in str(exc.value)
+
+
+def test_held_clip_is_accepted_without_a_score():
+    held = _ontology_prediction(
+        quality_gate={"status": "hold", "reasons": ["body_occluded"], "note": "하반신 가려짐"},
+        primitives={"gait_speed_reduction": {"observability": "uncertain", "severity": None, "confidence": "low"}},
+        score_anchor={"updrs_3_10": None, "source": "not_scored", "confidence": "not_scored"},
+    )
+    result = prediction_to_result(held)
+
+    assert result["updrs_score"]["total_score"] is None
+    assert result["performability_assessment"]["status"] == "hold"
+    assert result["score_advisory"]["summary"] == "body_occluded"
+
+
+def test_v1_flat_format_still_works():
+    result = prediction_to_result(_prediction())
+    assert result["updrs_score"]["total_score"] == 2
+    assert result["ai_interpretation"]["summary"].startswith("보폭")
+
+
+def test_primitives_and_quality_gate_reach_the_observation_row():
+    row = attach_research_provenance({"measurement_context": {}}, _ontology_prediction())
+    assert row["measurement_context"]["primitives"]["gait_speed_reduction"]["severity"] == 2
+    assert row["measurement_context"]["quality_gate"]["status"] == "pass"
