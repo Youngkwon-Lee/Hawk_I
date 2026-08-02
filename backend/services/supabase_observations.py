@@ -387,6 +387,9 @@ def build_observation_row(
         "score_confidence": score_payload.get("confidence"),
         "severity": score_payload.get("severity"),
         "score_details": score_payload.get("details"),
+        # The narrative finding is what a clinician reads first; without it the
+        # timeline can only show a bare number.
+        "ai_interpretation": result.get("ai_interpretation"),
         "metrics": result.get("metrics"),
         "performability_assessment": result.get("performability_assessment"),
         "score_advisory": result.get("score_advisory"),

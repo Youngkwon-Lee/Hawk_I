@@ -8,6 +8,7 @@ local file-based analyses.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -74,14 +75,25 @@ def normalize_observation(row: dict[str, Any]) -> dict[str, Any]:
     hawk_i = context.get("hawk_i")
     hawk_i = hawk_i if isinstance(hawk_i, dict) else {}
 
+    metrics = context.get("metrics")
+    metrics = metrics if isinstance(metrics, dict) else {}
+    interpretation = context.get("ai_interpretation")
+    interpretation = interpretation if isinstance(interpretation, dict) else {}
+    advisory = context.get("score_advisory")
+    advisory = advisory if isinstance(advisory, dict) else {}
+    performability = context.get("performability_assessment")
+    performability = performability if isinstance(performability, dict) else {}
+
     return {
         "observed_at": row.get("effective_datetime"),
         "code": row.get("code"),
         "status": row.get("status"),
         "score": score,
+        "severity": context.get("severity"),
         "source_type": row.get("source_type"),
         "app_source": _resolve_app_source(row, context),
         "confidence": context.get("confidence"),
+        "score_confidence": context.get("score_confidence"),
         "analysis_id": context.get("analysis_id") or hawk_i.get("analysis_id"),
         "observation_id": row.get("id"),
         "activity_session_id": row.get("activity_session_id"),
@@ -93,6 +105,17 @@ def normalize_observation(row: dict[str, Any]) -> dict[str, Any]:
         "medication_taken_at": medication_context.get("taken_at"),
         "hours_after_reported_dose": medication_context.get("hours_before_assessment"),
         "has_hawk_i_review": bool(hawk_i),
+        # Quantitative evidence: kinematic measurements behind the score.
+        "metrics": metrics,
+        # Qualitative evidence: the narrative finding a clinician reads first.
+        "rationale": interpretation.get("summary") or interpretation.get("explanation"),
+        # Whether the score may be relied on at all, kept separate from the score.
+        "score_advisory_level": advisory.get("level"),
+        "score_advisory_summary": advisory.get("summary"),
+        "performability_status": performability.get("status"),
+        # Provenance so a clinician can tell which pipeline produced this.
+        "scoring_method": context.get("scoring_method"),
+        "model_type": context.get("ml_model_type"),
     }
 
 
@@ -119,6 +142,64 @@ def normalize_medication_statement(row: dict[str, Any]) -> dict[str, Any]:
         "subject_person_id": row.get("subject_person_id"),
         "app_source": app_source.strip(),
     }
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def attach_dose_context(
+    observations: list[dict[str, Any]],
+    medications: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Link each assessment to the most recent dose reported before it.
+
+    A single score is not interpretable without knowing where in the dose cycle
+    it was captured, so the elapsed time is reported as a plain fact. No ON/OFF
+    state, drug effect, next-dose time, or causal claim is inferred - that
+    boundary is a project rule, and the temporal accuracy of such labels is not
+    supported at this granularity.
+    """
+    taken = [
+        (parsed, dose)
+        for dose in medications
+        if (parsed := _parse_iso(dose.get("observed_at"))) is not None
+    ]
+    taken.sort(key=lambda pair: pair[0])
+
+    for observation in observations:
+        observed_at = _parse_iso(observation.get("observed_at"))
+        previous = None
+        if observed_at is not None:
+            for dose_time, dose in taken:
+                if dose_time <= observed_at:
+                    previous = (dose_time, dose)
+                else:
+                    break
+
+        if previous is None:
+            observation["last_dose_at"] = None
+            observation["hours_since_last_dose"] = None
+            observation["last_dose_medication"] = None
+            observation["last_dose_mg"] = None
+            continue
+
+        dose_time, dose = previous
+        elapsed_hours = (observed_at - dose_time).total_seconds() / 3600
+        observation["last_dose_at"] = dose.get("observed_at")
+        observation["hours_since_last_dose"] = round(elapsed_hours, 2)
+        observation["last_dose_medication"] = (
+            dose.get("medication_display") or dose.get("medication_code")
+        )
+        observation["last_dose_mg"] = dose.get("dose_mg")
+
+    return observations
 
 
 def fetch_timeline(

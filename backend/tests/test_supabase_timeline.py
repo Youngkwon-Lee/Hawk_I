@@ -192,3 +192,92 @@ def test_fetch_medication_statements_queries_subject_and_normalizes(monkeypatch)
     assert captured["params"]["organization_id"] == "eq.org-1"
     assert captured["headers"]["Authorization"] == "Bearer caller-token"
     assert items[0]["medication_display"] == "레보도파"
+
+
+def _rich_hawk_i_row():
+    row = _hawk_i_row()
+    row["measurement_context"].update(
+        {
+            "severity": "Mild",
+            "score_confidence": 0.7,
+            "scoring_method": "coral",
+            "ml_model_type": "rf",
+            "metrics": {"gait_speed": 0.82, "stride_length": 0.94},
+            "ai_interpretation": {
+                "summary": "보폭 감소와 팔 흔들림 저하가 관찰됨",
+                "explanation": "긴 설명",
+            },
+            "score_advisory": {"level": "review_recommended", "summary": "조명 불량"},
+            "performability_assessment": {"status": "analyzable"},
+        }
+    )
+    return row
+
+
+def test_normalize_exposes_quantitative_and_qualitative_evidence():
+    item = supabase_timeline.normalize_observation(_rich_hawk_i_row())
+
+    assert item["metrics"] == {"gait_speed": 0.82, "stride_length": 0.94}
+    assert item["rationale"] == "보폭 감소와 팔 흔들림 저하가 관찰됨"
+    assert item["severity"] == "Mild"
+    assert item["score_confidence"] == 0.7
+    assert item["score_advisory_level"] == "review_recommended"
+    assert item["score_advisory_summary"] == "조명 불량"
+    assert item["performability_status"] == "analyzable"
+    assert item["scoring_method"] == "coral"
+    assert item["model_type"] == "rf"
+
+
+def test_normalize_falls_back_to_explanation_and_tolerates_missing_evidence():
+    row = _rich_hawk_i_row()
+    row["measurement_context"]["ai_interpretation"] = {"explanation": "설명만 있음"}
+    assert supabase_timeline.normalize_observation(row)["rationale"] == "설명만 있음"
+
+    bare = supabase_timeline.normalize_observation(_hawk_i_row())
+    assert bare["metrics"] == {}
+    assert bare["rationale"] is None
+    assert bare["score_advisory_level"] is None
+
+
+def test_attach_dose_context_links_most_recent_prior_dose():
+    observations = [
+        {"observed_at": "2026-08-03T09:30:00Z"},
+        {"observed_at": "2026-08-03T14:00:00Z"},
+    ]
+    medications = [
+        {"observed_at": "2026-08-03T13:00:00Z", "medication_display": "레보도파", "dose_mg": 125},
+        {"observed_at": "2026-08-03T08:00:00Z", "medication_display": "레보도파", "dose_mg": 100},
+    ]
+
+    supabase_timeline.attach_dose_context(observations, medications)
+
+    assert observations[0]["last_dose_at"] == "2026-08-03T08:00:00Z"
+    assert observations[0]["hours_since_last_dose"] == 1.5
+    assert observations[0]["last_dose_mg"] == 100
+    assert observations[1]["last_dose_at"] == "2026-08-03T13:00:00Z"
+    assert observations[1]["hours_since_last_dose"] == 1.0
+    assert observations[1]["last_dose_medication"] == "레보도파"
+
+
+def test_attach_dose_context_leaves_null_when_no_prior_dose():
+    observations = [{"observed_at": "2026-08-03T07:00:00Z"}, {"observed_at": None}]
+    medications = [{"observed_at": "2026-08-03T08:00:00Z", "dose_mg": 100}]
+
+    supabase_timeline.attach_dose_context(observations, medications)
+
+    for observation in observations:
+        assert observation["last_dose_at"] is None
+        assert observation["hours_since_last_dose"] is None
+
+
+def test_attach_dose_context_ignores_unparseable_timestamps():
+    observations = [{"observed_at": "2026-08-03T10:00:00Z"}]
+    medications = [
+        {"observed_at": "not-a-date", "dose_mg": 50},
+        {"observed_at": "2026-08-03T09:00:00Z", "dose_mg": 100},
+    ]
+
+    supabase_timeline.attach_dose_context(observations, medications)
+
+    assert observations[0]["hours_since_last_dose"] == 1.0
+    assert observations[0]["last_dose_mg"] == 100
