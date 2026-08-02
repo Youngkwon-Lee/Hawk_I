@@ -22,6 +22,57 @@ export interface TimelineItem {
   medication_taken_at: string | null
   hours_after_reported_dose: number | null
   has_hawk_i_review: boolean
+  // Quantitative evidence: kinematic measurements behind the score.
+  metrics: Record<string, number | string | null>
+  // Qualitative evidence: the narrative finding a clinician reads first.
+  rationale: string | null
+  severity: string | null
+  score_confidence: number | string | null
+  // Whether the score may be relied on at all, kept separate from the score.
+  score_advisory_level: string | null
+  score_advisory_summary: string | null
+  performability_status: string | null
+  scoring_method: string | null
+  model_type: string | null
+  // Where in the dose cycle this assessment was captured.
+  last_dose_at: string | null
+  hours_since_last_dose: number | null
+  last_dose_medication: string | null
+  last_dose_mg: number | null
+}
+
+// Kinematic labels a clinician reads, rather than raw field names.
+export const METRIC_LABELS: Record<string, string> = {
+  gait_speed: '보행 속도',
+  stride_length: '보폭',
+  cadence: '분당 걸음수',
+  step_length: '걸음 길이',
+  arm_swing: '팔 흔들림',
+  arm_swing_asymmetry: '팔 흔들림 비대칭',
+  tapping_speed: '두드리기 속도',
+  tapping_frequency: '두드리기 빈도',
+  amplitude: '진폭',
+  max_amplitude: '최대 진폭',
+  amplitude_decrement: '진폭 감소',
+  fatigue_rate: '피로도',
+  rhythm_variability: '리듬 변동성',
+  iti_cv: '박자 간격 변동성',
+}
+
+// levodopa improves speed-type measures but not rhythm, decrement, or the
+// sequence effect (Espay 2011; Bologna 2020). Mixing them hides whether the
+// medication is working, so they are shown as separate groups.
+const DOSE_RESISTANT_METRICS = [
+  'rhythm', 'iti', 'variability', 'decrement', 'fatigue', 'sequence', 'arrest', 'halt', 'hesitat',
+]
+
+export function isDoseResistantMetric(key: string): boolean {
+  const normalized = key.toLowerCase()
+  return DOSE_RESISTANT_METRICS.some((token) => normalized.includes(token))
+}
+
+export function metricLabel(key: string): string {
+  return METRIC_LABELS[key] || key.replace(/_/g, ' ')
 }
 
 export interface MedicationEvent {
