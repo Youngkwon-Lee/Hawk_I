@@ -23,7 +23,7 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell, ScatterChart, Scatter
+  BarChart, Bar, Cell, ScatterChart, Scatter, ComposedChart
 } from 'recharts'
 
 // Severity color mapping
@@ -69,6 +69,28 @@ export default function HistoryPage() {
   const [timelineLoading, setTimelineLoading] = React.useState(false)
   const [timelineError, setTimelineError] = React.useState<string | null>(null)
   const [expandedItems, setExpandedItems] = React.useState<Set<string>>(new Set())
+
+  // Score trend over calendar time, with doses on the same time axis but their
+  // own hidden value axis - a dose has no score, so it must not share the scale.
+  const trendPoints = React.useMemo(
+    () => timeline
+      .filter((item) => item.observed_at && typeof item.score === 'number')
+      .map((item) => ({ t: new Date(item.observed_at as string).getTime(), score: item.score as number }))
+      .sort((left, right) => left.t - right.t),
+    [timeline]
+  )
+
+  const doseMarkers = React.useMemo(
+    () => timelineMedications
+      .filter((medication) => medication.observed_at)
+      .map((medication) => ({
+        t: new Date(medication.observed_at as string).getTime(),
+        lane: 0.5,
+        label: medication.medication_display || medication.medication_code || '복약',
+      }))
+      .sort((left, right) => left.t - right.t),
+    [timelineMedications]
+  )
 
   // "When is it bad?" and "is the medication working?" are different questions.
   // This series answers the second by re-basing each assessment on its dose.
@@ -484,6 +506,45 @@ export default function HistoryPage() {
                     </div>
                   )}
                   <div className="space-y-2">
+                  {trendPoints.length >= 2 && (
+                    <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
+                      <p className="text-sm font-medium text-slate-200">시간대별 추이와 복약</p>
+                      <p className="text-xs text-slate-500 mb-3">
+                        위쪽은 검사 점수, 아래쪽 눈금은 복약 시각입니다. 복약은 점수 축을 공유하지 않습니다.
+                      </p>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <ComposedChart margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                          <XAxis
+                            type="number" dataKey="t" domain={['dataMin', 'dataMax']}
+                            scale="time" stroke="#64748b" fontSize={11}
+                            tickFormatter={(value: number) =>
+                              new Date(value).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                          />
+                          <YAxis yAxisId="score" domain={[0, 4]} stroke="#64748b" fontSize={11} width={28} />
+                          <YAxis yAxisId="dose" domain={[0, 1]} hide />
+                          <Tooltip
+                            contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                            labelFormatter={(value: number) => new Date(value).toLocaleString('ko-KR')}
+                            formatter={(value: number, name: string) =>
+                              name === 'lane' ? ['복약', ''] : [value, '점수']}
+                          />
+                          <Line
+                            yAxisId="score" data={trendPoints} dataKey="score" type="monotone"
+                            stroke="#38bdf8" strokeWidth={2} dot={{ r: 3, fill: '#38bdf8' }}
+                          />
+                          <Scatter
+                            yAxisId="dose" data={doseMarkers} dataKey="lane"
+                            fill="#fbbf24" shape="cross"
+                          />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        노란 눈금 = 환자가 보고한 복약 {doseMarkers.length}건
+                      </p>
+                    </div>
+                  )}
+
                   {doseAlignedPoints.length >= 2 && (
                     <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
                       <p className="text-sm font-medium text-slate-200">복약 기준 정렬</p>
