@@ -119,6 +119,31 @@ def normalize_observation(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# A prescribed dose and a dose the patient reports taking answer different
+# clinical questions, and the gap between them (a missed dose) is only visible
+# if they stay distinct. FHIR MedicationStatement.status carries the split:
+# "intended" is planned, "completed" is taken.
+SCHEDULED_STATUSES = frozenset({"intended", "not-taken"})
+TAKEN_STATUSES = frozenset({"completed", "active"})
+
+
+def _medication_event_kind(row: dict[str, Any], dosage: dict[str, Any]) -> str:
+    event_type = dosage.get("event_type")
+    if isinstance(event_type, str):
+        normalized = event_type.strip().lower()
+        if "schedul" in normalized or "planned" in normalized:
+            return "scheduled"
+        if "dose" in normalized or "taken" in normalized or "intake" in normalized:
+            return "taken"
+
+    status = str(row.get("status") or "").strip().lower()
+    if status in SCHEDULED_STATUSES:
+        return "scheduled"
+    if status in TAKEN_STATUSES:
+        return "taken"
+    return "unknown"
+
+
 def normalize_medication_statement(row: dict[str, Any]) -> dict[str, Any]:
     dosage = row.get("dosage")
     dosage = dosage if isinstance(dosage, dict) else {}
@@ -134,6 +159,7 @@ def normalize_medication_statement(row: dict[str, Any]) -> dict[str, Any]:
         "event_id": row.get("fhir_id"),
         "observed_at": row.get("effective_start") or row.get("date_asserted"),
         "status": row.get("status"),
+        "event_kind": _medication_event_kind(row, dosage),
         "medication_code": row.get("medication_code"),
         "medication_display": row.get("medication_display"),
         "dose_mg": dosage.get("dose_mg"),

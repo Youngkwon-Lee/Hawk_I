@@ -156,6 +156,7 @@ def test_normalize_medication_statement_uses_patient_reported_dose():
         "event_id": "parkicheck-medication-med-1",
         "observed_at": "2026-07-28T08:00:00Z",
         "status": "completed",
+        "event_kind": "taken",
         "medication_code": "LEVODOPA",
         "medication_display": "레보도파",
         "dose_mg": 125,
@@ -281,3 +282,25 @@ def test_attach_dose_context_ignores_unparseable_timestamps():
 
     assert observations[0]["hours_since_last_dose"] == 1.0
     assert observations[0]["last_dose_mg"] == 100
+
+
+def test_medication_event_kind_distinguishes_scheduled_from_taken():
+    scheduled = _medication_row()
+    scheduled["status"] = "intended"
+    scheduled["dosage"] = {**scheduled["dosage"], "event_type": "scheduled_dose"}
+    assert supabase_timeline.normalize_medication_statement(scheduled)["event_kind"] == "scheduled"
+
+    taken = _medication_row()
+    assert supabase_timeline.normalize_medication_statement(taken)["event_kind"] == "taken"
+
+
+def test_medication_event_kind_falls_back_to_status_then_unknown():
+    by_status = _medication_row()
+    by_status["dosage"] = {"dose_mg": 100, "unit": "mg"}
+    by_status["status"] = "intended"
+    assert supabase_timeline.normalize_medication_statement(by_status)["event_kind"] == "scheduled"
+
+    unknown = _medication_row()
+    unknown["dosage"] = {"dose_mg": 100, "unit": "mg"}
+    unknown["status"] = "entered-in-error"
+    assert supabase_timeline.normalize_medication_statement(unknown)["event_kind"] == "unknown"
