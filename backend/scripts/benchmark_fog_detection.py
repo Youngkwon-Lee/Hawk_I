@@ -75,19 +75,31 @@ def sample_frames(video_path: str, max_frames: int) -> tuple[list[str], float]:
     return frames, duration
 
 
-def ask_model(api_base: str, api_key: str, model: str, prompt: str, frames: list[str], timeout: float) -> str:
+def ask_model(
+    api_base: str, api_key: str, model: str, prompt: str, frames: list[str],
+    timeout: float, temperature: float | None = None,
+) -> str:
     import requests
 
     content: list[dict] = [{"type": "text", "text": prompt}]
     for frame in frames:
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frame}"}})
 
+    payload: dict = {"model": model, "messages": [{"role": "user", "content": content}]}
+    # Newer reasoning models reject a temperature override, so it is only sent
+    # when the caller explicitly asks for one.
+    if temperature is not None:
+        payload["temperature"] = temperature
+
     response = requests.post(
         f"{api_base.rstrip('/')}/chat/completions",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": [{"role": "user", "content": content}], "temperature": 0},
+        json=payload,
         timeout=timeout,
     )
+    if response.status_code >= 400:
+        detail = response.text[:300]
+        raise RuntimeError(f"{response.status_code} from {model}: {detail}")
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
@@ -102,7 +114,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     parser.add_argument("--max-frames", type=int, default=16)
     parser.add_argument("--limit", type=int)
-    parser.add_argument("--timeout", type=float, default=120)
+    parser.add_argument("--timeout", type=float, default=300)
+    parser.add_argument("--temperature", type=float,
+                        help="only sent if given; several newer models reject any override")
     parser.add_argument("--send", action="store_true", help="actually call the model (default is a dry run)")
     parser.add_argument("--data-use-approved", action="store_true",
                         help="confirm the dataset's terms allow sending video to this endpoint")
@@ -160,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
                 frames, duration = sample_frames(str(path), args.max_frames)
                 reply = ask_model(
                     args.api_base, api_key, args.model,
-                    build_prompt(duration, len(frames)), frames, args.timeout,
+                    build_prompt(duration, len(frames)), frames, args.timeout, args.temperature,
                 )
                 intervals = parse_freezing_response(reply, duration_sec=duration)
                 record = build_prediction_record(
