@@ -16,11 +16,14 @@ import {
   getHistory, getHistoryStats, deleteAnalysis, formatVideoType, getPhysioSubjects,
   type HistoryItem, type HistoryStats, type HistoryFilters, type PhysioSubjectsResponse
 } from "@/lib/services/api"
-import { getUnifiedTimeline, type MedicationEvent, type TimelineItem } from "@/lib/services/timeline"
+import {
+  getUnifiedTimeline, isDoseResistantMetric, metricLabel,
+  type MedicationEvent, type TimelineItem
+} from "@/lib/services/timeline"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell
+  BarChart, Bar, Cell, ScatterChart, Scatter, ComposedChart
 } from 'recharts'
 
 // Severity color mapping
@@ -65,6 +68,43 @@ export default function HistoryPage() {
   const [timelineEnabled, setTimelineEnabled] = React.useState<boolean | null>(null)
   const [timelineLoading, setTimelineLoading] = React.useState(false)
   const [timelineError, setTimelineError] = React.useState<string | null>(null)
+  const [expandedItems, setExpandedItems] = React.useState<Set<string>>(new Set())
+
+  // Score trend over calendar time, with doses on the same time axis but their
+  // own hidden value axis - a dose has no score, so it must not share the scale.
+  const trendPoints = React.useMemo(
+    () => timeline
+      .filter((item) => item.observed_at && typeof item.score === 'number')
+      .map((item) => ({ t: new Date(item.observed_at as string).getTime(), score: item.score as number }))
+      .sort((left, right) => left.t - right.t),
+    [timeline]
+  )
+
+  const doseMarkers = React.useMemo(
+    () => timelineMedications
+      .filter((medication) => medication.observed_at)
+      .map((medication) => ({
+        t: new Date(medication.observed_at as string).getTime(),
+        lane: 0.5,
+        label: medication.medication_display || medication.medication_code || '복약',
+      }))
+      .sort((left, right) => left.t - right.t),
+    [timelineMedications]
+  )
+
+  // "When is it bad?" and "is the medication working?" are different questions.
+  // This series answers the second by re-basing each assessment on its dose.
+  const doseAlignedPoints = React.useMemo(
+    () => timeline
+      .filter((item) => item.hours_since_last_dose !== null && typeof item.score === 'number')
+      .map((item) => ({
+        hours: item.hours_since_last_dose as number,
+        score: item.score as number,
+        source: item.app_source,
+      }))
+      .sort((left, right) => left.hours - right.hours),
+    [timeline]
+  )
 
   React.useEffect(() => {
     const supabase = getSupabaseBrowserClient()
@@ -466,49 +506,199 @@ export default function HistoryPage() {
                     </div>
                   )}
                   <div className="space-y-2">
-                  {timeline.map((item, idx) => (
+                  {trendPoints.length >= 2 && (
+                    <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
+                      <p className="text-sm font-medium text-slate-200">시간대별 추이와 복약</p>
+                      <p className="text-xs text-slate-500 mb-3">
+                        위쪽은 검사 점수, 아래쪽 눈금은 복약 시각입니다. 복약은 점수 축을 공유하지 않습니다.
+                      </p>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <ComposedChart margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                          <XAxis
+                            type="number" dataKey="t" domain={['dataMin', 'dataMax']}
+                            scale="time" stroke="#64748b" fontSize={11}
+                            tickFormatter={(value: number) =>
+                              new Date(value).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                          />
+                          <YAxis yAxisId="score" domain={[0, 4]} stroke="#64748b" fontSize={11} width={28} />
+                          <YAxis yAxisId="dose" domain={[0, 1]} hide />
+                          <Tooltip
+                            contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                            labelFormatter={(value: number) => new Date(value).toLocaleString('ko-KR')}
+                            formatter={(value: number, name: string) =>
+                              name === 'lane' ? ['복약', ''] : [value, '점수']}
+                          />
+                          <Line
+                            yAxisId="score" data={trendPoints} dataKey="score" type="monotone"
+                            stroke="#38bdf8" strokeWidth={2} dot={{ r: 3, fill: '#38bdf8' }}
+                          />
+                          <Scatter
+                            yAxisId="dose" data={doseMarkers} dataKey="lane"
+                            fill="#fbbf24" shape="cross"
+                          />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        노란 눈금 = 환자가 보고한 복약 {doseMarkers.length}건
+                      </p>
+                    </div>
+                  )}
+
+                  {doseAlignedPoints.length >= 2 && (
+                    <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
+                      <p className="text-sm font-medium text-slate-200">복약 기준 정렬</p>
+                      <p className="text-xs text-slate-500 mb-3">
+                        마지막 복약 이후 경과 시간에 따른 점수입니다. 약효나 ON/OFF 상태를 추정하지 않고 관측값만 표시합니다.
+                      </p>
+                      <ResponsiveContainer width="100%" height={180}>
+                        <ScatterChart margin={{ top: 8, right: 12, bottom: 20, left: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                          <XAxis
+                            type="number" dataKey="hours" name="복약 후 경과"
+                            unit="h" stroke="#64748b" fontSize={11}
+                            label={{ value: '복약 후 경과 시간(h)', position: 'insideBottom', offset: -12, fill: '#64748b', fontSize: 11 }}
+                          />
+                          <YAxis
+                            type="number" dataKey="score" name="점수"
+                            domain={[0, 4]} stroke="#64748b" fontSize={11}
+                          />
+                          <Tooltip
+                            contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                            formatter={(value: number, name: string) => [value, name === 'hours' ? '복약 후(h)' : '점수']}
+                          />
+                          <Scatter data={doseAlignedPoints} fill="#38bdf8" />
+                        </ScatterChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+
+                  {timeline.map((item, idx) => {
+                    const key = item.fhir_id || String(idx)
+                    const isOpen = expandedItems.has(key)
+                    const metricEntries = Object.entries(item.metrics || {}).filter(
+                      ([, value]) => value !== null && value !== undefined && value !== ''
+                    )
+                    const doseResponsive = metricEntries.filter(([name]) => !isDoseResistantMetric(name))
+                    const doseResistant = metricEntries.filter(([name]) => isDoseResistantMetric(name))
+                    const onHold = item.performability_status === 'hold' || item.score === null
+
+                    return (
                     <div
-                      key={item.fhir_id || idx}
-                      className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-slate-800/40 border border-slate-700/50"
+                      key={key}
+                      className="p-3 rounded-lg bg-slate-800/40 border border-slate-700/50 space-y-2"
                     >
-                      <span
-                        className={cn(
-                          "text-xs px-2 py-1 rounded-full border font-medium",
-                          item.app_source === 'parkicheck'
-                            ? "text-sky-400 bg-sky-500/10 border-sky-500/30"
-                            : "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span
+                          className={cn(
+                            "text-xs px-2 py-1 rounded-full border font-medium",
+                            item.app_source === 'parkicheck'
+                              ? "text-sky-400 bg-sky-500/10 border-sky-500/30"
+                              : "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                          )}
+                        >
+                          {item.app_source === 'parkicheck' ? 'ParkiCheck 검사' : 'Hawk I AI 분석'}
+                        </span>
+                        <span className="text-sm text-slate-300">{item.code || '—'}</span>
+                        {item.hours_since_last_dose !== null && item.hours_since_last_dose !== undefined && (
+                          <span className="text-xs px-2 py-1 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-200">
+                            복약 {item.hours_since_last_dose}시간 후
+                            {item.last_dose_medication ? ` · ${item.last_dose_medication}` : ''}
+                            {item.last_dose_mg !== null && item.last_dose_mg !== undefined ? ` ${item.last_dose_mg}mg` : ''}
+                          </span>
                         )}
-                      >
-                        {item.app_source === 'parkicheck' ? 'ParkiCheck 검사' : 'Hawk I AI 분석'}
-                      </span>
-                      <span className="text-sm text-slate-300">{item.code || '—'}</span>
-                      <span className="text-sm font-semibold text-white">
-                        {item.score !== null && item.score !== undefined ? `점수 ${item.score}` : '점수 없음'}
-                      </span>
-                      {item.confidence !== null && item.confidence !== undefined && (
-                        <span className="text-xs text-slate-500">신뢰도 {String(item.confidence)}</span>
+                        <span className="text-xs text-slate-500 ml-auto flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {item.observed_at ? new Date(item.observed_at).toLocaleString('ko-KR') : '시각 미상'}
+                        </span>
+                      </div>
+
+                      {/* Observation before score: a narrative finding is what a
+                          clinician can verify; a bare number invites overreliance. */}
+                      {item.rationale ? (
+                        <p className="text-sm text-slate-200 leading-relaxed">{item.rationale}</p>
+                      ) : (
+                        <p className="text-sm text-slate-600 italic">관찰 근거가 기록되지 않았습니다</p>
                       )}
-                      {item.has_medication_context && (
-                        <span className="text-xs text-amber-400/80">복약 기록됨</span>
+
+                      {onHold && (
+                        <p className="text-xs text-amber-300/90">
+                          판정 보류 — 자동 점수를 산출하지 않았습니다
+                          {item.score_advisory_summary ? ` (${item.score_advisory_summary})` : ''}
+                        </p>
                       )}
-                      <span className="text-xs text-slate-500 ml-auto flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {item.observed_at ? new Date(item.observed_at).toLocaleString('ko-KR') : '시각 미상'}
-                      </span>
-                      <div className="basis-full flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-slate-600">
+
+                      {metricEntries.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedItems((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(key)) next.delete(key); else next.add(key)
+                            return next
+                          })}
+                          aria-expanded={isOpen}
+                          className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"
+                        >
+                          <ChevronDown className={cn("h-3 w-3 transition-transform", isOpen && "rotate-180")} />
+                          정량 지표 {metricEntries.length}개
+                        </button>
+                      )}
+
+                      {isOpen && (
+                        <div className="grid gap-3 sm:grid-cols-2 pt-1">
+                          {[
+                            { title: '약물 반응성 지표', entries: doseResponsive, hint: '복약으로 개선될 수 있음' },
+                            { title: '약물 저항성 지표', entries: doseResistant, hint: '복약과 무관하게 유지되는 경향' },
+                          ].filter((group) => group.entries.length > 0).map((group) => (
+                            <div key={group.title} className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-3">
+                              <p className="text-xs font-medium text-slate-300">{group.title}</p>
+                              <p className="text-[10px] text-slate-500 mb-2">{group.hint}</p>
+                              <dl className="space-y-1">
+                                {group.entries.map(([name, value]) => (
+                                  <div key={name} className="flex justify-between gap-3 text-xs">
+                                    <dt className="text-slate-400">{metricLabel(name)}</dt>
+                                    <dd className="text-slate-200 font-mono">
+                                      {typeof value === 'number' ? value.toFixed(2) : String(value)}
+                                    </dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-slate-700/40">
+                        <span className="text-xs text-slate-400">
+                          {item.score !== null && item.score !== undefined ? (
+                            <>점수 <span className="text-slate-200 font-semibold">{item.score}</span>{item.severity ? ` · ${item.severity}` : ''}</>
+                          ) : '점수 없음'}
+                        </span>
+                        {(item.scoring_method || item.model_type) && (
+                          <span className="text-[10px] text-slate-500">
+                            산출 {item.scoring_method || '—'}{item.model_type ? ` / ${item.model_type}` : ''}
+                          </span>
+                        )}
+                        {item.confidence !== null && item.confidence !== undefined && (
+                          <span className="text-[10px] text-slate-500">신뢰도 {String(item.confidence)}</span>
+                        )}
+                        {item.analysis_id && (
+                          <Link href={`/result?id=${item.analysis_id}`} className="ml-auto">
+                            <Button variant="outline" size="sm" className="gap-1 border-slate-700 hover:bg-slate-700 h-7 px-2 text-xs">
+                              <Eye className="h-3 w-3" /> 영상 근거
+                            </Button>
+                          </Link>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-slate-600">
                         {item.activity_session_id && <span>session: {item.activity_session_id}</span>}
                         {item.observation_id && <span>observation: {item.observation_id}</span>}
                         {item.fhir_id && <span>FHIR: {item.fhir_id}</span>}
                       </div>
-                      {item.analysis_id && (
-                        <Link href={`/result?id=${item.analysis_id}`}>
-                          <Button variant="outline" size="sm" className="gap-1 border-slate-700 hover:bg-slate-700 h-7 px-2 text-xs">
-                            <Eye className="h-3 w-3" /> Hawk I 결과
-                          </Button>
-                        </Link>
-                      )}
                     </div>
-                  ))}
+                    )
+                  })}
                   </div>
                 </div>
               )}

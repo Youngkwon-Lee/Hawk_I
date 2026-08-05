@@ -5,7 +5,7 @@ import { PageLayout } from "@/components/layout/PageLayout"
 import { ChatInterface } from "@/components/ui/ChatInterface"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
-import { Upload, FileVideo, X, AlertTriangle, Loader2, Users, RefreshCw, CheckCircle2 } from "lucide-react"
+import { Upload, FileVideo, X, AlertTriangle, Loader2, Users, RefreshCw, CheckCircle2, ExternalLink } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
 import {
@@ -285,6 +285,24 @@ export default function TestPage() {
                             onClick={() => setSelectedTest("gait")}
                         />
                     </div>
+                </div>
+
+                <div className="flex flex-col gap-4 rounded-lg border border-border bg-card/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                        <p className="text-sm font-medium">환자용 검사 경로</p>
+                        <p className="text-sm text-muted-foreground">
+                            검사·복약 기록은 ParkiCheck에서 진행하고, 저장된 결과는 공통 기록에서 함께 확인합니다.
+                        </p>
+                    </div>
+                    <a
+                        href="https://finger-tap-fx.vercel.app/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                        ParkiCheck에서 검사하기
+                        <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    </a>
                 </div>
 
                 {/* Step 2: Select physio_app subject */}

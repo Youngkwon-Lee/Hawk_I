@@ -188,6 +188,10 @@ def get_timeline():
             "reason": "supabase integration is not configured on this backend"
         })
 
+    from services.supabase_timeline import attach_dose_context
+
+    items = attach_dose_context(items, medications or [])
+
     return jsonify({
         "success": True,
         "enabled": True,
