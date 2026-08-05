@@ -183,8 +183,11 @@ def main(argv: list[str] | None = None) -> int:
             ],
             ["primitive", "정답구간", "예측구간", "매칭", "정밀도", "재현율", "F1", "평균 IoU"],
         )
-        print("  → 라벨 구간 대부분이 1초 미만이라 지속시간이 아닌 사건 표시에 가깝습니다.")
-        print("     그래서 중점 거리로 매칭하고 IoU는 참고로만 표시합니다.")
+        if "turning_impairment" in temporal:
+            print("  → 회전은 구간이 짧아(중앙값 0.7초) IoU가 작은 어긋남에도 무너집니다.")
+            print("     그래서 중점 거리로 매칭하고 IoU는 참고로만 봅니다.")
+        if "freezing_of_gait" in temporal:
+            print("  → 동결은 실제 지속시간(중앙값 6.3초)이라 IoU도 의미 있게 읽힙니다.")
 
     if args.json_out:
         args.json_out.write_text(
