@@ -27,15 +27,19 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.primitive_eval import (  # noqa: E402
+    INTERVAL_SOURCES,
+    extract_intervals,
     extract_label_primitives,
     extract_predicted_primitives,
     label_distribution,
     per_primitive_agreement,
     score_vs_observation,
+    temporal_event_agreement,
 )
 from services.prediction_ingest import score_from  # noqa: E402
 
@@ -78,6 +82,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--score-tolerance", type=float, default=0,
         help="0 grades the score as exact (default); 1 counts within-one as correct",
+    )
+    parser.add_argument(
+        "--event-tolerance", type=float, default=1.0,
+        help="seconds of midpoint distance allowed when matching predicted spans (default 1.0)",
     )
     parser.add_argument("--json-out", type=Path, help="also write the report as JSON")
     args = parser.parse_args(argv)
@@ -152,11 +160,41 @@ def main(argv: list[str] | None = None) -> int:
     if cross["skipped_missing_data"]:
         print(f"  데이터 부족으로 제외: {cross['skipped_missing_data']}건")
 
+    temporal: dict[str, Any] = {}
+    for source, primitive in INTERVAL_SOURCES.items():
+        span_pairs = [
+            (extract_intervals(labels[c], source), extract_intervals(predictions[c], source))
+            for c in shared
+        ]
+        if not any(truth for truth, _ in span_pairs):
+            continue
+        temporal[primitive] = temporal_event_agreement(span_pairs, tolerance_sec=args.event_tolerance)
+
+    if temporal:
+        print_table(
+            f"4) 시간 구간 예측 (매칭 기준: 중점 ±{args.event_tolerance:g}초)",
+            [
+                [primitive, r["labeled_events"], r["predicted_events"], r["matched"],
+                 "-" if r["precision"] is None else f"{r['precision']:.1%}",
+                 "-" if r["recall"] is None else f"{r['recall']:.1%}",
+                 "-" if r["f1"] is None else f"{r['f1']:.3f}",
+                 "-" if r["mean_iou_of_matched"] is None else f"{r['mean_iou_of_matched']:.3f}"]
+                for primitive, r in temporal.items()
+            ],
+            ["primitive", "정답구간", "예측구간", "매칭", "정밀도", "재현율", "F1", "평균 IoU"],
+        )
+        if "turning_impairment" in temporal:
+            print("  → 회전은 구간이 짧아(중앙값 0.7초) IoU가 작은 어긋남에도 무너집니다.")
+            print("     그래서 중점 거리로 매칭하고 IoU는 참고로만 봅니다.")
+        if "freezing_of_gait" in temporal:
+            print("  → 동결은 실제 지속시간(중앙값 6.3초)이라 IoU도 의미 있게 읽힙니다.")
+
     if args.json_out:
         args.json_out.write_text(
             json.dumps(
                 {"matched_clips": len(shared), "distribution": distribution,
-                 "agreement": agreement, "score_vs_observation": cross},
+                 "agreement": agreement, "score_vs_observation": cross,
+                 "temporal_events": temporal},
                 ensure_ascii=False, indent=2,
             ),
             encoding="utf-8",

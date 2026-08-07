@@ -31,7 +31,23 @@ GAIT_LABEL_TO_PRIMITIVE = {
 }
 
 
-def _as_number(value: Any) -> float | None:
+# The gait UI stores ordinal severity as text, and two vocabularies are in use:
+# Korean arrows for magnitude fields and English words for the rest. Freezing is
+# recorded as presence rather than severity.
+SEVERITY_WORDS = {
+    "정상": 0.0, "경미↓": 1.0, "중등↓": 2.0, "심함↓": 3.0,
+    "none": 0.0, "mild": 1.0, "moderate": 2.0, "severe": 3.0,
+    "normal": 0.0,
+    "observed": 1.0,
+}
+
+
+def parse_severity(value: Any) -> float | None:
+    """Read a severity that may be a number or one of the ordinal words.
+
+    Returns None for blanks, which the ontology treats as "not observed" rather
+    than as normal - so a blank must never become a zero.
+    """
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
@@ -39,10 +55,19 @@ def _as_number(value: Any) -> float | None:
     text = str(value).strip()
     if not text:
         return None
+    if text in SEVERITY_WORDS:
+        return SEVERITY_WORDS[text]
+    lowered = text.lower()
+    if lowered in SEVERITY_WORDS:
+        return SEVERITY_WORDS[lowered]
     try:
         return float(text)
     except ValueError:
         return None
+
+
+def _as_number(value: Any) -> float | None:
+    return parse_severity(value)
 
 
 def _ranks(values: list[float]) -> list[float]:
@@ -102,6 +127,92 @@ def extract_predicted_primitives(prediction: dict[str, Any]) -> dict[str, float]
         if value is not None:
             found[name] = value
     return found
+
+
+# Turn and freezing spans are recorded under gait_events, not as ontology
+# evidence spans, but they carry the same information: when the finding happens.
+INTERVAL_SOURCES = {
+    "turning_intervals": "turning_impairment",
+    "freezing_intervals": "freezing_of_gait",
+}
+
+
+def extract_intervals(record: dict[str, Any], kind: str = "turning_intervals") -> list[tuple[float, float]]:
+    """Read (start, end) spans, dropping entries that are not usable numbers."""
+    events = record.get("gait_events")
+    if not isinstance(events, dict):
+        events = record.get("label") if isinstance(record.get("label"), dict) else {}
+        events = events.get("gait_events") if isinstance(events.get("gait_events"), dict) else {}
+    spans = events.get(kind) if isinstance(events, dict) else None
+    if not isinstance(spans, list):
+        return []
+
+    parsed: list[tuple[float, float]] = []
+    for span in spans:
+        if not isinstance(span, dict):
+            continue
+        start, end = _as_number(span.get("start")), _as_number(span.get("end"))
+        if start is None or end is None or end < start:
+            continue
+        parsed.append((start, end))
+    return sorted(parsed)
+
+
+def _iou(a: tuple[float, float], b: tuple[float, float]) -> float:
+    overlap = max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
+    union = (a[1] - a[0]) + (b[1] - b[0]) - overlap
+    return overlap / union if union > 0 else 0.0
+
+
+def temporal_event_agreement(
+    pairs: Iterable[tuple[list[tuple[float, float]], list[tuple[float, float]]]],
+    tolerance_sec: float = 1.0,
+) -> dict[str, Any]:
+    """Match predicted spans to labeled spans by midpoint, and report IoU too.
+
+    Most labeled turn spans are well under a second, so they behave like event
+    markers rather than durations. Overlap-based matching would then fail on
+    near-misses that are clinically the same event, which is why midpoint
+    distance within a tolerance is the primary match and IoU is reported
+    alongside rather than used as the criterion.
+    """
+    matched = 0
+    total_true = 0
+    total_pred = 0
+    ious: list[float] = []
+
+    for truths, predictions in pairs:
+        total_true += len(truths)
+        total_pred += len(predictions)
+        available = list(predictions)
+        for truth in truths:
+            truth_mid = (truth[0] + truth[1]) / 2
+            best_index, best_distance = None, None
+            for index, prediction in enumerate(available):
+                distance = abs((prediction[0] + prediction[1]) / 2 - truth_mid)
+                if distance <= tolerance_sec and (best_distance is None or distance < best_distance):
+                    best_index, best_distance = index, distance
+            if best_index is not None:
+                ious.append(_iou(truth, available.pop(best_index)))
+                matched += 1
+
+    precision = matched / total_pred if total_pred else None
+    recall = matched / total_true if total_true else None
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if precision and recall and (precision + recall) > 0
+        else None
+    )
+    return {
+        "labeled_events": total_true,
+        "predicted_events": total_pred,
+        "matched": matched,
+        "tolerance_sec": tolerance_sec,
+        "precision": round(precision, 4) if precision is not None else None,
+        "recall": round(recall, 4) if recall is not None else None,
+        "f1": round(f1, 4) if f1 is not None else None,
+        "mean_iou_of_matched": round(sum(ious) / len(ious), 4) if ious else None,
+    }
 
 
 def per_primitive_agreement(pairs: Iterable[tuple[dict[str, float], dict[str, float]]]) -> dict[str, dict[str, Any]]:
