@@ -483,6 +483,25 @@ def process_video_background(
             "gait_cycle_analysis": gait_analysis  # Include raw gait cycle data
         }
 
+        # A fine-tuned model, when one is served, adds the structured observation
+        # the clinical view renders. It runs after the existing pipeline so a
+        # missing or unreachable endpoint leaves the analysis intact.
+        try:
+            from services.finetuned_vlm import analyze as finetuned_analyze
+            from services.finetuned_vlm import frames_to_base64
+
+            frames_b64, clip_duration = frames_to_base64(video_path)
+            finetuned = finetuned_analyze(frames_b64, clip_duration)
+            if finetuned:
+                # Keep the pipeline's own score unless the model supplied one.
+                supplied_score = finetuned.pop("updrs_score", None)
+                response.update(finetuned)
+                if supplied_score and not response.get("updrs_score", {}).get("total_score"):
+                    response["updrs_score"] = supplied_score
+                update_step(video_id, "finetuned_vlm", "completed")
+        except Exception as exc:  # never let the add-on break a good analysis
+            print(f"[finetuned_vlm] skipped: {exc}")
+
         observation_result = persist_analysis_observation(response)
         response["integrations"] = {
             "supabase_observation": observation_result.as_public_dict()

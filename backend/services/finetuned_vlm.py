@@ -1,0 +1,329 @@
+"""Call a self-hosted fine-tuned VLM and read back ontology primitives.
+
+The existing VLMScorer talks only to OpenAI and returns a free-text score. The
+fine-tuned model is different in both directions: it lives behind whatever
+OpenAI-compatible endpoint it is served from, and it returns the same primitive
+structure the labelers use, so the clinical view can render it directly.
+
+Nothing here assumes the endpoint is up. If it is not configured or not
+reachable, the caller keeps its existing score rather than failing the analysis.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from dataclasses import dataclass
+from typing import Any
+
+import requests
+
+GAIT_PRIMITIVES = [
+    "gait_speed_reduction",
+    "shortened_stride",
+    "step_length_asymmetry",
+    "arm_swing_asymmetry",
+    "festination",
+    "freezing_of_gait",
+    "trunk_flexion",
+    "postural_instability",
+]
+
+OBSERVABILITY = frozenset({"observed", "unobservable", "uncertain"})
+
+PROMPT = """You are assisting a movement-disorders research study on Parkinson gait video.
+
+The frames are sampled uniformly from a single walking clip lasting {duration:.1f} seconds, so frame i is at approximately i * {duration:.1f} / {n_frames} seconds.
+
+Rate each of these findings. Use severity 0 (none), 1 (mild), 2 (moderate),
+3 (severe). If a finding cannot be judged from the video, set observability to
+"unobservable" and severity to null - do NOT report it as 0.
+
+{primitive_list}
+
+Freezing of gait means a sudden transient inability to start or continue
+stepping with the feet appearing stuck. Deliberate stopping and ordinary
+slowness are NOT freezing.
+
+Also report the time spans where turning occurs and where freezing occurs.
+
+Respond with JSON only:
+{{"primitives": {{"<name>": {{"observability": "observed|unobservable|uncertain",
+ "severity": <0-3 or null>, "confidence": "low|medium|high"}}}},
+ "turning_intervals": [{{"start": <sec>, "end": <sec>}}],
+ "freezing_intervals": [{{"start": <sec>, "end": <sec>}}],
+ "updrs_3_10": <0-4 or null>,
+ "summary": "<one sentence describing what was observed>"}}"""
+
+
+class FinetunedVLMUnavailable(RuntimeError):
+    """Raised when the endpoint is not configured or cannot be reached."""
+
+
+@dataclass(frozen=True)
+class FinetunedVLMConfig:
+    base_url: str
+    model: str
+    api_key: str = ""
+    max_frames: int = 16
+    timeout_seconds: float = 180.0
+
+    @property
+    def is_local(self) -> bool:
+        return any(h in self.base_url for h in ("localhost", "127.0.0.1", "0.0.0.0"))
+
+
+def get_config() -> FinetunedVLMConfig | None:
+    """Read endpoint settings from the environment; None means "not wired up yet"."""
+    base_url = (os.getenv("HAWKEYE_VLM_BASE_URL") or "").strip()
+    model = (os.getenv("HAWKEYE_VLM_MODEL") or "").strip()
+    if not base_url or not model:
+        return None
+
+    try:
+        max_frames = int(os.getenv("HAWKEYE_VLM_MAX_FRAMES", "16"))
+    except ValueError:
+        max_frames = 16
+    try:
+        timeout = float(os.getenv("HAWKEYE_VLM_TIMEOUT_SECONDS", "180"))
+    except ValueError:
+        timeout = 180.0
+
+    return FinetunedVLMConfig(
+        base_url=base_url.rstrip("/"),
+        model=model,
+        api_key=(os.getenv("HAWKEYE_VLM_API_KEY") or "").strip(),
+        max_frames=max(1, max_frames),
+        timeout_seconds=timeout,
+    )
+
+
+def build_prompt(duration_sec: float, n_frames: int) -> str:
+    """The prompt carries the timebase; the model only sees ordered frames."""
+    if duration_sec <= 0 or n_frames <= 0:
+        raise ValueError("duration and frame count must be positive")
+    listed = "\n".join(f"- {name}" for name in GAIT_PRIMITIVES)
+    return PROMPT.format(duration=duration_sec, n_frames=n_frames, primitive_list=listed)
+
+
+def _number(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _intervals(raw: Any, duration_sec: float | None) -> list[dict[str, float]]:
+    if not isinstance(raw, list):
+        return []
+    spans = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        start, end = _number(entry.get("start")), _number(entry.get("end"))
+        if start is None or end is None or end <= start or start < 0:
+            continue
+        if duration_sec is not None:
+            if start >= duration_sec:
+                continue
+            end = min(end, duration_sec)
+        spans.append({"start": round(start, 2), "end": round(end, 2)})
+    return sorted(spans, key=lambda s: s["start"])
+
+
+def parse_response(text: str, duration_sec: float | None = None) -> dict[str, Any]:
+    """Read the model reply, dropping anything that breaks the ontology rules.
+
+    A malformed rating is discarded rather than repaired: a severity invented
+    for an unobservable finding would teach the clinical view that an occluded
+    turn looked healthy.
+    """
+    if not isinstance(text, str) or not text.strip():
+        raise FinetunedVLMUnavailable("empty response from model")
+
+    candidate = text.strip()
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", candidate, re.DOTALL)
+    if fenced:
+        candidate = fenced.group(1).strip()
+    else:
+        brace = re.search(r"\{.*\}", candidate, re.DOTALL)
+        if brace:
+            candidate = brace.group(0)
+
+    try:
+        payload = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise FinetunedVLMUnavailable(f"model reply was not JSON: {exc.msg}") from exc
+    if not isinstance(payload, dict):
+        raise FinetunedVLMUnavailable("model reply was not a JSON object")
+
+    primitives: dict[str, Any] = {}
+    raw_primitives = payload.get("primitives")
+    if isinstance(raw_primitives, dict):
+        for name, rating in raw_primitives.items():
+            if name not in GAIT_PRIMITIVES or not isinstance(rating, dict):
+                continue
+            observability = rating.get("observability")
+            if observability not in OBSERVABILITY:
+                continue
+            severity = _number(rating.get("severity"))
+            if observability != "observed":
+                severity = None  # not visible is never normal
+            elif severity is not None:
+                if not 0 <= severity <= 3:
+                    continue
+                severity = int(round(severity))
+            confidence = rating.get("confidence")
+            primitives[name] = {
+                "observability": observability,
+                "severity": severity,
+                "confidence": confidence if confidence in ("low", "medium", "high") else None,
+            }
+
+    score = _number(payload.get("updrs_3_10"))
+    if score is not None and not 0 <= score <= 4:
+        score = None
+
+    summary = payload.get("summary")
+    return {
+        "primitives": primitives,
+        "turning_intervals": _intervals(payload.get("turning_intervals"), duration_sec),
+        "freezing_intervals": _intervals(payload.get("freezing_intervals"), duration_sec),
+        "updrs_3_10": None if score is None else int(round(score)),
+        "summary": summary.strip() if isinstance(summary, str) and summary.strip() else None,
+    }
+
+
+def call_endpoint(
+    frames_b64: list[str],
+    duration_sec: float,
+    config: FinetunedVLMConfig,
+) -> str:
+    """POST frames to an OpenAI-compatible chat endpoint and return the raw reply."""
+    content: list[dict[str, Any]] = [
+        {"type": "text", "text": build_prompt(duration_sec, len(frames_b64))}
+    ]
+    for frame in frames_b64:
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frame}"}})
+
+    headers = {"Content-Type": "application/json"}
+    if config.api_key:
+        headers["Authorization"] = f"Bearer {config.api_key}"
+
+    try:
+        response = requests.post(
+            f"{config.base_url}/chat/completions",
+            headers=headers,
+            json={"model": config.model, "messages": [{"role": "user", "content": content}]},
+            timeout=config.timeout_seconds,
+        )
+    except requests.RequestException as exc:
+        raise FinetunedVLMUnavailable(f"cannot reach {config.base_url}: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise FinetunedVLMUnavailable(
+            f"{response.status_code} from {config.model}: {response.text[:200]}"
+        )
+
+    try:
+        return response.json()["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, ValueError) as exc:
+        raise FinetunedVLMUnavailable("unexpected response shape from endpoint") from exc
+
+
+def to_analysis_fields(parsed: dict[str, Any], config: FinetunedVLMConfig) -> dict[str, Any]:
+    """Shape the result the way the analysis pipeline and clinical view expect."""
+    fields: dict[str, Any] = {
+        "primitives": parsed["primitives"],
+        "gait_events": {
+            "turning_intervals": parsed["turning_intervals"],
+            "freezing_intervals": parsed["freezing_intervals"],
+        },
+        "scoring_method": "finetuned_vlm",
+        "ml_model_type": config.model,
+    }
+
+    if parsed["summary"]:
+        fields["ai_interpretation"] = {
+            "summary": parsed["summary"],
+            "explanation": parsed["summary"],
+            "recommendations": [],
+        }
+
+    score = parsed["updrs_3_10"]
+    if score is not None:
+        # The score stays a separate anchor; severities are never summed into it.
+        fields["updrs_score"] = {
+            "score": float(score),
+            "total_score": float(score),
+            "method": "finetuned_vlm",
+            "details": {"model": config.model, "source": "model_predicted"},
+        }
+    return fields
+
+
+def frames_to_base64(video_path: str, max_frames: int | None = None) -> tuple[list[str], float]:
+    """Sample frames as base64 JPEGs and return them with the clip duration.
+
+    Returns an empty list when the endpoint is not configured, so callers do not
+    pay decoding cost for a model that is not there.
+    """
+    config = get_config()
+    if config is None:
+        return [], 0.0
+
+    import base64
+
+    import cv2
+
+    capture = cv2.VideoCapture(video_path)
+    if not capture.isOpened():
+        return [], 0.0
+    total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
+    duration = total / fps if fps else 0.0
+    if total <= 0:
+        capture.release()
+        return [], 0.0
+
+    limit = max_frames or config.max_frames
+    step = max(1, total // limit)
+    frames: list[str] = []
+    for index in range(0, total, step):
+        if len(frames) >= limit:
+            break
+        capture.set(cv2.CAP_PROP_POS_FRAMES, index)
+        ok, frame = capture.read()
+        if not ok:
+            continue
+        frame = cv2.resize(frame, (512, 512))
+        ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if ok:
+            frames.append(base64.b64encode(buffer).decode("utf-8"))
+    capture.release()
+    return frames, duration
+
+
+def analyze(frames_b64: list[str], duration_sec: float) -> dict[str, Any] | None:
+    """Run the fine-tuned model, or return None when it is not available.
+
+    Returning None rather than raising keeps a missing endpoint from failing an
+    otherwise good analysis - the caller falls back to its existing scorer.
+    """
+    config = get_config()
+    if config is None or not frames_b64:
+        return None
+    try:
+        reply = call_endpoint(frames_b64, duration_sec, config)
+        return to_analysis_fields(parse_response(reply, duration_sec), config)
+    except FinetunedVLMUnavailable as exc:
+        print(f"[finetuned_vlm] unavailable, falling back: {exc}")
+        return None
