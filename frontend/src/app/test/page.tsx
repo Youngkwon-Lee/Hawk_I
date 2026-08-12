@@ -69,9 +69,15 @@ export default function TestPage() {
         setIsLoadingPhysio(true)
         setPhysioError("")
         if (!accessToken) {
-            setPhysioData(null)
+            // Being signed out is not a failure: analysis still runs, only storage is skipped.
+            setPhysioData({
+                success: true,
+                enabled: false,
+                organization: null,
+                subjects: [],
+                reason: "signed_out",
+            })
             setSelectedSubjectId("")
-            setPhysioError("분석 이력 화면에서 임상 계정으로 먼저 로그인해 주세요.")
             setIsLoadingPhysio(false)
             return
         }
@@ -118,9 +124,12 @@ export default function TestPage() {
         }
     }, [physioData, selectedSubject])
 
-    const isMissingRequiredPhysioSubject = physioData?.enabled === true && !selectedSubject
-    const isAnalysisDisabled =
-        !file || isAnalyzing || isLoadingPhysio || Boolean(physioError) || isMissingRequiredPhysioSubject
+    // Storage context is optional - the backend skips persistence when it is absent
+    // instead of failing - so a missing subject must never disable the analysis itself.
+    // Waiting on the lookup only makes sense once auth resolved; otherwise a stalled
+    // Supabase session would leave the button dead for the rest of the page's life.
+    const isPhysioLookupPending = authReady && isLoadingPhysio
+    const isAnalysisDisabled = !file || isAnalyzing || isPhysioLookupPending
 
     const validateFile = (file: File): string | null => {
         // Check file size
@@ -170,18 +179,11 @@ export default function TestPage() {
 
     const handleStartAnalysis = async () => {
         if (!file) return
-        if (isLoadingPhysio) {
-            setAnalysisError("physio_app 저장 대상을 확인 중입니다.")
+        if (isPhysioLookupPending) {
+            setAnalysisError("physio_app 저장 대상을 확인 중입니다. 잠시 후 다시 시도해 주세요.")
             return
         }
-        if (physioError) {
-            setAnalysisError("physio_app 대상 조회를 먼저 해결해주세요.")
-            return
-        }
-        if (physioData?.enabled && !selectedSubject) {
-            setAnalysisError("physio_app에 저장할 active 고객을 먼저 선택해주세요.")
-            return
-        }
+        // No subject context: the analysis still runs, the result just is not persisted.
 
         // Clear previous result before starting new analysis
         clearResult()
@@ -367,8 +369,12 @@ export default function TestPage() {
                             </div>
                         ) : (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Users className="h-4 w-4" />
-                                physio_app 저장 비활성화
+                                <Users className="h-4 w-4 shrink-0" />
+                                <span>
+                                    {physioData?.reason === "signed_out"
+                                        ? "로그인하지 않아 결과가 저장되지 않습니다. 분석은 그대로 진행됩니다."
+                                        : "physio_app 저장 비활성화 — 분석 결과는 저장되지 않습니다."}
+                                </span>
                             </div>
                         )}
                     </div>
@@ -457,7 +463,7 @@ export default function TestPage() {
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                 분석 중...
                             </>
-                        ) : isLoadingPhysio ? (
+                        ) : isPhysioLookupPending ? (
                             <>
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                 대상 확인 중...

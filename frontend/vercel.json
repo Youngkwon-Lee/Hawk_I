@@ -8,6 +8,14 @@
   "regions": ["icn1"],
   "headers": [
     {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "https://finger-tap-fx.vercel.app" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Authorization, Content-Type" }
+      ]
+    },
+    {
       "source": "/(.*)",
       "headers": [
         { "key": "Content-Security-Policy", "value": "base-uri 'self'; frame-ancestors 'none'; object-src 'none'" },
