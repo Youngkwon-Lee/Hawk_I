@@ -10,7 +10,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/Button"
 import { SummaryCard } from "@/components/dashboard/SummaryCard"
 import { MetricsTable, MetricRow } from "@/components/dashboard/MetricsTable"
-import { TrendChart } from "@/components/dashboard/TrendChart"
 import { VideoPlayer, type Marker } from "@/components/dashboard/VideoPlayer"
 import { AIInterpretation } from "@/components/dashboard/AIInterpretation"
 import { MedicationTimeline } from "@/components/dashboard/MedicationTimeline"
@@ -41,15 +40,6 @@ const FINGER_METRICS: MetricRow[] = [
     { label: "진폭 (Amplitude)", value: "4.5 cm", unit: "", change: "-10%", status: "bad", normalRange: ">0.8" },
     { label: "주저함", value: "3", unit: "회", change: "+1", status: "warning", normalRange: "≤2" },
     { label: "피로율", value: "12", unit: "%", change: "+3%", status: "bad", normalRange: "<20" },
-]
-
-// Mock trend data for demo (임시 데이터)
-const MOCK_TREND_DATA = [
-    { date: "8월", score: 1.2, stride: 1.1 },
-    { date: "9월", score: 1.5, stride: 1.0 },
-    { date: "10월", score: 1.3, stride: 0.95 },
-    { date: "11월", score: 1.8, stride: 0.92 },
-    { date: "12월", score: 1.6, stride: 0.98 },
 ]
 
 function getPerformabilityPresentation(assessment: FingerPerformabilityAssessment) {
@@ -886,27 +876,15 @@ function ResultContent() {
                 {/* Tab Content */}
                 {activeTab === "dashboard" && (
                     <div className="grid gap-6 md:grid-cols-2 animate-in fade-in slide-in-from-bottom-2">
-                        {/* Left Col: Charts with mock trend data */}
-                        <div className="space-y-6">
-                            <div>
-                                <TrendChart
-                                    data={MOCK_TREND_DATA}
-                                    label="점수 추세"
-                                    dataKey="score"
-                                    color="#3b82f6"
-                                />
-                                <p className="text-xs text-muted-foreground text-center mt-1">(임시 데이터)</p>
-                            </div>
-                            <div>
-                                <TrendChart
-                                    data={MOCK_TREND_DATA}
-                                    label={isFinger ? "진폭 추세" : "보폭 길이 추세"}
-                                    dataKey="stride"
-                                    color="#10b981"
-                                />
-                                <p className="text-xs text-muted-foreground text-center mt-1">(임시 데이터)</p>
-                            </div>
-                        </div>
+                        {/* Historical trends are shown only from persisted records. */}
+                        <Card className="h-full border-dashed bg-muted/20">
+                            <CardContent className="flex min-h-48 flex-col items-center justify-center p-6 text-center">
+                                <p className="text-sm font-medium">추세는 실제 기록이 쌓인 후 표시됩니다.</p>
+                                <p className="mt-2 max-w-sm text-xs leading-5 text-muted-foreground">
+                                    현재 결과는 단일 검사입니다. 여러 검사와 복약 기록을 저장하면 기록 화면에서 실제 변화 추이를 확인할 수 있습니다.
+                                </p>
+                            </CardContent>
+                        </Card>
 
                         {/* Right Col: Metrics Table */}
                         <div className="space-y-6">
