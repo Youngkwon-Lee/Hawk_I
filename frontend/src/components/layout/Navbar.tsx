@@ -12,8 +12,8 @@ export function Navbar() {
         { href: "/", label: "홈", icon: Home },
         { href: "/test", label: "새 검사", icon: FilePlus2 },
         { href: "/history", label: "기록", icon: ClipboardList },
-        { href: "#", label: "환자", icon: Users },
-        { href: "#", label: "설정", icon: Settings },
+        { href: "/patients", label: "환자", icon: Users },
+        { href: "/settings", label: "설정", icon: Settings },
     ]
 
     return (
