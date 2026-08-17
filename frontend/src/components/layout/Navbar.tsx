@@ -5,6 +5,7 @@ import { Activity, ClipboardList, ChevronRight, FilePlus2, Home, Menu, Settings,
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/Button"
 import { ThemeToggle } from "@/components/layout/ThemeToggle"
+import { NotificationBell } from "@/components/layout/NotificationBell"
 
 export function Navbar() {
     const pathname = usePathname()
@@ -54,6 +55,7 @@ export function Navbar() {
                         <span>HawkEye 어시스턴트</span>
                         <ChevronRight className="h-4 w-4" aria-hidden="true" />
                     </div>
+                    <NotificationBell />
                     <ThemeToggle />
                     <Button variant="ghost" size="icon" className="rounded-full lg:hidden">
                         <User className="h-5 w-5" aria-hidden="true" />
