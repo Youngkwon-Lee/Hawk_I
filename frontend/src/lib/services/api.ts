@@ -244,6 +244,12 @@ export interface PhysioSubjectsResponse {
   error?: string
 }
 
+export interface PhysioSelfResponse {
+  success: boolean
+  enabled: boolean
+  subject: PhysioSubject
+}
+
 export interface PhysioAnalysisContext {
   subject_person_id: string
   organization_id: string
@@ -293,6 +299,20 @@ export async function getPhysioSubjects(accessToken: string): Promise<PhysioSubj
   if (!response.ok) {
     const error = await response.json().catch(() => null)
     throw new Error(error?.error || 'Failed to fetch physio_app subjects')
+  }
+
+  return response.json()
+}
+
+export async function getPhysioSelf(accessToken: string): Promise<PhysioSelfResponse> {
+  const response = await fetch(apiUrl('/api/physio/self'), {
+    headers: bearerHeaders(accessToken),
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null)
+    throw new Error(error?.error || 'Failed to fetch authenticated physio_app person')
   }
 
   return response.json()
@@ -461,8 +481,11 @@ export async function establishMediaSession(accessToken: string): Promise<void> 
   }
 }
 
-export async function getAnalysisProgress(videoId: string): Promise<AnalysisProgress> {
-  const response = await fetch(apiUrl(`/api/analysis/progress/${videoId}`))
+export async function getAnalysisProgress(videoId: string, accessToken?: string): Promise<AnalysisProgress> {
+  const response = await fetch(apiUrl(`/api/analysis/progress/${videoId}`), {
+    headers: accessToken ? bearerHeaders(accessToken) : undefined,
+    cache: 'no-store',
+  })
 
   if (!response.ok) {
     throw new Error('Failed to fetch analysis progress')

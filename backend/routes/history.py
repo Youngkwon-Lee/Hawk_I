@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from services.supabase_auth import require_clinician
+from services.supabase_auth import require_authenticated_person, require_clinician
 
 bp = Blueprint('history', __name__, url_prefix='/api/history')
 VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -136,7 +136,7 @@ def get_history():
 
 
 @bp.route('/timeline', methods=['GET'])
-@require_clinician
+@require_authenticated_person
 def get_timeline():
     """
     Unified patient timeline from the shared physio_app Supabase project.
@@ -165,12 +165,12 @@ def get_timeline():
     try:
         items = fetch_timeline(
             subject_person_id,
-            access_token=g.authenticated_clinician.access_token,
+            access_token=g.authenticated_person.access_token,
             limit=limit,
         )
         medications = fetch_medication_statements(
             subject_person_id,
-            access_token=g.authenticated_clinician.access_token,
+            access_token=g.authenticated_person.access_token,
             limit=limit,
         )
     except Exception:

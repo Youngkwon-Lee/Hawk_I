@@ -8,4 +8,4 @@ pip install -r requirements.txt
 mkdir -p uploads
 
 # Start the Flask app with gunicorn
-exec gunicorn app:app --bind 0.0.0.0:${PORT:-5000} --workers 2 --timeout 300
+exec gunicorn app:app --bind 0.0.0.0:${PORT:-5000} --workers 2 --timeout 300 --limit-request-field_size 32768

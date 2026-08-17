@@ -1,64 +1,61 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #0f172a;
-
-  /* Light mode colors (if needed, but focusing on dark) */
+  color-scheme: light;
+  --background: #f6f8f7;
+  --foreground: #13202b;
   --card: #ffffff;
-  --card-foreground: #0f172a;
+  --card-foreground: #13202b;
   --popover: #ffffff;
-  --popover-foreground: #0f172a;
-  --primary: #3b82f6;
-  --primary-foreground: #ffffff;
-  --secondary: #f1f5f9;
-  --secondary-foreground: #0f172a;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-  --accent: #f1f5f9;
-  --accent-foreground: #0f172a;
-  --destructive: #ef4444;
-  --destructive-foreground: #ffffff;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
-  --ring: #3b82f6;
+  --popover-foreground: #13202b;
+  --primary: #187f79;
+  --primary-foreground: #f4fffd;
+  --secondary: #e8f0ee;
+  --secondary-foreground: #18352f;
+  --muted: #e8f0ee;
+  --muted-foreground: #5d706d;
+  --accent: #e1ece9;
+  --accent-foreground: #13202b;
+  --destructive: #c2414f;
+  --destructive-foreground: #fff7f7;
+  --border: #d3dfdc;
+  --input: #c5d6d2;
+  --ring: #187f79;
+  --chart-grid: #dce6e3;
+  --chart-axis: #70807d;
+  --chart-score: #187f79;
+  --chart-accent: #0f766e;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: #d3dfdc;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #020617;
-    /* Slate 950 */
-    --foreground: #f8fafc;
-    /* Slate 50 */
-
-    --card: #0f172a;
-    /* Slate 900 */
-    --card-foreground: #f8fafc;
-
-    --popover: #0f172a;
-    --popover-foreground: #f8fafc;
-
-    --primary: #6366f1;
-    /* Indigo 500 */
-    --primary-foreground: #ffffff;
-
-    --secondary: #1e293b;
-    /* Slate 800 */
-    --secondary-foreground: #f8fafc;
-
-    --muted: #1e293b;
-    --muted-foreground: #94a3b8;
-
-    --accent: #1e293b;
-    --accent-foreground: #f8fafc;
-
-    --destructive: #ef4444;
-    --destructive-foreground: #ffffff;
-
-    --border: #1e293b;
-    --input: #1e293b;
-    --ring: #6366f1;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #07101c;
+  --foreground: #f5f8fb;
+  --card: #0d1928;
+  --card-foreground: #f5f8fb;
+  --popover: #0d1928;
+  --popover-foreground: #f5f8fb;
+  --primary: #35d2e5;
+  --primary-foreground: #06131d;
+  --secondary: #152437;
+  --secondary-foreground: #e8f4f8;
+  --muted: #152437;
+  --muted-foreground: #9aafc2;
+  --accent: #172a3d;
+  --accent-foreground: #f5f8fb;
+  --destructive: #fb7185;
+  --destructive-foreground: #1f0a11;
+  --border: #263b50;
+  --input: #2a4158;
+  --ring: #35d2e5;
+  --chart-grid: #263b50;
+  --chart-axis: #9aafc2;
+  --chart-score: #35d2e5;
+  --chart-accent: #8be9f4;
+  --chart-tooltip-bg: #0d1928;
+  --chart-tooltip-border: #38526c;
 }
 
 @theme inline {
@@ -90,18 +87,38 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), sans-serif;
+  transition: background-color 180ms ease, color 180ms ease;
 }
 
-/* Glassmorphism Utilities */
 .glass {
-  background: rgba(15, 23, 42, 0.6);
+  background: color-mix(in srgb, var(--card) 82%, transparent);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .glass-card {
-  background: rgba(30, 41, 59, 0.4);
+  background: color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  border: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 12%);
+}
+
+* {
+  border-color: var(--border);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 32%, transparent);
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

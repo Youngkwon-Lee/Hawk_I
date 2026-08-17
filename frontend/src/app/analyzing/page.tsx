@@ -53,7 +53,8 @@ function AnalyzingContent() {
 
     const pollProgress = async () => {
       try {
-        const data = await getAnalysisProgress(videoId)
+        const { data: sessionData } = await getSupabaseBrowserClient()?.auth.getSession() ?? { data: { session: null } }
+        const data = await getAnalysisProgress(videoId, sessionData.session?.access_token)
         pollCount++
 
         // Update status message based on backend status

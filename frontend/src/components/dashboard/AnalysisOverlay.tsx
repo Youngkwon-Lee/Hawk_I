@@ -146,7 +146,7 @@ export function AnalysisOverlay({
 
         const pollProgress = async () => {
             try {
-                const data = await getAnalysisProgress(videoId)
+                const data = await getAnalysisProgress(videoId, accessToken)
                 pollCount++
 
                 if (data.steps) {

@@ -4,28 +4,37 @@ import { cn } from "@/lib/utils"
 interface PageLayoutProps {
     children: React.ReactNode
     agentPanel?: React.ReactNode
+    leftRail?: React.ReactNode
+    agentPanelWidth?: string
+    contentMaxWidth?: string
     className?: string
 }
 
-export function PageLayout({ children, agentPanel, className }: PageLayoutProps) {
+export function PageLayout({ children, agentPanel, leftRail, agentPanelWidth = "w-[22rem]", contentMaxWidth = "max-w-6xl", className }: PageLayoutProps) {
     return (
         <div className="min-h-screen flex flex-col bg-background">
             <Navbar />
-            <main className="flex-1 flex flex-col md:flex-row overflow-hidden h-[calc(100vh-4rem)]">
+            <main className="flex-1 flex min-h-[calc(100vh-4.25rem)] flex-col overflow-hidden md:flex-row">
+                {leftRail && (
+                    <aside className="hidden w-[18.5rem] shrink-0 flex-col border-r border-border bg-card/35 md:flex">
+                        {leftRail}
+                    </aside>
+                )}
+
                 {/* Main Content Area */}
                 <div className={cn(
-                    "flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth",
-                    agentPanel ? "md:w-2/3 lg:w-3/4" : "w-full",
+                    "min-w-0 flex-1 overflow-y-auto p-4 scroll-smooth md:px-14 md:py-8",
+                    agentPanel ? "md:w-auto" : "w-full",
                     className
                 )}>
-                    <div className="mx-auto max-w-5xl h-full">
+                    <div className={cn("mx-auto h-full", contentMaxWidth)}>
                         {children}
                     </div>
                 </div>
 
                 {/* Agent Panel Area */}
                 {agentPanel && (
-                    <aside className="hidden md:flex flex-col w-1/3 lg:w-1/4 border-l border-border bg-card/30 backdrop-blur-sm">
+                    <aside className={cn("hidden shrink-0 flex-col border-l border-border bg-card/25 backdrop-blur-sm md:flex", agentPanelWidth)}>
                         {agentPanel}
                     </aside>
                 )}

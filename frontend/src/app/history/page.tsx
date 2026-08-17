@@ -5,15 +5,17 @@ import { PageLayout } from "@/components/layout/PageLayout"
 import { ChatInterface } from "@/components/ui/ChatInterface"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
+import { motion, AnimatePresence } from "framer-motion"
 import {
-  Calendar, Activity, ChevronRight, Filter, TrendingUp,
+  Calendar, Activity, Filter, TrendingUp,
   BarChart3, Clock, Trash2, Eye, Search, ChevronDown,
-  LoaderCircle, LockKeyhole, LogOut, ShieldCheck
+  LoaderCircle, LockKeyhole, LogOut, ShieldCheck, ExternalLink,
+  RefreshCw, CircleCheck, Database, ArrowUpRight, ClipboardCheck
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import {
-  getHistory, getHistoryStats, deleteAnalysis, formatVideoType, getPhysioSubjects,
+  getHistory, getHistoryStats, deleteAnalysis, formatVideoType, getPhysioSelf, getPhysioSubjects,
   type HistoryItem, type HistoryStats, type HistoryFilters, type PhysioSubjectsResponse
 } from "@/lib/services/api"
 import {
@@ -38,6 +40,49 @@ const severityColors: Record<string, string> = {
 
 const scoreColors = ["#10b981", "#3b82f6", "#f59e0b", "#f97316", "#ef4444"]
 
+const chartColors = {
+  grid: "var(--chart-grid)",
+  axis: "var(--chart-axis)",
+  score: "var(--chart-score)",
+  accent: "var(--chart-accent)",
+}
+
+function MetricCard({
+  label,
+  value,
+  caption,
+  icon,
+  tone,
+}: {
+  label: string
+  value: string | number
+  caption: string
+  icon: React.ReactNode
+  tone: "blue" | "green" | "amber" | "violet"
+}) {
+  const toneClasses = {
+    blue: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    green: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    violet: "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300",
+  }
+
+  return (
+    <Card className="border-border/80 bg-card/95 shadow-sm transition-shadow hover:shadow-md">
+      <CardContent className="flex items-start justify-between gap-4 p-5">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+          <p className="mt-2 truncate text-2xl font-semibold tracking-tight text-foreground">{value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
+        </div>
+        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", toneClasses[tone])}>
+          {icon}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function HistoryPage() {
   const [authReady, setAuthReady] = React.useState(false)
   const [accessToken, setAccessToken] = React.useState<string | null>(null)
@@ -45,11 +90,13 @@ export default function HistoryPage() {
   const [loginEmail, setLoginEmail] = React.useState("")
   const [loginPassword, setLoginPassword] = React.useState("")
   const [authError, setAuthError] = React.useState<string | null>(null)
+  const [authConfigured, setAuthConfigured] = React.useState(true)
   const [authSubmitting, setAuthSubmitting] = React.useState(false)
   const [history, setHistory] = React.useState<HistoryItem[]>([])
   const [stats, setStats] = React.useState<HistoryStats['data'] | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [historyRetry, setHistoryRetry] = React.useState(0)
   const [showFilters, setShowFilters] = React.useState(false)
   const [deleteConfirm, setDeleteConfirm] = React.useState<string | null>(null)
 
@@ -62,6 +109,7 @@ export default function HistoryPage() {
 
   // Unified patient timeline (ParkiCheck + Hawk I via shared Supabase)
   const [physioData, setPhysioData] = React.useState<PhysioSubjectsResponse | null>(null)
+  const [isSelfTimeline, setIsSelfTimeline] = React.useState(false)
   const [selectedSubjectId, setSelectedSubjectId] = React.useState("")
   const [timeline, setTimeline] = React.useState<TimelineItem[]>([])
   const [timelineMedications, setTimelineMedications] = React.useState<MedicationEvent[]>([])
@@ -109,10 +157,13 @@ export default function HistoryPage() {
   React.useEffect(() => {
     const supabase = getSupabaseBrowserClient()
     if (!supabase) {
-      setAuthError('로그인 설정을 불러오지 못했습니다. 관리자에게 문의해 주세요.')
+      setAuthConfigured(false)
+      setAuthError('임상 기록 로그인이 아직 연결되지 않았습니다. 관리자 설정 후 사용할 수 있습니다.')
       setAuthReady(true)
       return
     }
+
+    setAuthConfigured(true)
 
     let mounted = true
     void supabase.auth.getSession().then(({ data }) => {
@@ -138,6 +189,7 @@ export default function HistoryPage() {
   React.useEffect(() => {
     if (!accessToken) {
       setPhysioData(null)
+      setIsSelfTimeline(false)
       setSelectedSubjectId("")
       setTimelineMedications([])
       return
@@ -146,11 +198,27 @@ export default function HistoryPage() {
       try {
         const data = await getPhysioSubjects(accessToken)
         setPhysioData(data)
+        setIsSelfTimeline(false)
         if (data.enabled && data.subjects.length > 0) {
           setSelectedSubjectId(data.default_subject_id || data.subjects[0].id)
         }
       } catch {
-        setPhysioData(null)
+        try {
+          const self = await getPhysioSelf(accessToken)
+          const selfSubjectData: PhysioSubjectsResponse = {
+            success: self.success,
+            enabled: self.enabled,
+            organization: null,
+            subjects: [self.subject],
+            default_subject_id: self.subject.id,
+          }
+          setPhysioData(selfSubjectData)
+          setIsSelfTimeline(true)
+          setSelectedSubjectId(self.subject.id)
+        } catch {
+          setPhysioData(null)
+          setIsSelfTimeline(false)
+        }
       }
     }
     void loadSubjects()
@@ -185,25 +253,37 @@ export default function HistoryPage() {
       setIsLoading(false)
       return
     }
+    if (isSelfTimeline) {
+      setHistory([])
+      setStats(null)
+      setError(null)
+      setIsLoading(false)
+      return
+    }
     const fetchData = async () => {
       setIsLoading(true)
       try {
-        const [historyRes, statsRes] = await Promise.all([
+        const [historyResult, statsResult] = await Promise.allSettled([
           getHistory(accessToken, filters),
           getHistoryStats(accessToken, filters.task_type)
         ])
-        setHistory(historyRes.data.items)
-        setStats(statsRes.data)
+
+        if (historyResult.status === 'rejected') {
+          throw historyResult.reason
+        }
+
+        setHistory(historyResult.value.data.items)
+        setStats(statsResult.status === 'fulfilled' ? statsResult.value.data : null)
         setError(null)
       } catch (err) {
         console.error('Failed to fetch history:', err)
-        setError('Failed to load history data')
+        setError('기록 API에 연결하지 못했습니다')
       } finally {
         setIsLoading(false)
       }
     }
     fetchData()
-  }, [accessToken, filters])
+  }, [accessToken, filters, historyRetry, isSelfTimeline])
 
   const handleDelete = async (videoId: string) => {
     if (!accessToken) return
@@ -219,7 +299,10 @@ export default function HistoryPage() {
   const handleSignIn = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const supabase = getSupabaseBrowserClient()
-    if (!supabase) return
+    if (!supabase) {
+      window.open('https://hawkeye-labeling-tool.vercel.app/history', '_blank', 'noopener,noreferrer')
+      return
+    }
 
     setAuthSubmitting(true)
     setAuthError(null)
@@ -277,53 +360,64 @@ export default function HistoryPage() {
     return (
       <PageLayout>
         <div className="min-h-[75vh] grid place-items-center px-4 py-10">
-          <Card className="w-full max-w-md overflow-hidden border-slate-700/70 bg-slate-950/90 shadow-2xl shadow-sky-950/30">
-            <div className="h-1 bg-gradient-to-r from-sky-400 via-emerald-400 to-cyan-300" />
-            <CardHeader className="space-y-4 pt-8">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-400/30 bg-emerald-400/10">
-                <LockKeyhole className="h-6 w-6 text-emerald-300" />
+          <Card className="w-full max-w-lg overflow-hidden border-border bg-card shadow-xl shadow-foreground/[0.06]">
+            <div className="h-1 bg-primary" />
+            <CardHeader className="space-y-4 px-7 pt-8 sm:px-9">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
+                  <LockKeyhole className="h-6 w-6 text-primary" />
+                </div>
+                <span className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary">
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> 보호된 기록
+                </span>
               </div>
               <div>
-                <CardTitle className="text-2xl text-white">임상 기록 로그인</CardTitle>
-                <CardDescription className="mt-2 leading-6 text-slate-400">
+                <CardTitle className="text-2xl text-foreground">임상 기록 로그인</CardTitle>
+                <CardDescription className="mt-2 leading-6 text-muted-foreground">
                   physio_app에 등록된 임상 계정만 환자 이력과 통합 타임라인을 볼 수 있습니다.
                 </CardDescription>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-7 pb-8 sm:px-9">
               <form className="space-y-4" onSubmit={handleSignIn}>
                 <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-300">이메일</span>
+                  <span className="text-sm font-medium text-foreground">이메일</span>
                   <input
                     type="email"
                     autoComplete="email"
                     required
                     value={loginEmail}
                     onChange={(event) => setLoginEmail(event.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none transition focus:border-emerald-400/70 focus:ring-2 focus:ring-emerald-400/15"
+                    disabled={authSubmitting}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
                   />
                 </label>
                 <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-300">비밀번호</span>
+                  <span className="text-sm font-medium text-foreground">비밀번호</span>
                   <input
                     type="password"
                     autoComplete="current-password"
                     required
                     value={loginPassword}
                     onChange={(event) => setLoginPassword(event.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-white outline-none transition focus:border-emerald-400/70 focus:ring-2 focus:ring-emerald-400/15"
+                    disabled={authSubmitting}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
                   />
                 </label>
                 {authError && (
-                  <p role="alert" className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+                  <p role="alert" className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-sm leading-5 text-amber-700 dark:text-amber-300">
                     {authError}
                   </p>
                 )}
                 <Button type="submit" className="w-full gap-2" disabled={authSubmitting}>
-                  {authSubmitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                  {authSubmitting ? '확인 중...' : '안전하게 로그인'}
+                  {authSubmitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : authConfigured ? <ShieldCheck className="h-4 w-4" /> : <ExternalLink className="h-4 w-4" />}
+                  {authSubmitting ? '확인 중...' : authConfigured ? '안전하게 로그인' : '운영 로그인 화면 열기'}
                 </Button>
               </form>
+              <div className="mt-6 flex items-start gap-3 rounded-lg border border-border bg-muted/35 px-4 py-3 text-xs leading-5 text-muted-foreground">
+                <Activity className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                <p>분석 실행은 로그인 없이도 가능합니다. 로그인 연결 전에는 결과가 임시 기록으로만 유지됩니다.</p>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -332,128 +426,114 @@ export default function HistoryPage() {
   }
 
   return (
-    <PageLayout agentPanel={<ChatInterface initialMessages={[{
+    <PageLayout
+      contentMaxWidth="max-w-[1480px]"
+      agentPanelWidth="w-[20rem]"
+      agentPanel={<ChatInterface initialMessages={[{
       id: "1",
       role: "agent",
       content: "검사 이력을 분석해드릴 수 있습니다. '지난 3개월간 보행 점수 변화를 분석해줘'와 같이 질문해보세요.",
       timestamp: new Date()
-    }]} />}>
-      <div className="space-y-8 pb-10">
-        {/* Header with Glass Effect */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-slate-700/50 p-8">
-          <div className="absolute inset-0 bg-grid-white/[0.02] bg-[size:32px_32px]" />
-          <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl" />
-
-          <div className="relative z-10">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-              <div>
-                <h1 className="text-4xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400">
-                  분석 이력
-                </h1>
-                <p className="text-slate-400 mt-2 text-lg">
-                  {stats ? `총 ${stats.total_analyses}건의 분석 기록` : '검사 기록을 확인하고 추이를 분석하세요'}
-                </p>
+    }]} />}
+    >
+      <motion.div
+        initial="hidden"
+        animate="show"
+        variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
+        className="space-y-6 pb-10"
+      >
+        <motion.section
+          variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}
+          className="relative overflow-hidden rounded-2xl border border-border/80 bg-card/95 p-6 shadow-sm md:p-7"
+        >
+          <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
+          <div className="relative flex min-w-0 flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-primary">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1">
+                  <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                  임상 기록
+                </span>
+                <span className="text-muted-foreground">HawkEye PD · longitudinal view</span>
               </div>
-
-              <div className="flex gap-3">
-                <div className="hidden lg:flex items-center rounded-lg border border-slate-700 bg-slate-800/40 px-3 text-xs text-slate-400">
-                  {signedInEmail || '인증된 임상 계정'}
-                </div>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder="검색..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-48"
-                  />
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 bg-slate-800/50 border-slate-700 hover:bg-slate-700"
-                  onClick={() => setShowFilters(!showFilters)}
-                >
-                  <Filter className="h-4 w-4" />
-                  필터
-                  <ChevronDown className={cn("h-4 w-4 transition-transform", showFilters && "rotate-180")} />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 bg-slate-800/50 border-slate-700 hover:bg-slate-700"
-                  onClick={handleSignOut}
-                >
-                  <LogOut className="h-4 w-4" />
-                  로그아웃
-                </Button>
-              </div>
+              <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">분석 이력</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                {stats ? `총 ${stats.total_analyses}건의 검사 결과와 시간에 따른 변화를 확인합니다.` : '검사 기록을 확인하고 추이를 분석하세요.'}
+              </p>
             </div>
 
-            {/* Filter Panel */}
-            {showFilters && (
-              <div className="mt-6 p-4 bg-slate-800/30 rounded-xl border border-slate-700/50 animate-in slide-in-from-top-2 fade-in duration-200">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">검사 유형</label>
-                    <select
-                      value={filters.task_type || ''}
-                      onChange={(e) => setFilters(prev => ({ ...prev, task_type: e.target.value || undefined }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm"
-                    >
-                      <option value="">전체</option>
-                      <option value="finger_tapping">Finger Tapping</option>
-                      <option value="gait">Gait</option>
-                      {/* <option value="hand_movement">Hand Movement</option> */}
-                      {/* <option value="leg_agility">Leg Agility</option> */}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">정렬</label>
-                    <select
-                      value={filters.sort}
-                      onChange={(e) => setFilters(prev => ({ ...prev, sort: e.target.value as HistoryFilters['sort'] }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm"
-                    >
-                      <option value="date_desc">최신순</option>
-                      <option value="date_asc">오래된순</option>
-                      <option value="score_desc">점수 높은순</option>
-                      <option value="score_asc">점수 낮은순</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">시작일</label>
-                    <input
-                      type="date"
-                      value={filters.start_date || ''}
-                      onChange={(e) => setFilters(prev => ({ ...prev, start_date: e.target.value || undefined }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">종료일</label>
-                    <input
-                      type="date"
-                      value={filters.end_date || ''}
-                      onChange={(e) => setFilters(prev => ({ ...prev, end_date: e.target.value || undefined }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm"
-                    />
-                  </div>
-                </div>
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <div className="hidden max-w-[16rem] items-center gap-2 truncate rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground lg:flex">
+                <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                <span className="truncate">{signedInEmail || '인증된 임상 계정'}</span>
               </div>
-            )}
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => setHistoryRetry((value) => value + 1)} disabled={isLoading}>
+                <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+                새로고침
+              </Button>
+              <Button variant="outline" size="sm" className="gap-2" onClick={handleSignOut}>
+                <LogOut className="h-4 w-4" />
+                로그아웃
+              </Button>
+            </div>
           </div>
-        </div>
+
+          <div className="relative mt-7 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+            <label className="relative block">
+              <span className="sr-only">검사 기록 검색</span>
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                placeholder="검사 유형, 환자 ID, 세션 검색"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="h-11 w-full rounded-lg border border-input bg-background pl-10 pr-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </label>
+            <Button variant="outline" className="h-11 justify-center gap-2" onClick={() => setShowFilters(!showFilters)}>
+              <Filter className="h-4 w-4" />
+              필터
+              <ChevronDown className={cn("h-4 w-4 transition-transform", showFilters && "rotate-180")} />
+            </Button>
+            <div className="hidden items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 text-xs text-muted-foreground md:flex">
+              <Database className="h-4 w-4 text-primary" aria-hidden="true" />
+              API 연결됨
+            </div>
+          </div>
+
+          {showFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              className="mt-4 grid gap-4 rounded-xl border border-border bg-muted/25 p-4 sm:grid-cols-2 xl:grid-cols-4"
+            >
+              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">검사 유형
+                <select value={filters.task_type || ''} onChange={(e) => setFilters(prev => ({ ...prev, task_type: e.target.value || undefined }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal text-foreground">
+                  <option value="">전체</option><option value="finger_tapping">Finger Tapping</option><option value="gait">Gait</option>
+                </select>
+              </label>
+              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">정렬
+                <select value={filters.sort} onChange={(e) => setFilters(prev => ({ ...prev, sort: e.target.value as HistoryFilters['sort'] }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal text-foreground">
+                  <option value="date_desc">최신순</option><option value="date_asc">오래된순</option><option value="score_desc">점수 높은순</option><option value="score_asc">점수 낮은순</option>
+                </select>
+              </label>
+              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">시작일
+                <input type="date" value={filters.start_date || ''} onChange={(e) => setFilters(prev => ({ ...prev, start_date: e.target.value || undefined }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground" />
+              </label>
+              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">종료일
+                <input type="date" value={filters.end_date || ''} onChange={(e) => setFilters(prev => ({ ...prev, end_date: e.target.value || undefined }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground" />
+              </label>
+            </motion.div>
+          )}
+        </motion.section>
 
         {/* Unified Patient Timeline (ParkiCheck + Hawk I) */}
         {physioData?.enabled && physioData.subjects.length > 0 && (
-          <Card className="bg-slate-900/50 border-slate-800">
+          <Card className="border-border bg-card">
             <CardHeader>
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <CardTitle className="text-white flex items-center gap-2">
+                  <CardTitle className="flex items-center gap-2 text-foreground">
                     <Activity className="h-5 w-5 text-emerald-400" />
                     환자 통합 타임라인
                   </CardTitle>
@@ -464,7 +544,7 @@ export default function HistoryPage() {
                 <select
                   value={selectedSubjectId}
                   onChange={(e) => setSelectedSubjectId(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                  className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground"
                 >
                   {physioData.subjects.map((subject) => (
                     <option key={subject.id} value={subject.id}>
@@ -476,30 +556,30 @@ export default function HistoryPage() {
             </CardHeader>
             <CardContent>
               {timelineLoading ? (
-                <p className="text-sm text-slate-500 py-4">타임라인을 불러오는 중...</p>
+                <p className="py-4 text-sm text-muted-foreground">타임라인을 불러오는 중...</p>
               ) : timelineError ? (
-                <p className="text-sm text-rose-400 py-4">{timelineError}</p>
+                <p className="py-4 text-sm text-rose-600 dark:text-rose-300">{timelineError}</p>
               ) : timelineEnabled === false ? (
-                <p className="text-sm text-slate-500 py-4">이 백엔드에는 physio_app 연동이 설정되어 있지 않습니다.</p>
+                <p className="py-4 text-sm text-muted-foreground">이 백엔드에는 physio_app 연동이 설정되어 있지 않습니다.</p>
               ) : timeline.length === 0 && timelineMedications.length === 0 ? (
-                <p className="text-sm text-slate-500 py-4">이 환자의 기록이 아직 없습니다.</p>
+                <p className="py-4 text-sm text-muted-foreground">이 환자의 기록이 아직 없습니다.</p>
               ) : (
                 <div className="space-y-5">
                   {timelineMedications.length > 0 && (
                     <div>
                       <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-300">
                         최근 환자 보고 복약 기록
-                        <span className="text-xs font-normal text-slate-500">효과·ON/OFF는 추정하지 않음</span>
+                        <span className="text-xs font-normal text-muted-foreground">효과·ON/OFF는 추정하지 않음</span>
                       </div>
                       <div className="space-y-2">
                         {timelineMedications.slice(0, 5).map((medication) => (
                           <div key={medication.event_id || `${medication.medication_code}-${medication.observed_at}`} className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
                             <span className="text-sm font-semibold text-amber-200">{medication.medication_display || medication.medication_code || '약물명 미입력'}</span>
                             {medication.dose_mg !== null && (
-                              <span className="text-sm text-slate-300">{medication.dose_mg}{medication.dose_unit || 'mg'}</span>
+                            <span className="text-sm text-foreground/80">{medication.dose_mg}{medication.dose_unit || 'mg'}</span>
                             )}
-                            <span className="text-xs text-slate-500">{medication.app_source === 'parkicheck' ? 'ParkiCheck 환자 보고' : 'physio_app 기록'}</span>
-                            <span className="ml-auto text-xs text-slate-500">{medication.observed_at ? new Date(medication.observed_at).toLocaleString('ko-KR') : '시각 미상'}</span>
+                            <span className="text-xs text-muted-foreground">{medication.app_source === 'parkicheck' ? 'ParkiCheck 환자 보고' : 'physio_app 기록'}</span>
+                            <span className="ml-auto text-xs text-muted-foreground">{medication.observed_at ? new Date(medication.observed_at).toLocaleString('ko-KR') : '시각 미상'}</span>
                           </div>
                         ))}
                       </div>
@@ -507,67 +587,67 @@ export default function HistoryPage() {
                   )}
                   <div className="space-y-2">
                   {trendPoints.length >= 2 && (
-                    <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
-                      <p className="text-sm font-medium text-slate-200">시간대별 추이와 복약</p>
-                      <p className="text-xs text-slate-500 mb-3">
+                    <div className="mb-4 rounded-lg border border-border bg-muted/25 p-4">
+                      <p className="text-sm font-medium text-foreground">시간대별 추이와 복약</p>
+                      <p className="mb-3 text-xs text-muted-foreground">
                         위쪽은 검사 점수, 아래쪽 눈금은 복약 시각입니다. 복약은 점수 축을 공유하지 않습니다.
                       </p>
                       <ResponsiveContainer width="100%" height={200}>
                         <ComposedChart margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                          <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} />
                           <XAxis
                             type="number" dataKey="t" domain={['dataMin', 'dataMax']}
-                            scale="time" stroke="#64748b" fontSize={11}
+                            scale="time" stroke={chartColors.axis} fontSize={11}
                             tickFormatter={(value: number) =>
                               new Date(value).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
                           />
-                          <YAxis yAxisId="score" domain={[0, 4]} stroke="#64748b" fontSize={11} width={28} />
+                          <YAxis yAxisId="score" domain={[0, 4]} stroke={chartColors.axis} fontSize={11} width={28} />
                           <YAxis yAxisId="dose" domain={[0, 1]} hide />
                           <Tooltip
-                            contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                            contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 8, fontSize: 12 }}
                             labelFormatter={(value: number) => new Date(value).toLocaleString('ko-KR')}
                             formatter={(value: number, name: string) =>
                               name === 'lane' ? ['복약', ''] : [value, '점수']}
                           />
                           <Line
                             yAxisId="score" data={trendPoints} dataKey="score" type="monotone"
-                            stroke="#38bdf8" strokeWidth={2} dot={{ r: 3, fill: '#38bdf8' }}
+                            stroke={chartColors.score} strokeWidth={2} dot={{ r: 3, fill: chartColors.score }}
                           />
                           <Scatter
                             yAxisId="dose" data={doseMarkers} dataKey="lane"
-                            fill="#fbbf24" shape="cross"
+                            fill={chartColors.accent} shape="cross"
                           />
                         </ComposedChart>
                       </ResponsiveContainer>
-                      <p className="text-[10px] text-slate-500 mt-1">
+                      <p className="mt-1 text-[10px] text-muted-foreground">
                         노란 눈금 = 환자가 보고한 복약 {doseMarkers.length}건
                       </p>
                     </div>
                   )}
 
                   {doseAlignedPoints.length >= 2 && (
-                    <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
-                      <p className="text-sm font-medium text-slate-200">복약 기준 정렬</p>
-                      <p className="text-xs text-slate-500 mb-3">
+                    <div className="mb-4 rounded-lg border border-border bg-muted/25 p-4">
+                      <p className="text-sm font-medium text-foreground">복약 기준 정렬</p>
+                      <p className="mb-3 text-xs text-muted-foreground">
                         마지막 복약 이후 경과 시간에 따른 점수입니다. 약효나 ON/OFF 상태를 추정하지 않고 관측값만 표시합니다.
                       </p>
                       <ResponsiveContainer width="100%" height={180}>
                         <ScatterChart margin={{ top: 8, right: 12, bottom: 20, left: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                          <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} />
                           <XAxis
                             type="number" dataKey="hours" name="복약 후 경과"
-                            unit="h" stroke="#64748b" fontSize={11}
-                            label={{ value: '복약 후 경과 시간(h)', position: 'insideBottom', offset: -12, fill: '#64748b', fontSize: 11 }}
+                            unit="h" stroke={chartColors.axis} fontSize={11}
+                            label={{ value: '복약 후 경과 시간(h)', position: 'insideBottom', offset: -12, fill: chartColors.axis, fontSize: 11 }}
                           />
                           <YAxis
                             type="number" dataKey="score" name="점수"
-                            domain={[0, 4]} stroke="#64748b" fontSize={11}
+                            domain={[0, 4]} stroke={chartColors.axis} fontSize={11}
                           />
                           <Tooltip
-                            contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                            contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 8, fontSize: 12 }}
                             formatter={(value: number, name: string) => [value, name === 'hours' ? '복약 후(h)' : '점수']}
                           />
-                          <Scatter data={doseAlignedPoints} fill="#38bdf8" />
+                          <Scatter data={doseAlignedPoints} fill={chartColors.score} />
                         </ScatterChart>
                       </ResponsiveContainer>
                     </div>
@@ -586,7 +666,7 @@ export default function HistoryPage() {
                     return (
                     <div
                       key={key}
-                      className="p-3 rounded-lg bg-slate-800/40 border border-slate-700/50 space-y-2"
+                      className="space-y-2 rounded-lg border border-border bg-muted/30 p-3"
                     >
                       <div className="flex flex-wrap items-center gap-3">
                         <span
@@ -599,7 +679,7 @@ export default function HistoryPage() {
                         >
                           {item.app_source === 'parkicheck' ? 'ParkiCheck 검사' : 'Hawk I AI 분석'}
                         </span>
-                        <span className="text-sm text-slate-300">{item.code || '—'}</span>
+                        <span className="text-sm text-foreground/80">{item.code || '—'}</span>
                         {item.hours_since_last_dose !== null && item.hours_since_last_dose !== undefined && (
                           <span className="text-xs px-2 py-1 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-200">
                             복약 {item.hours_since_last_dose}시간 후
@@ -607,7 +687,7 @@ export default function HistoryPage() {
                             {item.last_dose_mg !== null && item.last_dose_mg !== undefined ? ` ${item.last_dose_mg}mg` : ''}
                           </span>
                         )}
-                        <span className="text-xs text-slate-500 ml-auto flex items-center gap-1">
+                        <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
                           <Clock className="h-3 w-3" />
                           {item.observed_at ? new Date(item.observed_at).toLocaleString('ko-KR') : '시각 미상'}
                         </span>
@@ -616,9 +696,9 @@ export default function HistoryPage() {
                       {/* Observation before score: a narrative finding is what a
                           clinician can verify; a bare number invites overreliance. */}
                       {item.rationale ? (
-                        <p className="text-sm text-slate-200 leading-relaxed">{item.rationale}</p>
+                        <p className="text-sm leading-relaxed text-foreground/90">{item.rationale}</p>
                       ) : (
-                        <p className="text-sm text-slate-600 italic">관찰 근거가 기록되지 않았습니다</p>
+                        <p className="text-sm italic text-muted-foreground">관찰 근거가 기록되지 않았습니다</p>
                       )}
 
                       {onHold && (
@@ -637,7 +717,7 @@ export default function HistoryPage() {
                             return next
                           })}
                           aria-expanded={isOpen}
-                          className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                         >
                           <ChevronDown className={cn("h-3 w-3 transition-transform", isOpen && "rotate-180")} />
                           정량 지표 {metricEntries.length}개
@@ -650,14 +730,14 @@ export default function HistoryPage() {
                             { title: '약물 반응성 지표', entries: doseResponsive, hint: '복약으로 개선될 수 있음' },
                             { title: '약물 저항성 지표', entries: doseResistant, hint: '복약과 무관하게 유지되는 경향' },
                           ].filter((group) => group.entries.length > 0).map((group) => (
-                            <div key={group.title} className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-3">
-                              <p className="text-xs font-medium text-slate-300">{group.title}</p>
-                              <p className="text-[10px] text-slate-500 mb-2">{group.hint}</p>
+                            <div key={group.title} className="rounded-lg border border-border bg-background/70 p-3">
+                              <p className="text-xs font-medium text-foreground/80">{group.title}</p>
+                              <p className="mb-2 text-[10px] text-muted-foreground">{group.hint}</p>
                               <dl className="space-y-1">
                                 {group.entries.map(([name, value]) => (
                                   <div key={name} className="flex justify-between gap-3 text-xs">
-                                    <dt className="text-slate-400">{metricLabel(name)}</dt>
-                                    <dd className="text-slate-200 font-mono">
+                                    <dt className="text-muted-foreground">{metricLabel(name)}</dt>
+                                    <dd className="font-mono text-foreground/90">
                                       {typeof value === 'number' ? value.toFixed(2) : String(value)}
                                     </dd>
                                   </div>
@@ -668,30 +748,30 @@ export default function HistoryPage() {
                         </div>
                       )}
 
-                      <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-slate-700/40">
-                        <span className="text-xs text-slate-400">
+                      <div className="flex flex-wrap items-center gap-3 border-t border-border pt-1">
+                        <span className="text-xs text-muted-foreground">
                           {item.score !== null && item.score !== undefined ? (
-                            <>점수 <span className="text-slate-200 font-semibold">{item.score}</span>{item.severity ? ` · ${item.severity}` : ''}</>
+                            <>점수 <span className="font-semibold text-foreground">{item.score}</span>{item.severity ? ` · ${item.severity}` : ''}</>
                           ) : '점수 없음'}
                         </span>
                         {(item.scoring_method || item.model_type) && (
-                          <span className="text-[10px] text-slate-500">
+                          <span className="text-[10px] text-muted-foreground">
                             산출 {item.scoring_method || '—'}{item.model_type ? ` / ${item.model_type}` : ''}
                           </span>
                         )}
                         {item.confidence !== null && item.confidence !== undefined && (
-                          <span className="text-[10px] text-slate-500">신뢰도 {String(item.confidence)}</span>
+                          <span className="text-[10px] text-muted-foreground">신뢰도 {String(item.confidence)}</span>
                         )}
                         {item.analysis_id && (
                           <Link href={`/result?id=${item.analysis_id}`} className="ml-auto">
-                            <Button variant="outline" size="sm" className="gap-1 border-slate-700 hover:bg-slate-700 h-7 px-2 text-xs">
+                            <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs">
                               <Eye className="h-3 w-3" /> 영상 근거
                             </Button>
                           </Link>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-slate-600">
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-muted-foreground/70">
                         {item.activity_session_id && <span>session: {item.activity_session_id}</span>}
                         {item.observation_id && <span>observation: {item.observation_id}</span>}
                         {item.fhir_id && <span>FHIR: {item.fhir_id}</span>}
@@ -708,109 +788,58 @@ export default function HistoryPage() {
 
         {/* Stats Overview */}
         {stats && stats.total_analyses > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-blue-500/10">
-                    <BarChart3 className="h-6 w-6 text-blue-400" />
-                  </div>
-                  <div>
-                    <p className="text-3xl font-bold text-white">{stats.total_analyses}</p>
-                    <p className="text-sm text-slate-500">총 분석 수</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-emerald-500/10">
-                    <TrendingUp className="h-6 w-6 text-emerald-400" />
-                  </div>
-                  <div>
-                    <p className="text-3xl font-bold text-white">
-                      {stats.average_score?.toFixed(1) || 'N/A'}
-                    </p>
-                    <p className="text-sm text-slate-500">평균 점수</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-amber-500/10">
-                    <Activity className="h-6 w-6 text-amber-400" />
-                  </div>
-                  <div>
-                    <p className="text-3xl font-bold text-white">
-                      {Object.keys(stats.task_distribution).length}
-                    </p>
-                    <p className="text-sm text-slate-500">검사 유형</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-purple-500/10">
-                    <Clock className="h-6 w-6 text-purple-400" />
-                  </div>
-                  <div>
-                    <p className="text-3xl font-bold text-white">
-                      {history[0]?.date.split('T')[0] || 'N/A'}
-                    </p>
-                    <p className="text-sm text-slate-500">최근 검사</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <motion.div
+            variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}
+            className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+          >
+            <MetricCard label="총 분석" value={stats.total_analyses} caption="인증된 기록" tone="blue" icon={<BarChart3 className="h-5 w-5" />} />
+            <MetricCard label="평균 점수" value={stats.average_score?.toFixed(1) || 'N/A'} caption="0–4 임상 점수 범위" tone="green" icon={<TrendingUp className="h-5 w-5" />} />
+            <MetricCard label="검사 유형" value={Object.keys(stats.task_distribution).length} caption="Gait · Finger Tapping" tone="amber" icon={<ClipboardCheck className="h-5 w-5" />} />
+            <MetricCard label="최근 검사" value={history[0]?.date.split('T')[0] || 'N/A'} caption="가장 최근 저장 시각" tone="violet" icon={<Clock className="h-5 w-5" />} />
+          </motion.div>
         )}
 
         {/* Charts Section */}
         {stats && stats.trend.length > 0 && (
-          <div className="grid md:grid-cols-2 gap-6">
+          <motion.div
+            variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}
+            className="grid gap-4 md:grid-cols-2"
+          >
             {/* Trend Chart */}
-            <Card className="bg-slate-900/50 border-slate-800">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-blue-400" />
+            <Card className="min-w-0 border-border/80 bg-card/95">
+              <CardHeader className="border-b border-border/70 pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <TrendingUp className="h-5 w-5 text-primary" />
                   점수 추이
                 </CardTitle>
-                <CardDescription>시간에 따른 UPDRS 점수 변화</CardDescription>
+                <CardDescription>시간에 따른 관찰 점수 변화 · 0–4 scale</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
+              <CardContent className="pt-5">
+                <div className="h-64 min-w-0">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={280} minHeight={200}>
                     <LineChart data={stats.trend}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} />
                       <XAxis
                         dataKey="date"
-                        stroke="#64748b"
+                        stroke={chartColors.axis}
                         fontSize={12}
                         tickFormatter={(val) => val.slice(5)} // MM-DD
                       />
-                      <YAxis stroke="#64748b" fontSize={12} domain={[0, 4]} />
+                      <YAxis stroke={chartColors.axis} fontSize={12} domain={[0, 4]} />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: '#1e293b',
-                          border: '1px solid #334155',
+                          backgroundColor: 'var(--chart-tooltip-bg)',
+                          border: '1px solid var(--chart-tooltip-border)',
                           borderRadius: '8px'
                         }}
                       />
                       <Line
                         type="monotone"
                         dataKey="score"
-                        stroke="#3b82f6"
+                        stroke={chartColors.score}
                         strokeWidth={2}
-                        dot={{ fill: '#3b82f6', strokeWidth: 2 }}
-                        activeDot={{ r: 6, fill: '#60a5fa' }}
+                        dot={{ fill: chartColors.score, strokeWidth: 2 }}
+                        activeDot={{ r: 6, fill: chartColors.accent }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -819,29 +848,29 @@ export default function HistoryPage() {
             </Card>
 
             {/* Score Distribution */}
-            <Card className="bg-slate-900/50 border-slate-800">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-emerald-400" />
+            <Card className="min-w-0 border-border/80 bg-card/95">
+              <CardHeader className="border-b border-border/70 pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <BarChart3 className="h-5 w-5 text-primary" />
                   점수 분포
                 </CardTitle>
-                <CardDescription>UPDRS 점수별 분석 횟수</CardDescription>
+                <CardDescription>관찰 점수별 분석 횟수</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
+              <CardContent className="pt-5">
+                <div className="h-64 min-w-0">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={280} minHeight={200}>
                     <BarChart data={Object.entries(stats.score_distribution).map(([score, count]) => ({
                       score: `Score ${score}`,
                       count,
                       fill: scoreColors[parseInt(score)] || '#64748b'
                     }))}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                      <XAxis dataKey="score" stroke="#64748b" fontSize={12} />
-                      <YAxis stroke="#64748b" fontSize={12} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} />
+                      <XAxis dataKey="score" stroke={chartColors.axis} fontSize={12} />
+                      <YAxis stroke={chartColors.axis} fontSize={12} />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: '#1e293b',
-                          border: '1px solid #334155',
+                          backgroundColor: 'var(--chart-tooltip-bg)',
+                          border: '1px solid var(--chart-tooltip-border)',
                           borderRadius: '8px'
                         }}
                       />
@@ -855,14 +884,17 @@ export default function HistoryPage() {
                 </div>
               </CardContent>
             </Card>
-          </div>
+          </motion.div>
         )}
 
         {/* History List */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">검사 기록</h2>
-            <span className="text-sm text-slate-500">{filteredHistory.length}건</span>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-primary">Audit trail</p>
+              <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">검사 기록</h2>
+            </div>
+            <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">{filteredHistory.length}건 표시</span>
           </div>
 
           {isLoading ? (
@@ -870,16 +902,24 @@ export default function HistoryPage() {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
             </div>
           ) : error ? (
-            <Card className="bg-red-500/10 border-red-500/30">
-              <CardContent className="p-6 text-center text-red-400">
-                {error}
+            <Card className="border-amber-500/25 bg-amber-500/10">
+              <CardContent className="p-6 text-center">
+                <Activity className="mx-auto mb-3 h-9 w-9 text-amber-600 dark:text-amber-300" />
+                <p className="font-medium text-amber-800 dark:text-amber-200">기록을 불러오지 못했습니다</p>
+                <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-amber-700 dark:text-amber-300">
+                  기록 API가 응답하지 않았습니다. 운영 백엔드의 임상 기록 설정이 완료되면 분석 이력과 복약 타임라인이 표시됩니다.
+                </p>
+                <p className="mt-2 text-xs text-amber-700/80 dark:text-amber-300/80">{error}</p>
+                <Button className="mt-4" variant="outline" onClick={() => setHistoryRetry((value) => value + 1)}>
+                  다시 시도
+                </Button>
               </CardContent>
             </Card>
           ) : filteredHistory.length === 0 ? (
-            <Card className="bg-slate-900/50 border-slate-800">
+            <Card className="border-border bg-card">
               <CardContent className="p-12 text-center">
-                <Activity className="h-12 w-12 text-slate-600 mx-auto mb-4" />
-                <p className="text-slate-500">분석 기록이 없습니다</p>
+                <Activity className="mx-auto mb-4 h-12 w-12 text-muted-foreground/60" />
+                <p className="text-muted-foreground">분석 기록이 없습니다</p>
                 <Link href="/test">
                   <Button className="mt-4" variant="outline">
                     새 검사 시작하기
@@ -888,129 +928,78 @@ export default function HistoryPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-3">
-              {filteredHistory.map((item, index) => (
-                <div
-                  key={item.video_id}
-                  className="group relative animate-in fade-in slide-in-from-bottom-2"
-                  style={{ animationDelay: `${index * 50}ms` }}
-                >
-                  <Card className="bg-slate-900/50 border-slate-800 hover:border-slate-600 hover:bg-slate-800/50 transition-all duration-200">
-                    <CardContent className="p-0">
-                      <div className="flex items-center">
-                        {/* Score Indicator */}
-                        <div
-                          className="w-2 h-full min-h-[100px] rounded-l-lg"
-                          style={{ backgroundColor: scoreColors[Math.round(item.score || 0)] || '#64748b' }}
-                        />
-
-                        <div className="flex-1 p-5 flex items-center justify-between">
-                          <div className="flex items-center gap-5">
-                            {/* Score Circle */}
-                            <div
-                              className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold border-2"
-                              style={{
-                                borderColor: scoreColors[Math.round(item.score || 0)] || '#64748b',
-                                color: scoreColors[Math.round(item.score || 0)] || '#64748b'
-                              }}
-                            >
-                              {item.score?.toFixed(1) || 'N/A'}
-                            </div>
-
-                            <div>
-                              <div className="flex items-center gap-3 mb-1">
-                                <h3 className="font-semibold text-lg">{formatVideoType(item.task_type)}</h3>
-                                <span className={cn(
-                                  "text-xs px-2 py-0.5 rounded-full border",
-                                  severityColors[item.severity] || severityColors["Unknown"]
-                                )}>
-                                  {item.severity}
-                                </span>
-                                <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">
-                                  {item.scoring_method}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-4 text-sm text-slate-500">
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="h-3.5 w-3.5" />
-                                  {new Date(item.date).toLocaleDateString('ko-KR')}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3.5 w-3.5" />
-                                  {new Date(item.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                                <span className="text-xs text-slate-600">
-                                  ID: {item.video_id.slice(0, 8)}...
-                                </span>
-                              </div>
-                            </div>
+            <Card className="overflow-hidden border-border/80 bg-card/95">
+              <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(10rem,1fr)_10rem_8.5rem] gap-4 border-b border-border bg-muted/25 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:grid">
+                <span>검사</span><span>판정</span><span>검사 시각</span><span className="text-right">작업</span>
+              </div>
+              <AnimatePresence initial={false}>
+                {filteredHistory.map((item) => {
+                  const scoreColor = scoreColors[Math.round(item.score || 0)] || '#64748b'
+                  return (
+                    <motion.div
+                      key={item.video_id}
+                      layout
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.18 }}
+                      className="group grid gap-4 border-b border-border/70 px-5 py-4 last:border-b-0 md:grid-cols-[minmax(12rem,1.4fr)_minmax(10rem,1fr)_10rem_8.5rem] md:items-center"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="h-9 w-1 shrink-0 rounded-full" style={{ backgroundColor: scoreColor }} />
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-semibold text-foreground">{formatVideoType(item.task_type)}</h3>
+                            <span className="font-mono text-[10px] text-muted-foreground">{item.video_id.slice(0, 8)}…</span>
                           </div>
-
-                          <div className="flex items-center gap-2">
-                            {deleteConfirm === item.video_id ? (
-                              <div className="flex items-center gap-2 animate-in fade-in">
-                                <span className="text-xs text-slate-400">삭제할까요?</span>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                                  onClick={() => handleDelete(item.video_id)}
-                                >
-                                  삭제
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setDeleteConfirm(null)}
-                                >
-                                  취소
-                                </Button>
-                              </div>
-                            ) : (
-                              <>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-red-400"
-                                  onClick={() => setDeleteConfirm(item.video_id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                                <Link href={`/result?id=${item.video_id}`}>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="text-slate-400 hover:text-white"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                </Link>
-                                <Link href={`/result?id=${item.video_id}`}>
-                                  <Button size="sm" variant="ghost" className="gap-1">
-                                    상세보기
-                                    <ChevronRight className="h-4 w-4" />
-                                  </Button>
-                                </Link>
-                              </>
-                            )}
-                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">산출 방식 · {item.scoring_method || '기록 없음'}</p>
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              ))}
-            </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-sm font-semibold" style={{ borderColor: scoreColor, color: scoreColor }}>
+                          {item.score?.toFixed(1) || '—'}
+                        </span>
+                        <span className={cn("rounded-full border px-2 py-1 text-xs font-medium", severityColors[item.severity] || severityColors["Unknown"])}>
+                          {item.severity}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Calendar className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>{new Date(item.date).toLocaleDateString('ko-KR')}</span>
+                        <span className="hidden lg:inline">{new Date(item.date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+
+                      <div className="flex items-center justify-start gap-1 md:justify-end">
+                        {deleteConfirm === item.video_id ? (
+                          <div className="flex items-center gap-1">
+                            <span className="mr-1 text-xs text-muted-foreground">삭제할까요?</span>
+                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => handleDelete(item.video_id)}>삭제</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(null)}>취소</Button>
+                          </div>
+                        ) : (
+                          <>
+                            <Button size="icon" variant="ghost" className="text-muted-foreground opacity-70 transition-opacity hover:text-destructive md:opacity-0 md:group-hover:opacity-100" onClick={() => setDeleteConfirm(item.video_id)} title="기록 삭제">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                            <Link href={`/result?id=${item.video_id}`}>
+                              <Button size="sm" variant="outline" className="h-9 gap-1.5 px-3">
+                                상세보기
+                                <ArrowUpRight className="h-3.5 w-3.5" />
+                              </Button>
+                            </Link>
+                          </>
+                        )}
+                      </div>
+                    </motion.div>
+                  )
+                })}
+              </AnimatePresence>
+            </Card>
           )}
         </div>
-      </div>
-
-      {/* Custom Grid Pattern */}
-      <style jsx global>{`
-        .bg-grid-white {
-          background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32' fill='none' stroke='rgb(255 255 255 / 0.02)'%3e%3cpath d='M0 .5H31.5V32'/%3e%3c/svg%3e");
-        }
-      `}</style>
+      </motion.div>
     </PageLayout>
   )
 }

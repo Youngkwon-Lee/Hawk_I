@@ -217,3 +217,28 @@ def require_clinician(view: F) -> F:
         return view(*args, **kwargs)
 
     return wrapped  # type: ignore[return-value]
+
+
+def require_authenticated_person(view: F) -> F:
+    """Protect a route with Supabase authentication, without a role elevation.
+
+    Use this only for endpoints whose database reads remain constrained by the
+    caller JWT and Supabase RLS (for example, a subject reading their own
+    timeline). Routes that enumerate or read backend-local analysis files must
+    continue to use :func:`require_clinician`.
+    """
+
+    @wraps(view)
+    def wrapped(*args: Any, **kwargs: Any):
+        try:
+            access_token = extract_bearer_token(request.headers.get("Authorization"))
+            g.authenticated_person = authenticate_person(access_token)
+        except SupabaseInvalidToken:
+            return jsonify({"success": False, "error": "authentication required"}), 401
+        except SupabaseClinicianForbidden:
+            return jsonify({"success": False, "error": "active person required"}), 403
+        except SupabaseAuthUnavailable:
+            return jsonify({"success": False, "error": "authentication unavailable"}), 503
+        return view(*args, **kwargs)
+
+    return wrapped  # type: ignore[return-value]

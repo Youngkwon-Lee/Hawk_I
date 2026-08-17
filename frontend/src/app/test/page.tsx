@@ -2,10 +2,9 @@
 
 import * as React from "react"
 import { PageLayout } from "@/components/layout/PageLayout"
-import { ChatInterface } from "@/components/ui/ChatInterface"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
-import { Upload, FileVideo, X, AlertTriangle, Loader2, Users, RefreshCw, CheckCircle2, ExternalLink } from "lucide-react"
+import { Upload, FileVideo, X, AlertTriangle, Loader2, ExternalLink, Footprints, Hand, ScanLine, ChevronRight, Circle, FileCheck2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
 import {
@@ -18,6 +17,8 @@ import {
 import { useAnalysisStore } from "@/store/analysisStore"
 import { AnalysisOverlay } from "@/components/dashboard/AnalysisOverlay"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
+import { EvidencePanel } from "@/components/test/EvidencePanel"
+import { WorkspaceRail } from "@/components/test/WorkspaceRail"
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime']
@@ -36,7 +37,6 @@ export default function TestPage() {
     const [physioData, setPhysioData] = React.useState<PhysioSubjectsResponse | null>(null)
     const [selectedSubjectId, setSelectedSubjectId] = React.useState("")
     const [isLoadingPhysio, setIsLoadingPhysio] = React.useState(true)
-    const [physioError, setPhysioError] = React.useState("")
     const [authReady, setAuthReady] = React.useState(false)
     const [accessToken, setAccessToken] = React.useState<string | null>(null)
 
@@ -67,7 +67,6 @@ export default function TestPage() {
     const loadPhysioSubjects = React.useCallback(async () => {
         if (!authReady) return
         setIsLoadingPhysio(true)
-        setPhysioError("")
         if (!accessToken) {
             // Being signed out is not a failure: analysis still runs, only storage is skipped.
             setPhysioData({
@@ -94,10 +93,9 @@ export default function TestPage() {
             } else {
                 setSelectedSubjectId("")
             }
-        } catch (error) {
+        } catch {
             setPhysioData(null)
             setSelectedSubjectId("")
-            setPhysioError(error instanceof Error ? error.message : "physio_app 대상을 불러오지 못했습니다")
         } finally {
             setIsLoadingPhysio(false)
         }
@@ -230,12 +228,18 @@ export default function TestPage() {
     }
 
     return (
-        <PageLayout agentPanel={<ChatInterface initialMessages={[{
-            id: "1",
-            role: "agent",
-            content: "안녕하세요! 검사를 시작하려면 테스트 유형을 선택해주세요. 녹화 방법에 대해 안내해 드릴 수 있습니다.",
-            timestamp: new Date()
-        }]} />}>
+        <PageLayout
+            leftRail={
+                <WorkspaceRail
+                    selectedSubject={selectedSubject}
+                    subjects={physioData?.subjects}
+                    selectedSubjectId={selectedSubjectId}
+                    onSelectSubject={setSelectedSubjectId}
+                />
+            }
+            agentPanel={<EvidencePanel />}
+            agentPanelWidth="w-16"
+        >
             {isAnalyzing && (
                 <AnalysisOverlay
                     isUploading={!currentVideoId}
@@ -250,142 +254,99 @@ export default function TestPage() {
                 />
             )}
 
-            <div className="space-y-8">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">새 분석 시작</h1>
-                    <p className="text-muted-foreground mt-2">테스트 유형을 선택하고 비디오를 업로드하세요. AI가 실제 움직임 유형을 자동으로 감지합니다.</p>
+            <div className="space-y-5 pb-24">
+                <div className="border-b border-border pb-5">
+                    <div>
+                        <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">새 분석 시작</h1>
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">ParkiCheck 검사 결과를 연결하고 영상을 업로드해 분석을 시작하세요.</p>
+                    </div>
                 </div>
 
-                {/* Step 1: Select Test Type (Optional) */}
-                <div className="space-y-4">
+                <div className="hidden items-center gap-3 md:flex" aria-label="분석 진행 단계">
+                    <ProgressStep number="1" label="검사 기록 연결" active />
+                    <span className="h-px flex-1 bg-primary/70" />
+                    <ProgressStep number="2" label="분석 유형 선택" />
+                    <span className="h-px flex-1 bg-border" />
+                    <ProgressStep number="3" label="비디오 업로드" />
+                </div>
+
+                {/* Step 1: ParkiCheck source record */}
+                <div className="space-y-3 rounded-xl border border-border bg-card/35 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">1. ParkiCheck 검사 기록</p>
+                            <h2 className="mt-1 text-base font-semibold">검사는 ParkiCheck에서 진행해주세요.</h2>
+                        </div>
+                        <a href="https://finger-tap-fx.vercel.app/" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 rounded-md border border-primary/50 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/5">ParkiCheck에서 검사하기 <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /></a>
+                    </div>
+                    <div className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><FileCheck2 className="h-5 w-5" aria-hidden="true" /></div>
+                            <div>
+                                <p className="text-sm font-medium">검사 완료 후 결과 파일을 이곳에 업로드하면 분석이 시작됩니다.</p>
+                                <p className="mt-1 text-xs leading-5 text-muted-foreground">검사 기록과 분석 결과는 환자 기록의 한 타임라인으로 연결됩니다.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Step 2: Select Test Type (Optional) */}
+                <div className="space-y-3 rounded-xl border border-border bg-card/35 p-4">
                     <div className="flex items-center justify-between">
-                        <h2 className="text-xl font-semibold">1. 분석 유형 선택 (선택사항)</h2>
+                        <div>
+                            <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">2. 분석 유형 선택</p>
+                            <h2 className="mt-1 text-base font-semibold">AI가 움직임 유형을 식별합니다</h2>
+                        </div>
                         {selectedTest && (
                             <Button variant="ghost" size="sm" onClick={() => setSelectedTest(null)}>
-                                <X className="h-4 w-4 mr-1" />
+                                <X className="mr-1 h-4 w-4" />
                                 자동 감지 사용
                             </Button>
                         )}
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                         <TestTypeCard
                             title="자동 감지"
                             description="AI가 움직임 유형을 자동으로 식별합니다."
+                            icon={<ScanLine className="h-7 w-7" aria-hidden="true" />}
                             isSelected={selectedTest === null}
                             onClick={() => setSelectedTest(null)}
                         />
                         <TestTypeCard
                             title="손가락 태핑"
                             description="손가락의 속도와 리듬을 분석합니다."
+                            icon={<Hand className="h-7 w-7" aria-hidden="true" />}
                             isSelected={selectedTest === "finger"}
                             onClick={() => setSelectedTest("finger")}
                         />
                         <TestTypeCard
                             title="보행 분석"
                             description="보행 패턴과 자세를 분석합니다."
+                            icon={<Footprints className="h-7 w-7" aria-hidden="true" />}
                             isSelected={selectedTest === "gait"}
                             onClick={() => setSelectedTest("gait")}
+                        />
+                        <TestTypeCard
+                            title="순차적 운동"
+                            description="곧 제공될 예정입니다."
+                            icon={<Circle className="h-7 w-7" aria-hidden="true" />}
+                            isSelected={false}
+                            onClick={() => undefined}
+                            disabled
                         />
                     </div>
                 </div>
 
-                <div className="flex flex-col gap-4 rounded-lg border border-border bg-card/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="space-y-1">
-                        <p className="text-sm font-medium">환자용 검사 경로</p>
-                        <p className="text-sm text-muted-foreground">
-                            검사·복약 기록은 ParkiCheck에서 진행하고, 저장된 결과는 공통 기록에서 함께 확인합니다.
-                        </p>
-                    </div>
-                    <a
-                        href="https://finger-tap-fx.vercel.app/"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                        ParkiCheck에서 검사하기
-                        <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                    </a>
-                </div>
-
-                {/* Step 2: Select physio_app subject */}
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between gap-3">
-                        <h2 className="text-xl font-semibold">2. physio_app 저장 대상</h2>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={loadPhysioSubjects}
-                            disabled={isLoadingPhysio}
-                            className="gap-2"
-                        >
-                            <RefreshCw className={cn("h-4 w-4", isLoadingPhysio && "animate-spin")} />
-                            새로고침
-                        </Button>
-                    </div>
-
-                    <div className="rounded-lg border border-border bg-card/60 p-4">
-                        {isLoadingPhysio ? (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                불러오는 중
-                            </div>
-                        ) : physioError ? (
-                            <div className="flex items-center gap-2 text-sm text-red-500">
-                                <AlertTriangle className="h-4 w-4" />
-                                {physioError}
-                            </div>
-                        ) : physioData?.enabled && physioData.subjects.length > 0 ? (
-                            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-                                <label className="space-y-2">
-                                    <span className="flex items-center gap-2 text-sm font-medium">
-                                        <Users className="h-4 w-4 text-primary" />
-                                        대상
-                                    </span>
-                                    <select
-                                        value={selectedSubjectId}
-                                        onChange={(event) => setSelectedSubjectId(event.target.value)}
-                                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                    >
-                                        {physioData.subjects.map((subject) => (
-                                            <option key={subject.id} value={subject.id}>
-                                                {subject.display_name} · {subject.role || subject.user_type || "member"}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
-                                {selectedSubject && (
-                                    <div className="flex min-w-0 items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-500">
-                                        <CheckCircle2 className="h-4 w-4 shrink-0" />
-                                        <span className="truncate">
-                                            {selectedSubject.display_name}
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        ) : physioData?.enabled ? (
-                            <div className="flex items-center gap-2 text-sm text-amber-600">
-                                <AlertTriangle className="h-4 w-4 shrink-0" />
-                                <span>physio_app active 고객이 없습니다. 고객을 먼저 등록한 뒤 새로고침하세요.</span>
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Users className="h-4 w-4 shrink-0" />
-                                <span>
-                                    {physioData?.reason === "signed_out"
-                                        ? "로그인하지 않아 결과가 저장되지 않습니다. 분석은 그대로 진행됩니다."
-                                        : "physio_app 저장 비활성화 — 분석 결과는 저장되지 않습니다."}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
+                {/* Patient record connection is shown when a physio_app workspace is connected. */}
                 {/* Step 3: Upload Video */}
-                <div className="space-y-4">
-                    <h2 className="text-xl font-semibold">3. 비디오 업로드</h2>
+                <div className="space-y-3 rounded-xl border border-border bg-card/35 p-4">
+                    <div>
+                        <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">3. 비디오 업로드</p>
+                        <h2 className="mt-1 text-base font-semibold">환자의 움직임이 잘 보이는 영상을 업로드하세요</h2>
+                    </div>
                     <div
                         className={cn(
-                            "border-2 border-dashed rounded-xl p-10 text-center transition-colors",
+                            "min-h-[18rem] border border-dashed rounded-xl p-8 text-center transition-colors",
                             file ? "border-primary/50 bg-primary/5" : "border-border hover:border-primary/50 hover:bg-accent/50"
                         )}
                         onDragOver={(e) => e.preventDefault()}
@@ -451,12 +412,13 @@ export default function TestPage() {
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex justify-end gap-4 pt-4">
+                <div className="fixed inset-x-0 bottom-0 z-30 flex justify-end gap-3 border-t border-border bg-background/95 px-4 py-3 backdrop-blur md:right-16 md:px-14">
                     <Button variant="ghost" disabled={isAnalyzing}>취소</Button>
                     <Button
                         size="lg"
                         disabled={isAnalysisDisabled}
                         onClick={handleStartAnalysis}
+                        className="bg-[#f2675c] px-8 text-white shadow-sm hover:bg-[#e95a50]"
                     >
                         {isAnalyzing ? (
                             <>
@@ -469,7 +431,7 @@ export default function TestPage() {
                                 대상 확인 중...
                             </>
                         ) : (
-                            '분석 시작'
+                            <>분석 시작 <ChevronRight className="ml-1 h-4 w-4" aria-hidden="true" /></>
                         )}
                     </Button>
                 </div>
@@ -481,26 +443,43 @@ export default function TestPage() {
 interface TestTypeCardProps {
     title: string
     description: string
+    icon: React.ReactNode
     isSelected: boolean
     onClick: () => void
+    disabled?: boolean
 }
 
-function TestTypeCard({ title, description, isSelected, onClick }: TestTypeCardProps) {
+function TestTypeCard({ title, description, icon, isSelected, onClick, disabled = false }: TestTypeCardProps) {
     return (
         <button
             onClick={onClick}
+            disabled={disabled}
             className={cn(
-                "w-full text-left relative overflow-hidden rounded-xl border p-4 transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                "relative w-full overflow-hidden rounded-xl border p-4 text-left transition-all hover:border-primary/60 hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
                 isSelected
                     ? "border-primary bg-primary/5 ring-1 ring-primary"
-                    : "border-border bg-card hover:border-primary/50"
+                    : "border-border bg-card hover:border-primary/50",
+                disabled && "cursor-not-allowed opacity-45 hover:border-border hover:bg-card"
             )}
             aria-pressed={isSelected}
+            aria-disabled={disabled}
         >
-            <div className="flex flex-col gap-2">
-                <h3 className={cn("font-semibold", isSelected ? "text-primary" : "text-foreground")}>{title}</h3>
-                <p className="text-sm text-muted-foreground">{description}</p>
+            <div className="flex items-start gap-3">
+                <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border", isSelected ? "border-primary/40 bg-primary/10 text-primary" : "border-border bg-background/50 text-muted-foreground")}>{icon}</div>
+                <div className="min-w-0">
+                    <h3 className={cn("font-semibold", isSelected ? "text-primary" : "text-foreground")}>{title}</h3>
+                    <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
+                </div>
             </div>
         </button>
+    )
+}
+
+function ProgressStep({ number, label, active = false }: { number: string; label: string; active?: boolean }) {
+    return (
+        <div className={cn("flex shrink-0 items-center gap-2 text-xs", active ? "text-primary" : "text-muted-foreground")}>
+            <span className={cn("flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold", active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card")}>{number}</span>
+            <span className="whitespace-nowrap">{label}</span>
+        </div>
     )
 }

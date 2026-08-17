@@ -3,8 +3,10 @@
 import pytest
 
 from services.supabase_auth import (
+    AuthenticatedPerson,
     SupabaseClinicianForbidden,
     SupabaseInvalidToken,
+    authenticate_person,
     authenticate_clinician,
     extract_bearer_token,
 )
@@ -94,3 +96,24 @@ def test_authenticate_clinician_rejects_non_clinical_role(monkeypatch):
     monkeypatch.setattr("services.supabase_auth.requests.get", fake_get)
     with pytest.raises(SupabaseClinicianForbidden):
         authenticate_clinician("caller-token", config=_config())
+
+
+def test_authenticate_person_uses_caller_jwt_without_membership_lookup(monkeypatch):
+    calls = []
+
+    def fake_get(url, headers, params=None, timeout=None):
+        calls.append(url)
+        if url.endswith("/auth/v1/user"):
+            return FakeResponse(200, {"id": "auth-user-1"})
+        if url.endswith("/rest/v1/persons"):
+            return FakeResponse(200, [{"id": "person-1"}])
+        raise AssertionError(f"unexpected URL {url}")
+
+    monkeypatch.setattr("services.supabase_auth.requests.get", fake_get)
+
+    person = authenticate_person("caller-token", config=_config())
+
+    assert person == AuthenticatedPerson(
+        user_id="auth-user-1", person_id="person-1", access_token="caller-token"
+    )
+    assert not any(url.endswith("/organization_members") for url in calls)

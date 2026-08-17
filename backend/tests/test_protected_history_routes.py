@@ -3,6 +3,7 @@
 from flask import Flask
 
 from routes import history, physio_context, timeline
+from services.supabase_auth import AuthenticatedPerson
 
 
 def _app() -> Flask:
@@ -28,6 +29,24 @@ def test_history_routes_require_bearer_authentication():
 def test_physio_subjects_require_bearer_authentication():
     client = _app().test_client()
     assert client.get("/api/physio/subjects").status_code == 401
+    assert client.get("/api/physio/self").status_code == 401
+
+
+def test_physio_self_returns_only_authenticated_person(monkeypatch):
+    monkeypatch.setattr(
+        "services.supabase_auth.authenticate_person",
+        lambda access_token: AuthenticatedPerson(
+            user_id="auth-user-1", person_id="person-1", access_token=access_token
+        ),
+    )
+
+    response = _app().test_client().get(
+        "/api/physio/self", headers={"Authorization": "Bearer caller-token"}
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["subject"]["id"] == "person-1"
+    assert response.get_json()["subject"]["display_name"] == "내 기록"
 
 
 def test_legacy_simulated_medication_timeline_is_retired():
