@@ -1,5 +1,30 @@
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 
+// The production backend is reached through the home-desktop tunnel. A slow
+// upstream must become a visible retryable state instead of leaving History
+// in an empty spinner forever.
+export const API_REQUEST_TIMEOUT_MS = 15_000
+
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = API_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('API 응답 시간이 초과되었습니다')
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
 }
@@ -291,7 +316,7 @@ export async function checkHealth(): Promise<HealthStatus> {
 }
 
 export async function getPhysioSubjects(accessToken: string): Promise<PhysioSubjectsResponse> {
-  const response = await fetch(apiUrl('/api/physio/subjects'), {
+  const response = await fetchWithTimeout(apiUrl('/api/physio/subjects'), {
     headers: bearerHeaders(accessToken),
     cache: 'no-store',
   })
@@ -305,7 +330,7 @@ export async function getPhysioSubjects(accessToken: string): Promise<PhysioSubj
 }
 
 export async function getPhysioSelf(accessToken: string): Promise<PhysioSelfResponse> {
-  const response = await fetch(apiUrl('/api/physio/self'), {
+  const response = await fetchWithTimeout(apiUrl('/api/physio/self'), {
     headers: bearerHeaders(accessToken),
     cache: 'no-store',
   })
@@ -597,7 +622,7 @@ export async function getHistory(
     if (filters.sort) params.set('sort', filters.sort)
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/history/?${params.toString()}`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/api/history/?${params.toString()}`, {
     headers: bearerHeaders(accessToken),
     cache: 'no-store',
   })
@@ -621,7 +646,7 @@ export async function getHistoryStats(
   if (task_type) params.set('task_type', task_type)
   if (patient_id) params.set('patient_id', patient_id)
 
-  const response = await fetch(`${API_BASE_URL}/api/history/stats?${params.toString()}`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/api/history/stats?${params.toString()}`, {
     headers: bearerHeaders(accessToken),
     cache: 'no-store',
   })

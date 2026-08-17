@@ -110,6 +110,8 @@ export default function HistoryPage() {
 
   // Unified patient timeline (ParkiCheck + Hawk I via shared Supabase)
   const [physioData, setPhysioData] = React.useState<PhysioSubjectsResponse | null>(null)
+  const [physioLoading, setPhysioLoading] = React.useState(false)
+  const [physioError, setPhysioError] = React.useState<string | null>(null)
   const [isSelfTimeline, setIsSelfTimeline] = React.useState(false)
   const [selectedSubjectId, setSelectedSubjectId] = React.useState("")
   const [timeline, setTimeline] = React.useState<TimelineItem[]>([])
@@ -117,6 +119,7 @@ export default function HistoryPage() {
   const [timelineEnabled, setTimelineEnabled] = React.useState<boolean | null>(null)
   const [timelineLoading, setTimelineLoading] = React.useState(false)
   const [timelineError, setTimelineError] = React.useState<string | null>(null)
+  const [timelineRetry, setTimelineRetry] = React.useState(0)
   const [expandedItems, setExpandedItems] = React.useState<Set<string>>(new Set())
 
   // Score trend over calendar time, with doses on the same time axis but their
@@ -190,14 +193,20 @@ export default function HistoryPage() {
   React.useEffect(() => {
     if (!accessToken) {
       setPhysioData(null)
+      setPhysioLoading(false)
+      setPhysioError(null)
       setIsSelfTimeline(false)
       setSelectedSubjectId("")
       setTimelineMedications([])
       return
     }
+    setPhysioLoading(true)
+    setPhysioError(null)
+    let active = true
     const loadSubjects = async () => {
       try {
         const data = await getPhysioSubjects(accessToken)
+        if (!active) return
         setPhysioData(data)
         setIsSelfTimeline(false)
         if (data.enabled && data.subjects.length > 0) {
@@ -206,6 +215,7 @@ export default function HistoryPage() {
       } catch {
         try {
           const self = await getPhysioSelf(accessToken)
+          if (!active) return
           const selfSubjectData: PhysioSubjectsResponse = {
             success: self.success,
             enabled: self.enabled,
@@ -217,13 +227,20 @@ export default function HistoryPage() {
           setIsSelfTimeline(true)
           setSelectedSubjectId(self.subject.id)
         } catch {
+          if (!active) return
           setPhysioData(null)
           setIsSelfTimeline(false)
+          setPhysioError('환자 통합 타임라인을 불러오지 못했습니다. 백엔드 연결을 확인해 주세요.')
         }
+      } finally {
+        if (active) setPhysioLoading(false)
       }
     }
     void loadSubjects()
-  }, [accessToken])
+    return () => {
+      active = false
+    }
+  }, [accessToken, historyRetry])
 
   React.useEffect(() => {
     if (!accessToken || !selectedSubjectId) return
@@ -244,7 +261,7 @@ export default function HistoryPage() {
       }
     }
     void loadTimeline()
-  }, [accessToken, selectedSubjectId])
+  }, [accessToken, selectedSubjectId, timelineRetry])
 
   // Fetch data
   React.useEffect(() => {
@@ -254,13 +271,18 @@ export default function HistoryPage() {
       setIsLoading(false)
       return
     }
-    if (isSelfTimeline) {
+    // Resolve the shared physio_app context first. A client account is allowed
+    // to read its unified timeline but not the backend-local clinician history
+    // route; firing both requests during auth/context initialization created a
+    // stale 0-item response that overwrote the visible timeline state.
+    if (physioLoading || (!physioData && !physioError) || isSelfTimeline || physioError) {
       setHistory([])
       setStats(null)
       setError(null)
       setIsLoading(false)
       return
     }
+    let active = true
     const fetchData = async () => {
       setIsLoading(true)
       try {
@@ -273,18 +295,23 @@ export default function HistoryPage() {
           throw historyResult.reason
         }
 
+        if (!active) return
         setHistory(historyResult.value.data.items)
         setStats(statsResult.status === 'fulfilled' ? statsResult.value.data : null)
         setError(null)
       } catch (err) {
+        if (!active) return
         console.error('Failed to fetch history:', err)
         setError('기록 API에 연결하지 못했습니다')
       } finally {
-        setIsLoading(false)
+        if (active) setIsLoading(false)
       }
     }
     fetchData()
-  }, [accessToken, filters, historyRetry, isSelfTimeline])
+    return () => {
+      active = false
+    }
+  }, [accessToken, filters, historyRetry, isSelfTimeline, physioData, physioError, physioLoading])
 
   const handleDelete = async (videoId: string) => {
     if (!accessToken) return
@@ -528,7 +555,7 @@ export default function HistoryPage() {
         </motion.section>
 
         {/* Unified Patient Timeline (ParkiCheck + Hawk I) */}
-        {physioData?.enabled && physioData.subjects.length > 0 && (
+        {accessToken && (physioLoading || physioError || (physioData?.enabled && physioData.subjects.length > 0)) && (
           <Card className="border-border bg-card shadow-none">
             <CardHeader>
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -541,24 +568,42 @@ export default function HistoryPage() {
                     ParkiCheck 검사와 Hawk I AI 분석이 공통 기록(physio_app)에서 함께 표시됩니다
                   </CardDescription>
                 </div>
-                <select
-                  value={selectedSubjectId}
-                  onChange={(e) => setSelectedSubjectId(e.target.value)}
-                  className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground"
-                >
-                  {physioData.subjects.map((subject) => (
-                    <option key={subject.id} value={subject.id}>
-                      {subject.display_name}
-                    </option>
-                  ))}
-                </select>
+                {physioData?.subjects.length ? (
+                  <select
+                    value={selectedSubjectId}
+                    onChange={(e) => setSelectedSubjectId(e.target.value)}
+                    className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground"
+                  >
+                    {physioData.subjects.map((subject) => (
+                      <option key={subject.id} value={subject.id}>
+                        {subject.display_name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-xs text-muted-foreground">연결 상태 확인 중</span>
+                )}
               </div>
             </CardHeader>
             <CardContent>
-              {timelineLoading ? (
+              {physioLoading && !physioData ? (
+                <p className="py-4 text-sm text-muted-foreground">환자 기록 연결을 확인하는 중...</p>
+              ) : physioError && !physioData ? (
+                <div className="history-inline-error flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+                  <span>{physioError}</span>
+                  <button type="button" onClick={() => setHistoryRetry((value) => value + 1)} className="rounded-md border border-current/30 px-3 py-1.5 text-xs font-medium hover:bg-background/60">
+                    다시 시도
+                  </button>
+                </div>
+              ) : timelineLoading ? (
                 <p className="py-4 text-sm text-muted-foreground">타임라인을 불러오는 중...</p>
               ) : timelineError ? (
-                <p className="history-inline-error py-4 text-sm">{timelineError}</p>
+                <div className="history-inline-error flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+                  <span>{timelineError}</span>
+                  <button type="button" onClick={() => setTimelineRetry((value) => value + 1)} className="rounded-md border border-current/30 px-3 py-1.5 text-xs font-medium hover:bg-background/60">
+                    다시 시도
+                  </button>
+                </div>
               ) : timelineEnabled === false ? (
                 <p className="py-4 text-sm text-muted-foreground">이 백엔드에는 physio_app 연동이 설정되어 있지 않습니다.</p>
               ) : timeline.length === 0 && timelineMedications.length === 0 ? (
@@ -887,7 +932,10 @@ export default function HistoryPage() {
           </motion.div>
         )}
 
-        {/* History List */}
+        {/* Backend-local history is clinician-only. Client accounts use the
+            unified physio_app timeline above, so do not present a misleading
+            empty "0건" list beneath their real timeline records. */}
+        {!isSelfTimeline && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -999,6 +1047,7 @@ export default function HistoryPage() {
             </Card>
           )}
         </div>
+        )}
       </motion.div>
     </PageLayout>
   )

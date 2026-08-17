@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "./api"
+import { API_BASE_URL, fetchWithTimeout } from "./api"
 
 // Unified patient timeline: ParkiCheck device observations + Hawk I ai
 // observations read back from the shared physio_app Supabase project.
@@ -155,7 +155,7 @@ export async function getUnifiedTimeline(
     subject_person_id: subjectPersonId,
     limit: String(limit),
   })
-  const response = await fetch(`${API_BASE_URL}/api/history/timeline?${params.toString()}`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/api/history/timeline?${params.toString()}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   })
