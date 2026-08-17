@@ -38,8 +38,8 @@ TASK_CODES = {
         "display": "UPDRS Part III Item 3.8 - Leg Agility",
     },
     "gait": {
-        "code": "UPDRS_3_9",
-        "display": "UPDRS Part III Item 3.9 - Gait",
+        "code": "UPDRS_3_10",
+        "display": "UPDRS Part III Item 3.10 - Gait",
     },
 }
 

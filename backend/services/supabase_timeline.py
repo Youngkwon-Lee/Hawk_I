@@ -242,12 +242,17 @@ def fetch_timeline(
     if config is None:
         return None
 
+    # Do not pre-filter by the backend's default organization here. The
+    # caller JWT plus Supabase RLS is the authorization boundary: providers
+    # see rows in organizations where they are active members, while a
+    # subject can still see their own legacy/personal ParkiCheck rows. This
+    # keeps the shared timeline compatible with both migrated and historical
+    # ParkiCheck sessions without elevating the backend to service-role reads.
     response = requests.get(
         f"{config.url}/rest/v1/{config.table}",
         params={
             "select": OBSERVATION_SELECT,
             "subject_person_id": f"eq.{subject_person_id}",
-            "organization_id": f"eq.{config.organization_id}",
             "order": "effective_datetime.desc.nullslast",
             "limit": str(limit),
         },
@@ -277,7 +282,6 @@ def fetch_medication_statements(
         params={
             "select": MEDICATION_SELECT,
             "subject_person_id": f"eq.{subject_person_id}",
-            "organization_id": f"eq.{config.organization_id}",
             "order": "effective_start.desc.nullslast,date_asserted.desc",
             "limit": str(limit),
         },

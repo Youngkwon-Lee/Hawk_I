@@ -142,7 +142,7 @@ def test_fetch_timeline_queries_subject_and_normalizes(monkeypatch):
 
     assert captured["url"] == "https://example.supabase.co/rest/v1/observations"
     assert captured["params"]["subject_person_id"] == "eq.person-1"
-    assert captured["params"]["organization_id"] == "eq.org-1"
+    assert "organization_id" not in captured["params"]
     assert captured["params"]["limit"] == "50"
     assert captured["headers"]["apikey"] == "service-key"
     assert captured["headers"]["Authorization"] == "Bearer caller-token"
@@ -190,7 +190,7 @@ def test_fetch_medication_statements_queries_subject_and_normalizes(monkeypatch)
 
     assert captured["url"].endswith("/rest/v1/medication_statements")
     assert captured["params"]["subject_person_id"] == "eq.person-1"
-    assert captured["params"]["organization_id"] == "eq.org-1"
+    assert "organization_id" not in captured["params"]
     assert captured["headers"]["Authorization"] == "Bearer caller-token"
     assert items[0]["medication_display"] == "레보도파"
 
