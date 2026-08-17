@@ -31,13 +31,13 @@ def test_config_is_unavailable_without_key(monkeypatch):
 
 def test_config_uses_bounded_safe_defaults(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("GPT56_TERRA_MAX_FRAMES", "99")
+    monkeypatch.setenv("GPT56_TERRA_MAX_FRAMES", "999")
     monkeypatch.delenv("GPT56_TERRA_MODEL", raising=False)
     config = get_config()
     assert config is not None
     assert config.model == "gpt-5.6-terra"
     assert config.sample_fps == 5.0
-    assert config.max_frames == 99
+    assert config.max_frames == 180
     assert config.reasoning_effort == "none"
 
 
@@ -102,4 +102,36 @@ def test_analyze_rejects_unstructured_output(tmp_path, monkeypatch):
     assert result == {
         "success": False,
         "error": "GPT-5.6 Terra returned an unstructured observation.",
+    }
+
+
+def test_score_evaluation_returns_research_score(tmp_path, monkeypatch):
+    video_path = tmp_path / "example.mp4"
+    video_path.write_bytes(b"not-used-by-mock")
+    output = (
+        '{"task_confirmed":true,"speed":"slow","amplitude":"reduced",'
+        '"rhythm":"regular","pauses_or_hesitations":"none observed",'
+        '"laterality_or_asymmetry":"not assessable",'
+        '"overall_observation":"sample observation",'
+        '"limitations":"sampled frames only","research_ordinal_score":2,'
+        '"score_confidence":"low","score_rationale":"visible reduced amplitude"}'
+    )
+    client = SimpleNamespace(
+        responses=SimpleNamespace(create=lambda **_: SimpleNamespace(output_text=output))
+    )
+    service = GPT56TerraResearchVLM(
+        config=GPT56TerraConfig("test-key", "gpt-5.6-terra", 5.0, 180, "none"),
+        client=client,
+    )
+    monkeypatch.setattr(service, "_extract_frames", lambda *_: ([("frame-a", 0.0)], 0.2))
+    monkeypatch.setattr(service, "_encode_frame", lambda frame: frame)
+
+    result = service.analyze_video(
+        str(video_path), "gait", include_research_score=True
+    )
+
+    assert result["research_score"] == {
+        "value": 2,
+        "confidence": "low",
+        "rationale": "visible reduced amplitude",
     }

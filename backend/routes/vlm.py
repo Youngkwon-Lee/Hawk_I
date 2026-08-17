@@ -201,6 +201,36 @@ def analyze_with_gpt56_terra(video_id):
     return jsonify(result), 200 if result.get("success") else 502
 
 
+@bp.route('/gpt56-terra/evaluate-score/<video_id>', methods=['POST'])
+def evaluate_score_with_gpt56_terra(video_id):
+    """Run a pre-specified, research-only ordinal gait-score evaluation."""
+    payload = request.get_json(silent=True) or {}
+    if payload.get("research_external_processing_confirmed") is not True:
+        return jsonify({
+            "success": False,
+            "error": "External OpenAI processing requires explicit research confirmation."
+        }), 400
+    if payload.get("research_ordinal_score_evaluation_confirmed") is not True:
+        return jsonify({
+            "success": False,
+            "error": "Research ordinal-score evaluation requires explicit confirmation."
+        }), 400
+
+    analysis, error, status = _load_completed_analysis(video_id)
+    if error:
+        return jsonify(error), status
+    if analysis["task_type"] != "gait":
+        return jsonify({
+            "success": False,
+            "error": "GPT-5.6 Terra score evaluation is currently limited to gait."
+        }), 400
+
+    result = gpt56_terra_scorer.analyze_video(
+        analysis["video_path"], analysis["task_type"], include_research_score=True
+    )
+    return jsonify(result), 200 if result.get("success") else 502
+
+
 @bp.route('/analyze-direct', methods=['POST'])
 def analyze_direct():
     """

@@ -42,6 +42,22 @@ OBSERVATION_SCHEMA = {
     },
 }
 
+SCORE_EVALUATION_SCHEMA = {
+    **OBSERVATION_SCHEMA,
+    "required": [
+        *OBSERVATION_SCHEMA["required"],
+        "research_ordinal_score",
+        "score_confidence",
+        "score_rationale",
+    ],
+    "properties": {
+        **OBSERVATION_SCHEMA["properties"],
+        "research_ordinal_score": {"type": "integer", "minimum": 0, "maximum": 4},
+        "score_confidence": {"type": "string"},
+        "score_rationale": {"type": "string"},
+    },
+}
+
 
 @dataclass(frozen=True)
 class GPT56TerraConfig:
@@ -62,15 +78,15 @@ def get_config() -> GPT56TerraConfig | None:
     except ValueError:
         sample_fps = 5.0
     try:
-        max_frames = int(os.getenv("GPT56_TERRA_MAX_FRAMES", "100"))
+        max_frames = int(os.getenv("GPT56_TERRA_MAX_FRAMES", "180"))
     except ValueError:
-        max_frames = 100
+        max_frames = 180
 
     return GPT56TerraConfig(
         api_key=api_key,
         model=(os.getenv("GPT56_TERRA_MODEL") or "gpt-5.6-terra").strip(),
         sample_fps=max(0.5, min(sample_fps, 10.0)),
-        max_frames=max(1, min(max_frames, 100)),
+        max_frames=max(1, min(max_frames, 180)),
         reasoning_effort=(os.getenv("GPT56_TERRA_REASONING_EFFORT") or "none").strip(),
     )
 
@@ -92,6 +108,15 @@ rhythm, pauses/hesitations, and any observable asymmetry. Do not claim finer
 temporal precision than this sampling rate permits. Do not output an MDS-UPDRS
 score, a diagnosis, or treatment advice. State sampling/visibility limits
 explicitly. Return the requested JSON object only."""
+
+
+def score_evaluation_prompt(task_type: str, frame_count: int, sample_fps: float) -> str:
+    return research_prompt(task_type, frame_count, sample_fps).replace(
+        "Do not output an MDS-UPDRS\nscore, a diagnosis, or treatment advice.",
+        "For this pre-specified research evaluation only, also provide one\n"
+        "MDS-UPDRS Part III item 3.10 gait ordinal estimate (0–4). This is not\n"
+        "a clinical score or decision. Explain the visible basis and uncertainty.",
+    )
 
 
 def _parse_observation(text: str | None) -> dict[str, Any] | None:
@@ -175,7 +200,13 @@ class GPT56TerraResearchVLM:
             raise ValueError("Could not encode video frame")
         return base64.b64encode(buffer).decode("ascii")
 
-    def analyze_video(self, video_path: str, task_type: str) -> dict[str, Any]:
+    def analyze_video(
+        self,
+        video_path: str,
+        task_type: str,
+        *,
+        include_research_score: bool = False,
+    ) -> dict[str, Any]:
         if not self.is_available():
             return {"success": False, "error": "GPT-5.6 Terra is not configured."}
         if not Path(video_path).is_file():
@@ -191,8 +222,14 @@ class GPT56TerraResearchVLM:
             content: list[dict[str, Any]] = [
                 {
                     "type": "input_text",
-                    "text": research_prompt(
-                        task_type, len(frames), self.config.sample_fps
+                    "text": (
+                        score_evaluation_prompt(
+                            task_type, len(frames), self.config.sample_fps
+                        )
+                        if include_research_score
+                        else research_prompt(
+                            task_type, len(frames), self.config.sample_fps
+                        )
                     ),
                 }
             ]
@@ -218,15 +255,37 @@ class GPT56TerraResearchVLM:
                 text={
                     "format": {
                         "type": "json_schema",
-                        "name": "movement_observation",
+                        "name": (
+                            "gait_research_score_evaluation"
+                            if include_research_score
+                            else "movement_observation"
+                        ),
                         "strict": True,
-                        "schema": OBSERVATION_SCHEMA,
+                        "schema": (
+                            SCORE_EVALUATION_SCHEMA
+                            if include_research_score
+                            else OBSERVATION_SCHEMA
+                        ),
                     }
                 },
             )
             observation = _parse_observation(getattr(response, "output_text", None))
             if observation is None:
                 return {"success": False, "error": "GPT-5.6 Terra returned an unstructured observation."}
+            research_score = None
+            if include_research_score:
+                raw_score = observation.pop("research_ordinal_score", None)
+                score_confidence = observation.pop("score_confidence", None)
+                score_rationale = observation.pop("score_rationale", None)
+                if not isinstance(raw_score, int) or isinstance(raw_score, bool) or not 0 <= raw_score <= 4:
+                    return {"success": False, "error": "GPT-5.6 Terra returned an invalid research score."}
+                if not isinstance(score_confidence, str) or not isinstance(score_rationale, str):
+                    return {"success": False, "error": "GPT-5.6 Terra returned an incomplete research score."}
+                research_score = {
+                    "value": raw_score,
+                    "confidence": score_confidence,
+                    "rationale": score_rationale,
+                }
             return {
                 "success": True,
                 "provider": "openai",
@@ -237,6 +296,7 @@ class GPT56TerraResearchVLM:
                 "duration_seconds": round(duration_sec, 3),
                 "research_only": True,
                 "observation": observation,
+                **({"research_score": research_score} if research_score is not None else {}),
             }
         except Exception as exc:
             return {"success": False, "error": f"GPT-5.6 Terra analysis failed: {exc}"}
