@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +47,7 @@ OBSERVATION_SCHEMA = {
 class GPT56TerraConfig:
     api_key: str
     model: str
+    sample_fps: float
     max_frames: int
     reasoning_effort: str
 
@@ -56,19 +58,24 @@ def get_config() -> GPT56TerraConfig | None:
         return None
 
     try:
-        max_frames = int(os.getenv("GPT56_TERRA_MAX_FRAMES", "8"))
+        sample_fps = float(os.getenv("GPT56_TERRA_SAMPLE_FPS", "5"))
     except ValueError:
-        max_frames = 8
+        sample_fps = 5.0
+    try:
+        max_frames = int(os.getenv("GPT56_TERRA_MAX_FRAMES", "100"))
+    except ValueError:
+        max_frames = 100
 
     return GPT56TerraConfig(
         api_key=api_key,
         model=(os.getenv("GPT56_TERRA_MODEL") or "gpt-5.6-terra").strip(),
-        max_frames=max(1, min(max_frames, 12)),
+        sample_fps=max(0.5, min(sample_fps, 10.0)),
+        max_frames=max(1, min(max_frames, 100)),
         reasoning_effort=(os.getenv("GPT56_TERRA_REASONING_EFFORT") or "none").strip(),
     )
 
 
-def research_prompt(task_type: str, frame_count: int) -> str:
+def research_prompt(task_type: str, frame_count: int, sample_fps: float) -> str:
     task_label = {
         "finger_tapping": "finger-tapping",
         "hand_movement": "hand opening/closing",
@@ -76,14 +83,15 @@ def research_prompt(task_type: str, frame_count: int) -> str:
         "gait": "gait/walking",
     }.get(task_type, task_type or "movement")
     return f"""This is a de-identified public research video represented by {frame_count}
-chronologically ordered still frames of a {task_label} task. This is movement-
-observation research only, not a clinical diagnosis or clinical decision.
+chronologically ordered still frames of a {task_label} task, sampled at about
+{sample_fps:g} fps. Each frame is labelled with its timestamp. This is
+movement-observation research only, not a clinical diagnosis or clinical decision.
 
-Describe only what is visible across the sampled frames: speed, amplitude,
-rhythm, pauses/hesitations, and any observable asymmetry. Do not infer motion
-between frames. Do not output an MDS-UPDRS score, a diagnosis, or treatment
-advice. State sampling/visibility limits explicitly. Return the requested JSON
-object only."""
+Describe only what is visible across the timestamped samples: speed, amplitude,
+rhythm, pauses/hesitations, and any observable asymmetry. Do not claim finer
+temporal precision than this sampling rate permits. Do not output an MDS-UPDRS
+score, a diagnosis, or treatment advice. State sampling/visibility limits
+explicitly. Return the requested JSON object only."""
 
 
 def _parse_observation(text: str | None) -> dict[str, Any] | None:
@@ -117,13 +125,16 @@ class GPT56TerraResearchVLM:
         return {
             "available": self.is_available(),
             "model": self.config.model if self.config else None,
-            "input_mode": "ordered_sampled_frames",
+            "input_mode": "timestamped_sampled_frames",
+            "sample_fps": self.config.sample_fps if self.config else None,
             "research_only": True,
             "external_processing_confirmation_required": True,
         }
 
     @staticmethod
-    def _extract_frames(video_path: str, max_frames: int) -> list[Any]:
+    def _extract_frames(
+        video_path: str, sample_fps: float, max_frames: int
+    ) -> tuple[list[tuple[Any, float]], float]:
         import cv2
 
         capture = cv2.VideoCapture(video_path)
@@ -131,22 +142,27 @@ class GPT56TerraResearchVLM:
             raise ValueError("Cannot open video")
         try:
             total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            source_fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
             if total_frames <= 0:
-                return []
-            frame_indices = (
-                list(range(total_frames))
-                if total_frames <= max_frames
-                else [int(index * (total_frames - 1) / (max_frames - 1)) for index in range(max_frames)]
-                if max_frames > 1
-                else [0]
-            )
-            frames: list[Any] = []
+                return [], 0.0
+            if source_fps <= 0:
+                source_fps = 30.0
+            duration_sec = total_frames / source_fps
+            # Derive indices from a target timebase instead of merely spreading
+            # a fixed number of stills over the entire clip.
+            requested = min(max_frames, max(1, math.ceil(duration_sec * sample_fps)))
+            frame_indices = [
+                min(total_frames - 1, int(round(index * source_fps / sample_fps)))
+                for index in range(requested)
+            ]
+            frame_indices = list(dict.fromkeys(frame_indices))
+            frames: list[tuple[Any, float]] = []
             for frame_index in frame_indices:
                 capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
                 success, frame = capture.read()
                 if success:
-                    frames.append(cv2.resize(frame, (512, 512)))
-            return frames
+                    frames.append((cv2.resize(frame, (512, 512)), frame_index / source_fps))
+            return frames, duration_sec
         finally:
             capture.release()
 
@@ -166,14 +182,27 @@ class GPT56TerraResearchVLM:
             return {"success": False, "error": "Analysis video is unavailable."}
 
         try:
-            frames = self._extract_frames(video_path, self.config.max_frames)
+            frames, duration_sec = self._extract_frames(
+                video_path, self.config.sample_fps, self.config.max_frames
+            )
             if not frames:
                 return {"success": False, "error": "No usable video frames were extracted."}
 
             content: list[dict[str, Any]] = [
-                {"type": "input_text", "text": research_prompt(task_type, len(frames))}
+                {
+                    "type": "input_text",
+                    "text": research_prompt(
+                        task_type, len(frames), self.config.sample_fps
+                    ),
+                }
             ]
-            for frame in frames:
+            for frame, timestamp_sec in frames:
+                content.append(
+                    {
+                        "type": "input_text",
+                        "text": f"Frame timestamp: {timestamp_sec:.2f} seconds.",
+                    }
+                )
                 content.append(
                     {
                         "type": "input_image",
@@ -202,8 +231,10 @@ class GPT56TerraResearchVLM:
                 "success": True,
                 "provider": "openai",
                 "model": self.config.model,
-                "input_mode": "ordered_sampled_frames",
+                "input_mode": "timestamped_sampled_frames",
+                "sample_fps": self.config.sample_fps,
                 "frames_analyzed": len(frames),
+                "duration_seconds": round(duration_sec, 3),
                 "research_only": True,
                 "observation": observation,
             }

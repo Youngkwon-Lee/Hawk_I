@@ -187,6 +187,11 @@ def analyze_with_gpt56_terra(video_id):
     analysis, error, status = _load_completed_analysis(video_id)
     if error:
         return jsonify(error), status
+    if analysis["task_type"] != "gait":
+        return jsonify({
+            "success": False,
+            "error": "GPT-5.6 Terra comparison is currently limited to gait, matching the C3 experiment scope."
+        }), 400
     if not analysis["task_type"]:
         return jsonify({"success": False, "error": "검사 유형을 알 수 없습니다."}), 400
 
