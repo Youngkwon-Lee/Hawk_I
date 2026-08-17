@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent } from "@/components/ui/Card"
-import { Activity, UploadCloud, Eye, Stethoscope, FileText, CheckCircle2, Sparkles, Zap } from 'lucide-react'
+import { Activity, UploadCloud, Eye, Stethoscope, FileText, CheckCircle2 } from 'lucide-react'
 import { getAnalysisProgress, getAnalysisResult, type AnalysisResult } from "@/lib/services/api"
 import { cn } from "@/lib/utils"
 
@@ -236,23 +236,17 @@ export function AnalysisOverlay({
 
     return (
         <div className="fixed inset-0 bg-slate-950/98 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4 animate-in fade-in duration-500">
-            {/* Animated Background */}
-            <div className="absolute inset-0 overflow-hidden">
-                <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-violet-500/10 rounded-full blur-3xl animate-pulse" />
-                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-                <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%239C92AC%22%20fill-opacity%3D%220.03%22%3E%3Cpath%20d%3D%22M36%2034v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6%2034v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6%204V0H4v4H0v2h4v4h2V6h4V4H6z%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E')] opacity-50" />
-            </div>
+            <div className="absolute inset-0 bg-slate-950" aria-hidden="true" />
 
             <div className="relative w-full max-w-5xl mx-auto flex flex-col items-center">
 
                 {/* Header */}
                 <div className="text-center space-y-3 mb-12">
                     <div className="flex items-center justify-center gap-3 mb-2">
-                        <Sparkles className="w-6 h-6 text-violet-400 animate-pulse" />
-                        <h1 className="text-4xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-violet-400 via-blue-400 to-cyan-400">
+                        <Activity className="w-6 h-6 text-primary" aria-hidden="true" />
+                        <h1 className="text-4xl font-semibold tracking-tight text-slate-100">
                             HAWKEYE AI ANALYSIS
                         </h1>
-                        <Sparkles className="w-6 h-6 text-cyan-400 animate-pulse" style={{ animationDelay: '0.5s' }} />
                     </div>
                     <p className="text-slate-400 text-lg">
                         Multi-Agent 파이프라인이 영상을 정밀 분석하고 있습니다
@@ -269,8 +263,7 @@ export function AnalysisOverlay({
                         className="absolute top-8 left-12 h-1 rounded-full transition-all duration-1000 ease-out overflow-hidden"
                         style={{ width: `calc(${Math.min((activeStep / (steps.length - 1)) * 100, 100)}% - 48px)` }}
                     >
-                        <div className="absolute inset-0 bg-gradient-to-r from-violet-500 via-blue-500 to-cyan-500" />
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
+                        <div className="absolute inset-0 bg-primary" />
                     </div>
 
                     <div className="relative z-10 flex justify-between">
@@ -285,12 +278,12 @@ export function AnalysisOverlay({
                                     <div className="relative">
                                         {/* Glow Effect */}
                                         {isActive && (
-                                            <div className="absolute inset-0 w-16 h-16 -m-1 bg-violet-500/30 rounded-full blur-xl animate-pulse" />
+                                            <div className="absolute inset-0 w-16 h-16 -m-1 bg-primary/15 rounded-full blur-xl" />
                                         )}
                                         <div
                                             className={cn(
                                                 "relative w-16 h-16 rounded-full flex items-center justify-center border-2 transition-all duration-500",
-                                                isActive ? "border-violet-400 bg-slate-900 scale-110 shadow-[0_0_30px_rgba(139,92,246,0.5)]" :
+                                                isActive ? "border-primary bg-slate-900 scale-105 shadow-[0_0_18px_rgba(53,210,229,0.22)]" :
                                                     isCompleted ? "border-emerald-400 bg-emerald-500/20" :
                                                         "border-slate-700 bg-slate-900/50"
                                             )}
@@ -300,13 +293,13 @@ export function AnalysisOverlay({
                                             ) : (
                                                 <Icon className={cn(
                                                     "w-7 h-7 transition-all",
-                                                    isActive ? "text-violet-400 animate-pulse" : "text-slate-500"
+                                                    isActive ? "text-primary" : "text-slate-500"
                                                 )} />
                                             )}
 
                                             {/* Active Indicator Ring */}
                                             {isActive && (
-                                                <div className="absolute inset-0 rounded-full border-2 border-violet-400 animate-ping opacity-50" />
+                                                <div className="absolute inset-0 rounded-full border border-primary opacity-60" />
                                             )}
                                         </div>
                                     </div>
@@ -315,7 +308,7 @@ export function AnalysisOverlay({
                                     <div className="text-center">
                                         <span className={cn(
                                             "text-sm font-semibold transition-colors duration-300",
-                                            isActive ? "text-violet-400" :
+                                            isActive ? "text-primary" :
                                                 isCompleted ? "text-emerald-400" :
                                                     "text-slate-500"
                                         )}>
@@ -338,16 +331,15 @@ export function AnalysisOverlay({
                 <div className="w-full grid md:grid-cols-2 gap-6">
                     {/* Current Process Card */}
                     <Card className="border-slate-800 bg-slate-900/50 backdrop-blur shadow-2xl overflow-hidden">
-                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-blue-500 to-cyan-500" />
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-primary" />
                         <CardContent className="p-6">
                             <div className="flex items-start gap-4">
                                 <div className="relative flex-shrink-0 mt-1">
-                                    <div className="w-3 h-3 bg-violet-500 rounded-full" />
-                                    <div className="absolute inset-0 w-3 h-3 bg-violet-500 rounded-full animate-ping" />
+                                    <div className="w-3 h-3 bg-primary rounded-full" />
                                 </div>
                                 <div className="space-y-2 flex-1">
-                                    <p className="text-xs font-mono text-violet-400/80 uppercase tracking-widest flex items-center gap-2">
-                                        <Zap className="w-3 h-3" />
+                                    <p className="text-xs font-mono text-primary/80 uppercase tracking-widest flex items-center gap-2">
+                                        <Activity className="w-3 h-3" aria-hidden="true" />
                                         Current Process
                                     </p>
                                     <p className="text-xl font-medium text-white leading-relaxed">
@@ -380,7 +372,7 @@ export function AnalysisOverlay({
                                             className={cn(
                                                 "flex gap-2 animate-in fade-in slide-in-from-left-2 duration-300",
                                                 log.type === 'success' ? "text-emerald-400" :
-                                                    log.type === 'processing' ? "text-blue-400" : "text-slate-400"
+                                                    log.type === 'processing' ? "text-primary" : "text-slate-400"
                                             )}
                                         >
                                             <span className="text-slate-600 flex-shrink-0">[{log.timestamp}]</span>
@@ -402,7 +394,7 @@ export function AnalysisOverlay({
                             {estimatedTime && (
                                 <span className="text-slate-400 text-sm">{estimatedTime}</span>
                             )}
-                            <span className="font-mono text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-400 to-cyan-400">
+                            <span className="font-mono text-2xl font-semibold text-primary">
                                 {Math.round(progress)}%
                             </span>
                         </div>
@@ -412,24 +404,13 @@ export function AnalysisOverlay({
                             className="h-full rounded-full transition-all duration-500 ease-out relative overflow-hidden"
                             style={{ width: `${progress}%` }}
                         >
-                            <div className="absolute inset-0 bg-gradient-to-r from-violet-500 via-blue-500 to-cyan-500" />
-                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
+                            <div className="absolute inset-0 bg-primary" />
                         </div>
                     </div>
                 </div>
 
             </div>
 
-            {/* CSS for shimmer animation */}
-            <style jsx global>{`
-                @keyframes shimmer {
-                    0% { transform: translateX(-100%); }
-                    100% { transform: translateX(100%); }
-                }
-                .animate-shimmer {
-                    animation: shimmer 2s infinite;
-                }
-            `}</style>
         </div>
     )
 }

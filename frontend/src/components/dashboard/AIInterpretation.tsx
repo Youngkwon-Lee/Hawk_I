@@ -26,14 +26,14 @@ export function AIInterpretation({
     const previewText = summary?.split(/[.!?]/)[0] + '...' || '분석 결과를 확인하세요'
 
     return (
-        <Card className={cn("bg-gradient-to-br from-violet-500/10 to-purple-500/10 border-violet-500/20", className)}>
+        <Card className={cn("bg-card border-primary/20", className)}>
             <CardHeader
                 className="cursor-pointer select-none"
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <Brain className="h-5 w-5 text-violet-500" />
+                        <Brain className="h-5 w-5 text-primary" />
                         <CardTitle className="text-lg">AI 해석</CardTitle>
                     </div>
                     <div className="flex items-center gap-2">
@@ -54,9 +54,9 @@ export function AIInterpretation({
             {isExpanded && (
                 <CardContent className="space-y-6 animate-in slide-in-from-top-2 fade-in duration-200">
                     {/* Summary */}
-                    <div className="p-4 rounded-lg bg-card/50 border border-violet-500/20">
+                    <div className="p-4 rounded-lg bg-card/50 border border-primary/20">
                         <div className="flex items-start gap-3">
-                            <CheckCircle2 className="h-5 w-5 text-violet-500 mt-0.5 flex-shrink-0" />
+                            <CheckCircle2 className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
                             <div>
                                 <p className="font-medium text-sm text-muted-foreground mb-1">요약</p>
                                 <p className="text-base leading-relaxed">{summary}</p>
@@ -82,7 +82,7 @@ export function AIInterpretation({
                             <ul className="space-y-2">
                                 {recommendations.map((rec, index) => (
                                     <li key={index} className="flex items-start gap-3">
-                                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-violet-500/20 text-violet-500 text-xs font-medium flex-shrink-0 mt-0.5">
+                                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-medium flex-shrink-0 mt-0.5">
                                             {index + 1}
                                         </span>
                                         <span className="text-sm text-muted-foreground leading-relaxed">
@@ -95,7 +95,7 @@ export function AIInterpretation({
                     )}
 
                     {/* AI Badge */}
-                    <div className="pt-3 border-t border-violet-500/10">
+                    <div className="pt-3 border-t border-primary/10">
                         <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                             <Brain className="h-3 w-3" />
                             GPT-4로 생성된 해석입니다. 전문의 상담을 대체하지 않습니다.

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Send, Bot, User, Sparkles, Microscope, Zap } from "lucide-react"
+import { Send, Bot, User, Database, Microscope } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 import { useAnalysisStore } from "@/store/analysisStore"
@@ -33,13 +33,19 @@ function isVlmRequest(message: string): boolean {
     return VLM_KEYWORDS.some(keyword => lower.includes(keyword))
 }
 
+const EMOJI_PATTERN = /[\p{Extended_Pictographic}\uFE0F]/gu
+
+function stripEmoji(value: string): string {
+    return value.replace(EMOJI_PATTERN, "").replace(/[ \t]{2,}/g, " ").trim()
+}
+
 // Simple markdown-like formatting for VLM responses
 function formatResponse(content: string): React.ReactNode {
     // Split by lines and process
-    const lines = content.split('\n')
+    const lines = content.split('\n').map(stripEmoji)
 
     return lines.map((line, idx) => {
-        // Headers with emoji
+        // Headers
         if (line.startsWith('**') && line.endsWith('**')) {
             return (
                 <div key={idx} className="font-bold text-primary mt-2 mb-1">
@@ -64,17 +70,6 @@ function formatResponse(content: string): React.ReactNode {
                     {line}
                 </div>
             )
-        }
-
-        // Match indicator
-        if (line.includes('✅')) {
-            return <div key={idx} className="text-green-600 mt-2">{line}</div>
-        }
-        if (line.includes('⚠️')) {
-            return <div key={idx} className="text-yellow-600 mt-2">{line}</div>
-        }
-        if (line.includes('🔴')) {
-            return <div key={idx} className="text-red-600 mt-2">{line}</div>
         }
 
         // Empty line
@@ -184,8 +179,8 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                     <p className="text-xs text-muted-foreground">언제든지 도와드립니다</p>
                 </div>
                 {hasContext && (
-                    <div className="flex items-center gap-1 px-2 py-1 bg-green-500/10 text-green-600 rounded-full text-xs">
-                        <Sparkles className="h-3 w-3" />
+                    <div className="flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded-full text-xs">
+                        <Database className="h-3 w-3" aria-hidden="true" />
                         <span>환자 데이터 연동</span>
                     </div>
                 )}
@@ -223,7 +218,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                             <div className="mt-6 space-y-2">
                                 <p className="text-xs font-medium text-muted-foreground mb-2">빠른 질문</p>
                                 <div className="flex flex-wrap justify-center gap-2">
-                                    <button
+                            <button
                                         onClick={() => handleQuickAction("이 결과를 설명해주세요")}
                                         className="px-3 py-1.5 text-xs bg-secondary hover:bg-secondary/80 rounded-full transition-colors"
                                     >
@@ -237,7 +232,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                                     </button>
                                     <button
                                         onClick={() => handleQuickAction("VLM 정밀 분석해줘")}
-                                        className="px-3 py-1.5 text-xs bg-violet-500/10 text-violet-600 hover:bg-violet-500/20 rounded-full transition-colors flex items-center gap-1"
+                                        className="px-3 py-1.5 text-xs bg-primary/10 text-primary hover:bg-primary/20 rounded-full transition-colors flex items-center gap-1"
                                     >
                                         <Microscope className="h-3 w-3" />
                                         VLM 정밀분석
@@ -251,17 +246,17 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                 {/* VLM Loading State */}
                 {isVlmLoading && (
                     <div className="flex gap-3">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-violet-500/20 text-violet-600">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-primary/20 text-primary">
                             <Microscope className="h-4 w-4" />
                         </div>
-                        <div className="p-4 rounded-lg bg-violet-500/5 border border-violet-500/20 flex-1">
-                            <div className="flex items-center gap-2 text-violet-600 text-sm font-medium mb-2">
-                                <div className="h-4 w-4 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin" />
+                        <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 flex-1">
+                            <div className="flex items-center gap-2 text-primary text-sm font-medium mb-2">
+                                <div className="h-4 w-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                                 VLM 정밀 분석 중...
                             </div>
                             <div className="text-xs text-muted-foreground space-y-1">
                                 <p>GPT-4V가 영상 프레임을 분석하고 있습니다.</p>
-                                <p className="text-violet-500">약 10-20초 소요됩니다.</p>
+                                <p className="text-primary">약 10-20초 소요됩니다.</p>
                             </div>
                         </div>
                     </div>
@@ -279,7 +274,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                             "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
                             msg.role === "agent"
                                 ? msg.isVlm
-                                    ? "bg-violet-500/20 text-violet-600"
+                                    ? "bg-primary/20 text-primary"
                                     : "bg-primary/20 text-primary"
                                 : "bg-secondary text-secondary-foreground"
                         )}>
@@ -294,13 +289,13 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                             "p-3 rounded-lg text-sm",
                             msg.role === "agent"
                                 ? msg.isVlm
-                                    ? "bg-violet-500/5 border border-violet-500/20 text-card-foreground"
+                                    ? "bg-primary/5 border border-primary/20 text-card-foreground"
                                     : "bg-card border border-border text-card-foreground"
                                 : "bg-primary text-primary-foreground"
                         )}>
                             {msg.isVlm && (
-                                <div className="flex items-center gap-1 text-violet-600 text-xs font-medium mb-2 pb-2 border-b border-violet-500/20">
-                                    <Zap className="h-3 w-3" />
+                                <div className="flex items-center gap-1 text-primary text-xs font-medium mb-2 pb-2 border-b border-primary/20">
+                                    <Microscope className="h-3 w-3" aria-hidden="true" />
                                     VLM 정밀 분석 결과
                                 </div>
                             )}
@@ -319,7 +314,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                         <button
                             onClick={() => handleQuickAction("VLM 정밀 분석해줘")}
                             disabled={isLoading}
-                            className="px-2 py-1 text-xs bg-violet-500/10 text-violet-600 hover:bg-violet-500/20 rounded-full transition-colors flex items-center gap-1 whitespace-nowrap disabled:opacity-50"
+                            className="px-2 py-1 text-xs bg-primary/10 text-primary hover:bg-primary/20 rounded-full transition-colors flex items-center gap-1 whitespace-nowrap disabled:opacity-50"
                         >
                             <Microscope className="h-3 w-3" />
                             VLM 분석
