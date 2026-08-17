@@ -11,17 +11,32 @@ export async function fetchWithTimeout(
   timeoutMs = API_REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  let timedOut = false
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const callerSignal = init.signal
+  const abortFromCaller = () => controller.abort()
+
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort()
+    } else {
+      callerSignal.addEventListener('abort', abortFromCaller, { once: true })
+    }
+  }
 
   try {
     return await fetch(input, { ...init, signal: controller.signal })
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (timedOut) {
       throw new Error('API 응답 시간이 초과되었습니다')
     }
     throw error
   } finally {
     clearTimeout(timeoutId)
+    callerSignal?.removeEventListener('abort', abortFromCaller)
   }
 }
 

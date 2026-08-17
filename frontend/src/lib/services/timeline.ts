@@ -150,6 +150,7 @@ export async function getUnifiedTimeline(
   subjectPersonId: string,
   accessToken: string,
   limit = 100,
+  signal?: AbortSignal,
 ): Promise<TimelineResponse> {
   const params = new URLSearchParams({
     subject_person_id: subjectPersonId,
@@ -158,6 +159,7 @@ export async function getUnifiedTimeline(
   const response = await fetchWithTimeout(`${API_BASE_URL}/api/history/timeline?${params.toString()}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
+    signal,
   })
   if (!response.ok) {
     let detail = `HTTP ${response.status}`

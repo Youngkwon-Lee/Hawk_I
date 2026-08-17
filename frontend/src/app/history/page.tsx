@@ -121,6 +121,7 @@ export default function HistoryPage() {
   const [timelineError, setTimelineError] = React.useState<string | null>(null)
   const [timelineRetry, setTimelineRetry] = React.useState(0)
   const [expandedItems, setExpandedItems] = React.useState<Set<string>>(new Set())
+  const timelineAbortRef = React.useRef<AbortController | null>(null)
 
   // Score trend over calendar time, with doses on the same time axis but their
   // own hidden value axis - a dose has no score, so it must not share the scale.
@@ -243,24 +244,45 @@ export default function HistoryPage() {
   }, [accessToken, historyRetry])
 
   React.useEffect(() => {
-    if (!accessToken || !selectedSubjectId) return
+    if (!accessToken || !selectedSubjectId) {
+      timelineAbortRef.current?.abort()
+      timelineAbortRef.current = null
+      setTimelineLoading(false)
+      return
+    }
+
+    // A changed patient selection supersedes the previous request. Cancelling
+    // it prevents a slow Supabase read from occupying the single backend
+    // worker after the clinician has already selected another patient.
+    timelineAbortRef.current?.abort()
+    const controller = new AbortController()
+    timelineAbortRef.current = controller
+    let active = true
+
     const loadTimeline = async () => {
       setTimelineLoading(true)
       setTimelineError(null)
       try {
-        const res = await getUnifiedTimeline(selectedSubjectId, accessToken)
+        const res = await getUnifiedTimeline(selectedSubjectId, accessToken, 100, controller.signal)
+        if (!active || controller.signal.aborted) return
         setTimelineEnabled(res.enabled)
         setTimeline(res.items)
         setTimelineMedications(res.medications || [])
       } catch (err) {
+        if (!active || controller.signal.aborted) return
         setTimelineError(err instanceof Error ? err.message : '타임라인을 불러오지 못했습니다')
         setTimeline([])
         setTimelineMedications([])
       } finally {
-        setTimelineLoading(false)
+        if (active && !controller.signal.aborted) setTimelineLoading(false)
       }
     }
     void loadTimeline()
+    return () => {
+      active = false
+      controller.abort()
+      if (timelineAbortRef.current === controller) timelineAbortRef.current = null
+    }
   }, [accessToken, selectedSubjectId, timelineRetry])
 
   // Fetch data
