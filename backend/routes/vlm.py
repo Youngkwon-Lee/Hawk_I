@@ -7,12 +7,14 @@ from flask import Blueprint, current_app, request, jsonify
 import os
 from services.vlm_scorer import VLMScorer
 from services.gemini_vlm import GeminiResearchVLM
+from services.openai_research_vlm import GPT56TerraResearchVLM
 from services.analysis_media import load_analysis_result, resolve_media_path
 from domain.context import analysis_results
 
 bp = Blueprint('vlm', __name__, url_prefix='/api/vlm')
 vlm_scorer = VLMScorer()
 gemini_scorer = GeminiResearchVLM()
+gpt56_terra_scorer = GPT56TerraResearchVLM()
 
 
 def _load_completed_analysis(video_id: str):
@@ -163,6 +165,34 @@ def analyze_with_gemini(video_id):
         return jsonify({"success": False, "error": "검사 유형을 알 수 없습니다."}), 400
 
     result = gemini_scorer.analyze_video(analysis["video_path"], analysis["task_type"])
+    return jsonify(result), 200 if result.get("success") else 502
+
+
+@bp.route('/gpt56-terra/status', methods=['GET'])
+def get_gpt56_terra_status():
+    """Expose only safe GPT-5.6 Terra configuration state."""
+    return jsonify({"success": True, **gpt56_terra_scorer.status()})
+
+
+@bp.route('/gpt56-terra/analyze/<video_id>', methods=['POST'])
+def analyze_with_gpt56_terra(video_id):
+    """Run a frame-sampled research observation with GPT-5.6 Terra."""
+    payload = request.get_json(silent=True) or {}
+    if payload.get("research_external_processing_confirmed") is not True:
+        return jsonify({
+            "success": False,
+            "error": "External OpenAI processing requires explicit research confirmation."
+        }), 400
+
+    analysis, error, status = _load_completed_analysis(video_id)
+    if error:
+        return jsonify(error), status
+    if not analysis["task_type"]:
+        return jsonify({"success": False, "error": "검사 유형을 알 수 없습니다."}), 400
+
+    result = gpt56_terra_scorer.analyze_video(
+        analysis["video_path"], analysis["task_type"]
+    )
     return jsonify(result), 200 if result.get("success") else 502
 
 
