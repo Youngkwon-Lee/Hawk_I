@@ -27,6 +27,12 @@
   --chart-accent: #0f766e;
   --chart-tooltip-bg: #ffffff;
   --chart-tooltip-border: #d3dfdc;
+  --history-normal: #2f765d;
+  --history-slight: #527785;
+  --history-mild: #8b7132;
+  --history-moderate: #985f45;
+  --history-severe: #9b4f5a;
+  --history-unknown: #66737b;
 }
 
 :root[data-theme="dark"] {
@@ -56,6 +62,12 @@
   --chart-accent: #8be9f4;
   --chart-tooltip-bg: #0d1928;
   --chart-tooltip-border: #38526c;
+  --history-normal: #91c9aa;
+  --history-slight: #a7c8d0;
+  --history-mild: #d6c184;
+  --history-moderate: #d9a486;
+  --history-severe: #e0a0a8;
+  --history-unknown: #9eabb5;
 }
 
 @theme inline {
@@ -88,6 +100,77 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), sans-serif;
   transition: background-color 180ms ease, color 180ms ease;
+}
+
+/* History uses a quiet clinical vocabulary. Saturated colour only appears on
+   severity and source states; layout chrome stays on the primary accent. */
+.history-metric-icon {
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+  color: var(--primary);
+}
+
+.history-severity,
+.history-source,
+.history-dose-badge {
+  border-width: 1px;
+}
+
+.history-severity--normal,
+.history-source--patient {
+  border-color: color-mix(in srgb, var(--history-normal) 42%, var(--border));
+  background: color-mix(in srgb, var(--history-normal) 12%, var(--card));
+  color: var(--history-normal);
+}
+
+.history-severity--slight,
+.history-source--ai {
+  border-color: color-mix(in srgb, var(--history-slight) 42%, var(--border));
+  background: color-mix(in srgb, var(--history-slight) 12%, var(--card));
+  color: var(--history-slight);
+}
+
+.history-severity--mild {
+  border-color: color-mix(in srgb, var(--history-mild) 42%, var(--border));
+  background: color-mix(in srgb, var(--history-mild) 12%, var(--card));
+  color: var(--history-mild);
+}
+
+.history-severity--moderate {
+  border-color: color-mix(in srgb, var(--history-moderate) 42%, var(--border));
+  background: color-mix(in srgb, var(--history-moderate) 12%, var(--card));
+  color: var(--history-moderate);
+}
+
+.history-severity--severe {
+  border-color: color-mix(in srgb, var(--history-severe) 42%, var(--border));
+  background: color-mix(in srgb, var(--history-severe) 12%, var(--card));
+  color: var(--history-severe);
+}
+
+.history-severity--unknown {
+  border-color: color-mix(in srgb, var(--history-unknown) 42%, var(--border));
+  background: color-mix(in srgb, var(--history-unknown) 12%, var(--card));
+  color: var(--history-unknown);
+}
+
+.history-medication-heading,
+.history-medication-item,
+.history-dose-badge {
+  border-color: color-mix(in srgb, var(--history-mild) 34%, var(--border));
+  background: color-mix(in srgb, var(--history-mild) 8%, var(--card));
+  color: var(--history-mild);
+}
+
+.history-inline-error,
+.history-state--error {
+  border-color: color-mix(in srgb, var(--history-moderate) 34%, var(--border));
+  background: color-mix(in srgb, var(--history-moderate) 8%, var(--card));
+  color: var(--history-moderate);
+}
+
+.history-hold-note {
+  color: var(--history-mild);
 }
 
 .glass {

@@ -28,17 +28,18 @@ import {
   BarChart, Bar, Cell, ScatterChart, Scatter, ComposedChart
 } from 'recharts'
 
-// Severity color mapping
+// Severity uses a restrained, semantic palette. Colour is reserved for the
+// clinical state and is not used as decoration elsewhere on the page.
 const severityColors: Record<string, string> = {
-  "Normal": "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
-  "Slight": "text-sky-400 bg-sky-500/10 border-sky-500/30",
-  "Mild": "text-amber-400 bg-amber-500/10 border-amber-500/30",
-  "Moderate": "text-orange-400 bg-orange-500/10 border-orange-500/30",
-  "Severe": "text-rose-400 bg-rose-500/10 border-rose-500/30",
-  "Unknown": "text-slate-400 bg-slate-500/10 border-slate-500/30"
+  "Normal": "history-severity history-severity--normal",
+  "Slight": "history-severity history-severity--slight",
+  "Mild": "history-severity history-severity--mild",
+  "Moderate": "history-severity history-severity--moderate",
+  "Severe": "history-severity history-severity--severe",
+  "Unknown": "history-severity history-severity--unknown"
 }
 
-const scoreColors = ["#10b981", "#3b82f6", "#f59e0b", "#f97316", "#ef4444"]
+const scoreColors = ["#5b9b7a", "#718f9c", "#aa9457", "#b8795e", "#b7636f"]
 
 const chartColors = {
   grid: "var(--chart-grid)",
@@ -61,17 +62,17 @@ function MetricCard({
   tone: "blue" | "green" | "amber" | "violet"
 }) {
   const toneClasses = {
-    blue: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
-    green: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-    amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-    violet: "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300",
+    blue: "history-metric-icon",
+    green: "history-metric-icon",
+    amber: "history-metric-icon",
+    violet: "history-metric-icon",
   }
 
   return (
-    <Card className="border-border/80 bg-card/95 shadow-sm transition-shadow hover:shadow-md">
+    <Card className="border-border bg-card shadow-none transition-colors hover:border-primary/35">
       <CardContent className="flex items-start justify-between gap-4 p-5">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+          <p className="text-xs font-medium tracking-[0.08em] text-muted-foreground">{label}</p>
           <p className="mt-2 truncate text-2xl font-semibold tracking-tight text-foreground">{value}</p>
           <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
         </div>
@@ -444,17 +445,16 @@ export default function HistoryPage() {
       >
         <motion.section
           variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}
-          className="relative overflow-hidden rounded-2xl border border-border/80 bg-card/95 p-6 shadow-sm md:p-7"
+          className="relative overflow-hidden rounded-xl border border-border bg-card p-6 shadow-none md:p-7"
         >
-          <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
           <div className="relative flex min-w-0 flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-primary">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-medium tracking-[0.08em] text-primary">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1">
                   <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
                   임상 기록
                 </span>
-                <span className="text-muted-foreground">HawkEye PD · longitudinal view</span>
+                <span className="text-muted-foreground">환자별 종단 기록</span>
               </div>
               <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">분석 이력</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
@@ -529,12 +529,12 @@ export default function HistoryPage() {
 
         {/* Unified Patient Timeline (ParkiCheck + Hawk I) */}
         {physioData?.enabled && physioData.subjects.length > 0 && (
-          <Card className="border-border bg-card">
+          <Card className="border-border bg-card shadow-none">
             <CardHeader>
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-foreground">
-                    <Activity className="h-5 w-5 text-emerald-400" />
+                    <Activity className="h-5 w-5 text-primary" />
                     환자 통합 타임라인
                   </CardTitle>
                   <CardDescription>
@@ -558,7 +558,7 @@ export default function HistoryPage() {
               {timelineLoading ? (
                 <p className="py-4 text-sm text-muted-foreground">타임라인을 불러오는 중...</p>
               ) : timelineError ? (
-                <p className="py-4 text-sm text-rose-600 dark:text-rose-300">{timelineError}</p>
+                <p className="history-inline-error py-4 text-sm">{timelineError}</p>
               ) : timelineEnabled === false ? (
                 <p className="py-4 text-sm text-muted-foreground">이 백엔드에는 physio_app 연동이 설정되어 있지 않습니다.</p>
               ) : timeline.length === 0 && timelineMedications.length === 0 ? (
@@ -567,14 +567,14 @@ export default function HistoryPage() {
                 <div className="space-y-5">
                   {timelineMedications.length > 0 && (
                     <div>
-                      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-300">
+                      <div className="history-medication-heading mb-2 flex items-center gap-2 text-sm font-medium">
                         최근 환자 보고 복약 기록
                         <span className="text-xs font-normal text-muted-foreground">효과·ON/OFF는 추정하지 않음</span>
                       </div>
                       <div className="space-y-2">
                         {timelineMedications.slice(0, 5).map((medication) => (
-                          <div key={medication.event_id || `${medication.medication_code}-${medication.observed_at}`} className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-                            <span className="text-sm font-semibold text-amber-200">{medication.medication_display || medication.medication_code || '약물명 미입력'}</span>
+                          <div key={medication.event_id || `${medication.medication_code}-${medication.observed_at}`} className="history-medication-item flex flex-wrap items-center gap-3 rounded-lg border p-3">
+                            <span className="text-sm font-semibold">{medication.medication_display || medication.medication_code || '약물명 미입력'}</span>
                             {medication.dose_mg !== null && (
                             <span className="text-sm text-foreground/80">{medication.dose_mg}{medication.dose_unit || 'mg'}</span>
                             )}
@@ -673,15 +673,15 @@ export default function HistoryPage() {
                           className={cn(
                             "text-xs px-2 py-1 rounded-full border font-medium",
                             item.app_source === 'parkicheck'
-                              ? "text-sky-400 bg-sky-500/10 border-sky-500/30"
-                              : "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                              ? "history-source history-source--patient"
+                              : "history-source history-source--ai"
                           )}
                         >
                           {item.app_source === 'parkicheck' ? 'ParkiCheck 검사' : 'Hawk I AI 분석'}
                         </span>
                         <span className="text-sm text-foreground/80">{item.code || '—'}</span>
                         {item.hours_since_last_dose !== null && item.hours_since_last_dose !== undefined && (
-                          <span className="text-xs px-2 py-1 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-200">
+                          <span className="history-dose-badge text-xs px-2 py-1 rounded-full border">
                             복약 {item.hours_since_last_dose}시간 후
                             {item.last_dose_medication ? ` · ${item.last_dose_medication}` : ''}
                             {item.last_dose_mg !== null && item.last_dose_mg !== undefined ? ` ${item.last_dose_mg}mg` : ''}
@@ -702,7 +702,7 @@ export default function HistoryPage() {
                       )}
 
                       {onHold && (
-                        <p className="text-xs text-amber-300/90">
+                        <p className="history-hold-note text-xs">
                           판정 보류 — 자동 점수를 산출하지 않았습니다
                           {item.score_advisory_summary ? ` (${item.score_advisory_summary})` : ''}
                         </p>
@@ -730,7 +730,7 @@ export default function HistoryPage() {
                             { title: '약물 반응성 지표', entries: doseResponsive, hint: '복약으로 개선될 수 있음' },
                             { title: '약물 저항성 지표', entries: doseResistant, hint: '복약과 무관하게 유지되는 경향' },
                           ].filter((group) => group.entries.length > 0).map((group) => (
-                            <div key={group.title} className="rounded-lg border border-border bg-background/70 p-3">
+                            <div key={group.title} className="rounded-lg border border-border bg-background p-3">
                               <p className="text-xs font-medium text-foreground/80">{group.title}</p>
                               <p className="mb-2 text-[10px] text-muted-foreground">{group.hint}</p>
                               <dl className="space-y-1">
@@ -794,7 +794,7 @@ export default function HistoryPage() {
           >
             <MetricCard label="총 분석" value={stats.total_analyses} caption="인증된 기록" tone="blue" icon={<BarChart3 className="h-5 w-5" />} />
             <MetricCard label="평균 점수" value={stats.average_score?.toFixed(1) || 'N/A'} caption="0–4 임상 점수 범위" tone="green" icon={<TrendingUp className="h-5 w-5" />} />
-            <MetricCard label="검사 유형" value={Object.keys(stats.task_distribution).length} caption="Gait · Finger Tapping" tone="amber" icon={<ClipboardCheck className="h-5 w-5" />} />
+            <MetricCard label="검사 유형" value={Object.keys(stats.task_distribution).length} caption="보행 · 손가락 태핑" tone="amber" icon={<ClipboardCheck className="h-5 w-5" />} />
             <MetricCard label="최근 검사" value={history[0]?.date.split('T')[0] || 'N/A'} caption="가장 최근 저장 시각" tone="violet" icon={<Clock className="h-5 w-5" />} />
           </motion.div>
         )}
@@ -806,7 +806,7 @@ export default function HistoryPage() {
             className="grid gap-4 md:grid-cols-2"
           >
             {/* Trend Chart */}
-            <Card className="min-w-0 border-border/80 bg-card/95">
+            <Card className="min-w-0 border-border bg-card shadow-none">
               <CardHeader className="border-b border-border/70 pb-4">
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <TrendingUp className="h-5 w-5 text-primary" />
@@ -848,7 +848,7 @@ export default function HistoryPage() {
             </Card>
 
             {/* Score Distribution */}
-            <Card className="min-w-0 border-border/80 bg-card/95">
+            <Card className="min-w-0 border-border bg-card shadow-none">
               <CardHeader className="border-b border-border/70 pb-4">
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <BarChart3 className="h-5 w-5 text-primary" />
@@ -891,7 +891,7 @@ export default function HistoryPage() {
         <div className="space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-primary">Audit trail</p>
+              <p className="text-xs font-medium tracking-[0.14em] text-primary">기록 목록</p>
               <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">검사 기록</h2>
             </div>
             <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">{filteredHistory.length}건 표시</span>
@@ -899,17 +899,17 @@ export default function HistoryPage() {
 
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary" />
             </div>
           ) : error ? (
-            <Card className="border-amber-500/25 bg-amber-500/10">
+            <Card className="history-state history-state--error">
               <CardContent className="p-6 text-center">
-                <Activity className="mx-auto mb-3 h-9 w-9 text-amber-600 dark:text-amber-300" />
-                <p className="font-medium text-amber-800 dark:text-amber-200">기록을 불러오지 못했습니다</p>
-                <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-amber-700 dark:text-amber-300">
+                <Activity className="mx-auto mb-3 h-9 w-9" />
+                <p className="font-medium">기록을 불러오지 못했습니다</p>
+                <p className="mx-auto mt-2 max-w-xl text-sm leading-6">
                   기록 API가 응답하지 않았습니다. 운영 백엔드의 임상 기록 설정이 완료되면 분석 이력과 복약 타임라인이 표시됩니다.
                 </p>
-                <p className="mt-2 text-xs text-amber-700/80 dark:text-amber-300/80">{error}</p>
+                <p className="mt-2 text-xs opacity-80">{error}</p>
                 <Button className="mt-4" variant="outline" onClick={() => setHistoryRetry((value) => value + 1)}>
                   다시 시도
                 </Button>
@@ -928,8 +928,8 @@ export default function HistoryPage() {
               </CardContent>
             </Card>
           ) : (
-            <Card className="overflow-hidden border-border/80 bg-card/95">
-              <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(10rem,1fr)_10rem_8.5rem] gap-4 border-b border-border bg-muted/25 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:grid">
+            <Card className="overflow-hidden border-border bg-card shadow-none">
+              <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(10rem,1fr)_10rem_8.5rem] gap-4 border-b border-border bg-muted/40 px-5 py-3 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground md:grid">
                 <span>검사</span><span>판정</span><span>검사 시각</span><span className="text-right">작업</span>
               </div>
               <AnimatePresence initial={false}>

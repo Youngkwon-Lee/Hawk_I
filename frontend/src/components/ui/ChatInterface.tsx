@@ -208,7 +208,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                         <Bot className="h-10 w-10 mx-auto mb-2 opacity-50" />
                         <p>검사 결과에 대해 무엇이든 물어보세요.</p>
                         {!hasContext && (
-                            <p className="text-xs mt-2 text-yellow-600">
+                            <p className="mt-2 text-xs text-muted-foreground">
                                 (영상 분석 후 더 정확한 답변을 받을 수 있습니다)
                             </p>
                         )}
