@@ -14,7 +14,25 @@ import { VideoPlayer, type Marker } from "@/components/dashboard/VideoPlayer"
 import { AIInterpretation } from "@/components/dashboard/AIInterpretation"
 import { MedicationTimeline } from "@/components/dashboard/MedicationTimeline"
 import { PopulationComparison } from "@/components/dashboard/PopulationComparison"
-import { AlertTriangle, CheckCircle2, Download, HelpCircle, Share2, Activity, Brain, ClipboardList, CircleSlash, Database } from "lucide-react"
+import {
+    Activity,
+    AlertTriangle,
+    BarChart3,
+    Brain,
+    CheckCircle2,
+    ChevronRight,
+    CircleSlash,
+    Database,
+    Download,
+    FileText,
+    HelpCircle,
+    LayoutDashboard,
+    Pill,
+    PlayCircle,
+    Share2,
+    TableProperties,
+    UsersRound,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiUrl, establishMediaSession, getAnalysisResult, type AnalysisResult, type FingerPerformabilityAssessment, type FingerTappingMetrics, type GaitMetrics, type TimelineEvent } from "@/lib/services/api"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
@@ -444,6 +462,19 @@ function ResultContent() {
                 severity === "Moderate" ? "중등도 증상" :
                     severity === "Severe" ? "중증 증상" : "알 수 없음"
 
+    const reviewSections = [
+        { id: "dashboard", label: "대시보드 뷰", hint: "검토 개요", icon: LayoutDashboard },
+        { id: "video", label: "영상 분석", hint: "원본·스켈레톤", icon: PlayCircle },
+        { id: "raw", label: "원시 데이터", hint: "측정값 확인", icon: TableProperties },
+        { id: "visualizations", label: "시각화 분석", hint: "패턴 보기", icon: BarChart3 },
+        { id: "timeline", label: "약물 타임라인", hint: "복약 맥락", icon: Pill },
+        { id: "comparison", label: "정상군 비교", hint: "참조 분포", icon: UsersRound },
+        { id: "reasoning", label: "AI 추론 과정", hint: "근거 검토", icon: Brain },
+        { id: "soap", label: "SOAP 노트", hint: "기록 초안", icon: FileText },
+    ] as const
+
+    const activeReviewSection = reviewSections.find((section) => section.id === activeTab) || reviewSections[0]
+
     if (isLoading) return <div className="flex items-center justify-center min-h-screen">Loading analysis result...</div>
     if (error) return <div className="flex items-center justify-center min-h-screen text-red-500">Error: {error}</div>
 
@@ -462,55 +493,61 @@ function ResultContent() {
                 timestamp: new Date()
             }] : [])
         ]} />}>
-            <div className="space-y-8 pb-10">
+            <div className="space-y-6 pb-10">
                 {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight">분석 결과</h1>
-                        <p className="text-muted-foreground mt-1">
-                            {title}
-                            {detectionSummary && <span className="ml-2">{detectionSummary}</span>}
-                        </p>
-                        {(subjectDisplayName || supabaseObservation?.enabled) && (
-                            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                                {subjectDisplayName && (
-                                    <span className="rounded-md border border-border bg-card px-2.5 py-1 text-muted-foreground">
-                                        대상: {subjectDisplayName}
-                                    </span>
-                                )}
-                                {supabaseObservation?.enabled && (
-                                    <span className={cn(
-                                        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1",
-                                        supabaseObservation.saved || isParkiCheckDelegated
-                                            ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-500"
-                                            : "border-yellow-500/20 bg-yellow-500/5 text-yellow-500"
-                                    )}>
-                                        <Database className="h-4 w-4" />
-                                        {supabaseObservation.saved
-                                            ? "physio_app 저장됨"
-                                            : isParkiCheckDelegated
-                                                ? "ParkiCheck 동일 세션 저장 위임됨"
-                                                : "physio_app 저장 대기"}
-                                    </span>
-                                )}
+                <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
+                    <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">연구용 분석 기록</span>
+                                <span className="text-xs text-muted-foreground">전문의 검토 후 기록에 반영</span>
                             </div>
-                        )}
-                        {analysisTrace && (
-                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-                                {analysisTrace.analysis_id && <span>analysis: {analysisTrace.analysis_id}</span>}
-                                {analysisTrace.activity_session_id && <span>session: {analysisTrace.activity_session_id}</span>}
-                                {analysisTrace.observation_id && <span>observation: {analysisTrace.observation_id}</span>}
-                                {analysisTrace.observation_fhir_id && <span>FHIR: {analysisTrace.observation_fhir_id}</span>}
-                            </div>
-                        )}
-                    </div>
-                    <div className="flex gap-2">
-                        <Button variant="outline" size="sm" className="gap-2">
-                            <Share2 className="h-4 w-4" /> 공유
-                        </Button>
-                        <Button variant="outline" size="sm" className="gap-2">
-                            <Download className="h-4 w-4" /> PDF 내보내기
-                        </Button>
+                            <h1 className="mt-3 text-2xl font-semibold tracking-tight md:text-3xl">{title} 검토</h1>
+                            <p className="mt-1 text-sm text-muted-foreground">{detectionSummary || "분석 유형을 확인 중입니다."}</p>
+                            {(subjectDisplayName || supabaseObservation?.enabled) && (
+                                <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+                                    {subjectDisplayName && (
+                                        <span className="rounded-md border border-border bg-background px-2.5 py-1 text-muted-foreground">
+                                            대상: {subjectDisplayName}
+                                        </span>
+                                    )}
+                                    {supabaseObservation?.enabled && (
+                                        <span className={cn(
+                                            "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1",
+                                            supabaseObservation.saved || isParkiCheckDelegated
+                                                ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400"
+                                                : "border-yellow-500/20 bg-yellow-500/5 text-yellow-700 dark:text-yellow-400"
+                                        )}>
+                                            <Database className="h-4 w-4" />
+                                            {supabaseObservation.saved
+                                                ? "연구 기록 저장됨"
+                                                : isParkiCheckDelegated
+                                                    ? "ParkiCheck 기록 연동됨"
+                                                    : "연구 기록 저장 대기"}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            {analysisTrace && (
+                                <details className="mt-4 text-xs text-muted-foreground">
+                                    <summary className="cursor-pointer select-none hover:text-foreground">연구 추적 ID 보기</summary>
+                                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px]">
+                                        {analysisTrace.analysis_id && <span>analysis: {analysisTrace.analysis_id}</span>}
+                                        {analysisTrace.activity_session_id && <span>session: {analysisTrace.activity_session_id}</span>}
+                                        {analysisTrace.observation_id && <span>observation: {analysisTrace.observation_id}</span>}
+                                        {analysisTrace.observation_fhir_id && <span>FHIR: {analysisTrace.observation_fhir_id}</span>}
+                                    </div>
+                                </details>
+                            )}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                            <Button variant="outline" size="sm" className="gap-2">
+                                <Share2 className="h-4 w-4" /> 공유
+                            </Button>
+                            <Button variant="outline" size="sm" className="gap-2">
+                                <Download className="h-4 w-4" /> PDF 내보내기
+                            </Button>
+                        </div>
                     </div>
                 </div>
 
@@ -518,9 +555,9 @@ function ResultContent() {
                 <div className="grid gap-4 md:grid-cols-4">
                     <div className="md:col-span-1">
                         <SummaryCard
-                            title="추정 점수"
+                            title="연구 추정 점수"
                             value={score}
-                            subtext={`UPDRS (0-4) • ${severity}`}
+                            subtext={`UPDRS (0-4) · ${severityKorean}`}
                             status={
                                 severity === "Normal" ? "good" :
                                     severity === "Slight" ? "neutral" :
@@ -666,15 +703,6 @@ function ResultContent() {
                     </Card>
                 )}
 
-                {/* AI Interpretation */}
-                {analysisResult?.ai_interpretation && (
-                    <AIInterpretation
-                        summary={analysisResult.ai_interpretation.summary}
-                        explanation={analysisResult.ai_interpretation.explanation}
-                        recommendations={analysisResult.ai_interpretation.recommendations}
-                    />
-                )}
-
                 {isFinger && performabilityAssessment && (() => {
                     const presentation = getPerformabilityPresentation(performabilityAssessment)
                     const Icon = presentation.icon
@@ -794,95 +822,77 @@ function ResultContent() {
                     );
                 })()}
 
-                {/* Tabs Navigation */}
-                <div className="border-b border-border">
-                    <div className="flex gap-6">
-                        <button
-                            onClick={() => setActiveTab("dashboard")}
-                            className={cn(
-                                "pb-3 text-sm font-medium transition-all border-b-2",
-                                activeTab === "dashboard" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            대시보드 뷰
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("video")}
-                            className={cn(
-                                "pb-3 text-sm font-medium transition-all border-b-2",
-                                activeTab === "video" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            영상 분석
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("raw")}
-                            className={cn(
-                                "pb-3 text-sm font-medium transition-all border-b-2",
-                                activeTab === "raw" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            원시 데이터
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("visualizations")}
-                            className={cn(
-                                "pb-3 text-sm font-medium transition-all border-b-2",
-                                activeTab === "visualizations" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            시각화 분석
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("timeline")}
-                            className={cn(
-                                "pb-3 text-sm font-medium transition-all border-b-2",
-                                activeTab === "timeline" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            약물 타임라인
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("comparison")}
-                            className={cn(
-                                "pb-3 text-sm font-medium transition-all border-b-2",
-                                activeTab === "comparison" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            정상군 비교
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("reasoning")}
-                            className={cn(
-                                "pb-3 text-sm font-medium transition-all border-b-2",
-                                activeTab === "reasoning" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            AI 추론 과정
-                        </button>
-                        <button
-                            onClick={() => setActiveTab("soap")}
-                            className={cn(
-                                "pb-3 text-sm font-medium transition-all border-b-2 flex items-center gap-1",
-                                activeTab === "soap" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            <ClipboardList className="h-4 w-4" />
-                            SOAP 노트
-                        </button>
+                {/* Review navigation */}
+                <section aria-label="분석 검토 단계" className="rounded-2xl border border-border bg-card p-3 shadow-sm md:p-4">
+                    <div className="mb-3 flex flex-wrap items-end justify-between gap-2 px-1">
+                        <div>
+                            <p className="text-sm font-semibold">검토 단계</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">데이터 확인부터 기록 초안 작성까지 순서대로 검토합니다.</p>
+                        </div>
+                        <div className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                            {activeReviewSection.label}
+                            <ChevronRight className="h-3.5 w-3.5" />
+                        </div>
                     </div>
-                </div>
+                    <div role="tablist" aria-label="분석 결과 탐색" className="grid grid-cols-2 gap-2 sm:grid-cols-4 2xl:grid-cols-8">
+                        {reviewSections.map((section) => {
+                            const Icon = section.icon
+                            const isActive = activeTab === section.id
+                            return (
+                                <button
+                                    key={section.id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={isActive}
+                                    onClick={() => setActiveTab(section.id)}
+                                    className={cn(
+                                        "group min-h-[72px] rounded-xl border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                        isActive
+                                            ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                            : "border-border bg-background hover:border-primary/40 hover:bg-accent"
+                                    )}
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary-foreground" : "text-primary")} />
+                                        <span className="text-sm font-semibold leading-tight">{section.label}</span>
+                                    </div>
+                                    <span className={cn("mt-1.5 block text-xs", isActive ? "text-primary-foreground/80" : "text-muted-foreground")}>{section.hint}</span>
+                                </button>
+                            )
+                        })}
+                    </div>
+                </section>
 
                 {/* Tab Content */}
                 {activeTab === "dashboard" && (
-                    <div className="grid gap-6 md:grid-cols-2 animate-in fade-in slide-in-from-bottom-2">
-                        {/* Historical trends are shown only from persisted records. */}
-                        <Card className="h-full border-dashed bg-muted/20">
-                            <CardContent className="flex min-h-48 flex-col items-center justify-center p-6 text-center">
-                                <p className="text-sm font-medium">추세는 실제 기록이 쌓인 후 표시됩니다.</p>
-                                <p className="mt-2 max-w-sm text-xs leading-5 text-muted-foreground">
-                                    현재 결과는 단일 검사입니다. 여러 검사와 복약 기록을 저장하면 기록 화면에서 실제 변화 추이를 확인할 수 있습니다.
-                                </p>
+                    <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr] animate-in fade-in slide-in-from-bottom-2">
+                        <Card className="h-full border-primary/20 bg-gradient-to-br from-primary/5 via-card to-card">
+                            <CardHeader>
+                                <CardTitle className="text-lg">이번 검사 검토 흐름</CardTitle>
+                                <CardDescription>자동 생성 결과를 그대로 확정하지 않고, 근거를 확인한 뒤 기록 초안을 만듭니다.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                {[
+                                    ["1", "영상과 추적 품질 확인", "영상 분석"],
+                                    ["2", "측정값·패턴 확인", "시각화 분석"],
+                                    ["3", "복약·정상군 맥락 확인", "약물 타임라인"],
+                                    ["4", "AI 근거 검토 후 기록", "SOAP 노트"],
+                                ].map(([step, label, destination]) => {
+                                    const target = reviewSections.find((section) => section.label === destination)
+                                    return (
+                                        <button
+                                            key={step}
+                                            type="button"
+                                            onClick={() => target && setActiveTab(target.id)}
+                                            className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-background/80 p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent"
+                                        >
+                                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{step}</span>
+                                            <span className="min-w-0 flex-1 text-sm font-medium">{label}</span>
+                                            <span className="hidden text-xs text-muted-foreground sm:block">{destination}</span>
+                                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                        </button>
+                                    )
+                                })}
                             </CardContent>
                         </Card>
 
@@ -890,8 +900,8 @@ function ResultContent() {
                         <div className="space-y-6">
                             <Card className="h-full">
                                 <CardHeader>
-                                    <CardTitle>상세 운동 분석</CardTitle>
-                                    <CardDescription>운동 매개변수의 종합적인 분석 결과입니다.</CardDescription>
+                                    <CardTitle className="text-lg">핵심 측정값</CardTitle>
+                                    <CardDescription>현재 영상에서 추출된 수치입니다. 최종 임상 평가는 담당자가 확인합니다.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     <MetricsTable data={metrics} />
@@ -996,6 +1006,52 @@ function ResultContent() {
                                 </div>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {activeTab === "raw" && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+                            <span className="font-semibold text-foreground">원시 데이터 검토</span>
+                            <span className="ml-2">자동 추출 값이며, 연구 분석의 재현성과 수기 검토를 위해 제공합니다.</span>
+                        </div>
+                        <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="text-lg">추출 측정값</CardTitle>
+                                    <CardDescription>화면 요약에 사용된 자동 추출 수치를 단위와 참조 범위로 확인합니다.</CardDescription>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <MetricsTable data={metrics} />
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="text-lg">분석 메타데이터</CardTitle>
+                                    <CardDescription>이 기록의 분석 유형과 연결 상태를 확인합니다.</CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-3 text-sm">
+                                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background p-3">
+                                        <span className="text-muted-foreground">분석 유형</span>
+                                        <span className="font-medium">{title}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background p-3">
+                                        <span className="text-muted-foreground">선택 방식</span>
+                                        <span className="font-medium">{detectionMode}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background p-3">
+                                        <span className="text-muted-foreground">연구 기록</span>
+                                        <span className="font-medium">{supabaseObservation?.saved || isParkiCheckDelegated ? "연동됨" : "연동 대기"}</span>
+                                    </div>
+                                    <details className="rounded-lg border border-border/70 bg-background p-3">
+                                        <summary className="cursor-pointer font-medium">구조화된 측정값 보기</summary>
+                                        <pre className="mt-3 max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs leading-5 text-muted-foreground">
+                                            {JSON.stringify(analysisResult?.metrics ?? {}, null, 2)}
+                                        </pre>
+                                    </details>
+                                </CardContent>
+                            </Card>
+                        </div>
                     </div>
                 )}
 
@@ -1180,8 +1236,34 @@ function ResultContent() {
                 )}
 
                 {activeTab === "reasoning" && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2">
-                        <ReasoningLogViewer logs={analysisResult?.reasoning_log || []} />
+                    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr] animate-in fade-in slide-in-from-bottom-2">
+                        {analysisResult?.ai_interpretation ? (
+                            <AIInterpretation
+                                summary={analysisResult.ai_interpretation.summary}
+                                explanation={analysisResult.ai_interpretation.explanation}
+                                recommendations={analysisResult.ai_interpretation.recommendations}
+                                defaultExpanded
+                            />
+                        ) : (
+                            <Card className="border-dashed bg-muted/20">
+                                <CardContent className="flex min-h-52 flex-col items-center justify-center p-6 text-center">
+                                    <Brain className="h-8 w-8 text-muted-foreground" />
+                                    <p className="mt-3 text-sm font-medium">AI 해석이 아직 생성되지 않았습니다.</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">자동 추출 지표와 영상은 다른 검토 단계에서 확인할 수 있습니다.</p>
+                                </CardContent>
+                            </Card>
+                        )}
+                        {(analysisResult?.reasoning_log?.length ?? 0) > 0 ? (
+                            <ReasoningLogViewer logs={analysisResult?.reasoning_log || []} />
+                        ) : (
+                            <Card className="border-dashed bg-muted/20">
+                                <CardContent className="flex min-h-52 flex-col items-center justify-center p-6 text-center">
+                                    <FileText className="h-8 w-8 text-muted-foreground" />
+                                    <p className="mt-3 text-sm font-medium">세부 추론 로그가 없습니다.</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">이 분석에서는 요약 근거만 제공됩니다.</p>
+                                </CardContent>
+                            </Card>
+                        )}
                     </div>
                 )}
 

@@ -3,7 +3,7 @@
 import * as React from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
-import { Copy, Check, FileText, ClipboardList } from "lucide-react"
+import { Copy, Check, FileText, ClipboardList, ShieldCheck } from "lucide-react"
 
 interface SOAPNoteProps {
     taskType: string
@@ -45,7 +45,7 @@ const SEVERITY_TERMS: Record<string, string> = {
 }
 
 export function SOAPNote({ taskType, metrics, performabilityAssessment, scoreAdvisory, updrsScore, analysisDate }: SOAPNoteProps) {
-    const [copied, setCopied] = React.useState(false)
+    const [copiedTarget, setCopiedTarget] = React.useState<"note" | "objective" | "assessment" | null>(null)
     const [format, setFormat] = React.useState<'full' | 'compact'>('compact')
 
     const normalizedType = taskType?.includes('finger') || taskType?.includes('tapping')
@@ -162,138 +162,127 @@ export function SOAPNote({ taskType, metrics, performabilityAssessment, scoreAdv
 [A] ${assessment.replace(/\n/g, ' | ')}${scoreAdvisory ? ` | ${scoreAdvisory.summary}` : ''}`
     }
 
-    const handleCopy = async () => {
-        const note = generateSOAPNote()
-        await navigator.clipboard.writeText(note)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+    const copyText = async (text: string, target: "note" | "objective" | "assessment") => {
+        await navigator.clipboard.writeText(text)
+        setCopiedTarget(target)
+        window.setTimeout(() => setCopiedTarget((current) => current === target ? null : current), 2000)
     }
 
     const soapNote = generateSOAPNote()
+    const objective = generateObjective()
+    const assessment = generateAssessment()
+    const formatLabel = format === 'compact' ? '한 줄 요약' : '상세 SOAP 기록'
 
     return (
-        <div className="space-y-4">
-            {/* Format Toggle */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-xl font-semibold flex items-center gap-2">
-                        <ClipboardList className="h-5 w-5" />
-                        SOAP Note
-                    </h2>
-                    <p className="text-sm text-muted-foreground">의무기록용 복사 형식</p>
-                </div>
-                <div className="flex gap-2">
-                    <Button
-                        variant={format === 'compact' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setFormat('compact')}
-                    >
-                        간략
-                    </Button>
-                    <Button
-                        variant={format === 'full' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setFormat('full')}
-                    >
-                        전체
-                    </Button>
-                </div>
-            </div>
-
-            {/* Note Preview */}
-            <Card className="bg-slate-900 border-slate-700">
-                <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm flex items-center gap-2">
-                            <FileText className="h-4 w-4" />
-                            {format === 'compact' ? '간략 형식' : '전체 형식'}
-                        </CardTitle>
+        <div className="space-y-5">
+            <section className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card p-5 md:p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                                <ClipboardList className="h-3.5 w-3.5" />
+                                SOAP 기록 초안
+                            </span>
+                            <span className="text-xs text-muted-foreground">EMR 복사용</span>
+                        </div>
+                        <h2 className="mt-3 text-xl font-semibold tracking-tight md:text-2xl">기록할 내용을 확인하고 복사하세요</h2>
+                        <p className="mt-1 text-sm text-muted-foreground">자동 생성된 연구용 초안입니다. EMR 반영 전 담당자가 내용을 검토해야 합니다.</p>
+                    </div>
+                    <div className="inline-flex rounded-xl border border-border bg-background p-1" role="group" aria-label="SOAP 기록 형식">
                         <Button
-                            variant="outline"
+                            variant={format === 'compact' ? 'default' : 'ghost'}
                             size="sm"
-                            onClick={handleCopy}
-                            className="gap-2"
+                            onClick={() => setFormat('compact')}
+                            aria-pressed={format === 'compact'}
                         >
-                            {copied ? (
-                                <>
-                                    <Check className="h-4 w-4 text-green-500" />
-                                    복사됨
-                                </>
-                            ) : (
-                                <>
-                                    <Copy className="h-4 w-4" />
-                                    복사
-                                </>
-                            )}
+                            한 줄 요약
+                        </Button>
+                        <Button
+                            variant={format === 'full' ? 'default' : 'ghost'}
+                            size="sm"
+                            onClick={() => setFormat('full')}
+                            aria-pressed={format === 'full'}
+                        >
+                            상세 기록
+                        </Button>
+                    </div>
+                </div>
+            </section>
+
+            <Card className="overflow-hidden border-primary/25 shadow-sm">
+                <CardHeader className="border-b border-border/70 bg-muted/30 pb-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <CardTitle className="flex items-center gap-2 text-base">
+                                <FileText className="h-4 w-4 text-primary" />
+                                {formatLabel}
+                            </CardTitle>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                {format === 'compact' ? 'EMR에 바로 붙여 넣을 수 있는 짧은 기록입니다.' : '객관적 관찰과 평가 초안을 함께 복사합니다.'}
+                            </p>
+                        </div>
+                        <Button variant="default" size="sm" onClick={() => copyText(soapNote, 'note')} className="gap-2">
+                            {copiedTarget === 'note' ? <><Check className="h-4 w-4" />복사됨</> : <><Copy className="h-4 w-4" />기록 복사</>}
                         </Button>
                     </div>
                 </CardHeader>
-                <CardContent>
-                    <pre className="whitespace-pre-wrap font-mono text-sm text-slate-300 bg-slate-950 p-4 rounded-lg overflow-x-auto">
+                <CardContent className="space-y-3 pt-5">
+                    <pre className="whitespace-pre-wrap break-words rounded-xl border border-border bg-background p-4 font-mono text-sm leading-6 text-foreground">
                         {soapNote}
                     </pre>
+                    <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                        복사한 초안은 환자 상태와 영상 품질을 확인한 뒤 EMR에 반영하세요.
+                    </div>
                 </CardContent>
             </Card>
 
-            {/* Quick Copy Sections */}
-            <div className="grid md:grid-cols-2 gap-4">
-                <Card>
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">[O] Objective</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground bg-secondary/50 p-3 rounded">
-                            {generateObjective()}
-                        </pre>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="mt-2 w-full"
-                            onClick={async () => {
-                                await navigator.clipboard.writeText(generateObjective())
-                            }}
-                        >
-                            <Copy className="h-3 w-3 mr-1" />
-                            Objective만 복사
-                        </Button>
-                    </CardContent>
-                </Card>
+            <section aria-label="SOAP 항목별 검토">
+                <div className="mb-3">
+                    <h3 className="text-base font-semibold">항목별 검토</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">필요한 부분만 따로 복사하거나, 최종 기록 전에 문구를 확인할 수 있습니다.</p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                    <Card className="border-border/80">
+                        <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <span className="rounded-md bg-primary/10 px-2 py-1 text-xs font-bold text-primary">O</span>
+                                    <CardTitle className="mt-2 text-base">Objective</CardTitle>
+                                    <p className="mt-1 text-xs text-muted-foreground">객관적 측정값</p>
+                                </div>
+                                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => copyText(objective, 'objective')}>
+                                    {copiedTarget === 'objective' ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
+                                    {copiedTarget === 'objective' ? '복사됨' : '복사'}
+                                </Button>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <pre className="min-h-24 whitespace-pre-wrap break-words rounded-lg bg-muted/70 p-3 font-mono text-xs leading-5 text-foreground">{objective}</pre>
+                        </CardContent>
+                    </Card>
 
-                <Card>
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">[A] Assessment</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground bg-secondary/50 p-3 rounded">
-                            {generateAssessment()}
-                        </pre>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="mt-2 w-full"
-                            onClick={async () => {
-                                await navigator.clipboard.writeText(generateAssessment())
-                            }}
-                        >
-                            <Copy className="h-3 w-3 mr-1" />
-                            Assessment만 복사
-                        </Button>
-                    </CardContent>
-                </Card>
-            </div>
+                    <Card className="border-border/80">
+                        <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <span className="rounded-md bg-amber-500/10 px-2 py-1 text-xs font-bold text-amber-700 dark:text-amber-400">A</span>
+                                    <CardTitle className="mt-2 text-base">Assessment</CardTitle>
+                                    <p className="mt-1 text-xs text-muted-foreground">자동 생성된 해석 초안</p>
+                                </div>
+                                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => copyText(assessment, 'assessment')}>
+                                    {copiedTarget === 'assessment' ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
+                                    {copiedTarget === 'assessment' ? '복사됨' : '복사'}
+                                </Button>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <pre className="min-h-24 whitespace-pre-wrap break-words rounded-lg bg-muted/70 p-3 font-mono text-xs leading-5 text-foreground">{assessment}</pre>
+                        </CardContent>
+                    </Card>
+                </div>
+            </section>
 
-            {/* Usage Guide */}
-            <Card className="bg-blue-950/30 border-blue-900/50">
-                <CardContent className="p-4">
-                    <h3 className="font-medium text-blue-300 mb-2">사용 가이드</h3>
-                    <ul className="text-sm text-blue-200/80 space-y-1">
-                        <li>• <strong>간략 형식</strong>: EMR 한 줄 기록용</li>
-                        <li>• <strong>전체 형식</strong>: 상세 의무기록용</li>
-                        <li>• <strong>*</strong> 표시: 정상 범위 벗어남 (1.5 SD 이상)</li>
-                        <li>• ref: 정상군 평균±표준편차</li>
-                    </ul>
-                </CardContent>
-            </Card>
         </div>
     )
 }
