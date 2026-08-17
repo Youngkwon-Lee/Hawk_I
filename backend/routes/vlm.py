@@ -3,13 +3,57 @@ VLM Analysis Routes
 Provides GPT-4V based video analysis endpoints
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, current_app, request, jsonify
 import os
 from services.vlm_scorer import VLMScorer
+from services.gemini_vlm import GeminiResearchVLM
+from services.analysis_media import load_analysis_result, resolve_media_path
 from domain.context import analysis_results
 
 bp = Blueprint('vlm', __name__, url_prefix='/api/vlm')
 vlm_scorer = VLMScorer()
+gemini_scorer = GeminiResearchVLM()
+
+
+def _load_completed_analysis(video_id: str):
+    """Resolve persisted media first so gunicorn workers do not lose the result."""
+    result = load_analysis_result(current_app.config["UPLOAD_FOLDER"], video_id)
+    if result is not None:
+        from routes.analyze import _authorize_result_context
+
+        auth_error, status = _authorize_result_context(result)
+        if auth_error:
+            return None, auth_error, status
+        video_path = resolve_media_path(
+            current_app.config["UPLOAD_FOLDER"], result, "original_video"
+        )
+        if video_path is None:
+            return None, {"success": False, "error": "원본 영상 파일을 찾을 수 없습니다."}, 404
+        return (
+            {
+                "result": result,
+                "video_path": str(video_path),
+                "task_type": result.get("video_type") or result.get("task_type"),
+                "ml_score": (result.get("updrs_score") or {}).get("total_score"),
+            },
+            None,
+            None,
+        )
+
+    # Compatibility fallback for an analysis that is still only in this worker.
+    previous_result = analysis_results.get(video_id)
+    if previous_result is None:
+        return None, {"success": False, "error": f"분석 결과를 찾을 수 없습니다: {video_id}"}, 404
+    return (
+        {
+            "result": previous_result,
+            "video_path": previous_result.get("video_path"),
+            "task_type": previous_result.get("video_type") or previous_result.get("task_type"),
+            "ml_score": (previous_result.get("updrs_score") or {}).get("total_score"),
+        },
+        None,
+        None,
+    )
 
 
 @bp.route('/status', methods=['GET'])
@@ -40,17 +84,12 @@ def analyze_video(video_id):
                 "error": "VLM 서비스가 설정되지 않았습니다. OPENAI_API_KEY를 확인하세요."
             }), 503
 
-        # Get previous analysis result to find video path and task type
-        if video_id not in analysis_results:
-            return jsonify({
-                "success": False,
-                "error": f"분석 결과를 찾을 수 없습니다: {video_id}"
-            }), 404
-
-        previous_result = analysis_results[video_id]
-        video_path = previous_result.get("video_path")
-        task_type = previous_result.get("video_type") or previous_result.get("task_type")
-        ml_score = previous_result.get("updrs_score", {}).get("score")
+        analysis, error, status = _load_completed_analysis(video_id)
+        if error:
+            return jsonify(error), status
+        video_path = analysis["video_path"]
+        task_type = analysis["task_type"]
+        ml_score = analysis["ml_score"]
 
         if not video_path or not os.path.exists(video_path):
             return jsonify({
@@ -72,9 +111,8 @@ def analyze_video(video_id):
             formatted = vlm_scorer.format_result_for_chat(result, ml_score)
 
             # Store VLM result in analysis_results
-            if "vlm_results" not in analysis_results[video_id]:
-                analysis_results[video_id]["vlm_results"] = []
-            analysis_results[video_id]["vlm_results"].append(result)
+            if video_id in analysis_results:
+                analysis_results[video_id].setdefault("vlm_results", []).append(result)
 
             return jsonify({
                 "success": True,
@@ -100,6 +138,32 @@ def analyze_video(video_id):
             "success": False,
             "error": f"VLM 분석 중 오류 발생: {str(e)}"
         }), 500
+
+
+@bp.route('/gemini/status', methods=['GET'])
+def get_gemini_status():
+    """Expose only safe configuration state; never expose the API key."""
+    return jsonify({"success": True, **gemini_scorer.status()})
+
+
+@bp.route('/gemini/analyze/<video_id>', methods=['POST'])
+def analyze_with_gemini(video_id):
+    """Run a research-only Gemini observation on an already-authorized video."""
+    payload = request.get_json(silent=True) or {}
+    if payload.get("research_external_processing_confirmed") is not True:
+        return jsonify({
+            "success": False,
+            "error": "External Gemini processing requires explicit research confirmation."
+        }), 400
+
+    analysis, error, status = _load_completed_analysis(video_id)
+    if error:
+        return jsonify(error), status
+    if not analysis["task_type"]:
+        return jsonify({"success": False, "error": "검사 유형을 알 수 없습니다."}), 400
+
+    result = gemini_scorer.analyze_video(analysis["video_path"], analysis["task_type"])
+    return jsonify(result), 200 if result.get("success") else 502
 
 
 @bp.route('/analyze-direct', methods=['POST'])
