@@ -352,6 +352,14 @@ function ResultContent() {
         }
     }
     const title = isFinger ? "손가락 태핑 분석" : "보행 분석"
+    const detectionMode = analysisResult?.auto_detected === false
+        ? "직접 선택"
+        : "AI 자동 감지"
+    const detectionSummary = analysisResult
+        ? analysisResult.auto_detected === false
+            ? `• 분석 유형: ${title} · ${detectionMode}`
+            : `• 분석 유형: ${title} · ${detectionMode} (신뢰도: ${(analysisResult.confidence * 100).toFixed(0)}%)`
+        : null
 
     // Get UPDRS score from backend result
     // Backend returns total_score, not score
@@ -471,11 +479,7 @@ function ResultContent() {
                         <h1 className="text-3xl font-bold tracking-tight">분석 결과</h1>
                         <p className="text-muted-foreground mt-1">
                             {title}
-                            {analysisResult && (
-                                <span className="ml-2">
-                                    • AI 감지: {analysisResult.video_type} (신뢰도: {(analysisResult.confidence * 100).toFixed(0)}%)
-                                </span>
-                            )}
+                            {detectionSummary && <span className="ml-2">{detectionSummary}</span>}
                         </p>
                         {(subjectDisplayName || supabaseObservation?.enabled) && (
                             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
