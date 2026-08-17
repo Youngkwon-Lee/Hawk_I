@@ -295,7 +295,8 @@ export default function TestPage() {
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">2. 분석 유형 선택</p>
-                            <h2 className="mt-1 text-base font-semibold">AI가 움직임 유형을 식별합니다</h2>
+                            <h2 className="mt-1 text-base font-semibold">영상 유형을 선택하세요</h2>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">보행·손가락 영상은 유형을 직접 선택하면 오분류를 줄일 수 있습니다.</p>
                         </div>
                         {selectedTest && (
                             <Button variant="ghost" size="sm" onClick={() => setSelectedTest(null)}>
@@ -307,7 +308,7 @@ export default function TestPage() {
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                         <TestTypeCard
                             title="자동 감지"
-                            description="AI가 움직임 유형을 자동으로 식별합니다."
+                            description="구도가 불명확하거나 짧은 영상은 오분류할 수 있습니다."
                             icon={<ScanLine className="h-7 w-7" aria-hidden="true" />}
                             isSelected={selectedTest === null}
                             onClick={() => setSelectedTest(null)}
