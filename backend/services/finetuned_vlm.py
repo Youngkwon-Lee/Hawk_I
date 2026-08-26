@@ -19,6 +19,8 @@ from typing import Any
 
 import requests
 
+from services.vlm_training_contract import build_c0b_messages
+
 GAIT_PRIMITIVES = [
     "gait_speed_reduction",
     "shortened_stride",
@@ -66,8 +68,11 @@ class FinetunedVLMConfig:
     base_url: str
     model: str
     api_key: str = ""
-    max_frames: int = 16
+    # C3BE training uses 100 frames at 5 fps; callers can lower this explicitly
+    # for smoke tests via HAWKEYE_VLM_MAX_FRAMES.
+    max_frames: int = 100
     timeout_seconds: float = 180.0
+    condition: str = "C0B"
 
     @property
     def is_local(self) -> bool:
@@ -82,9 +87,9 @@ def get_config() -> FinetunedVLMConfig | None:
         return None
 
     try:
-        max_frames = int(os.getenv("HAWKEYE_VLM_MAX_FRAMES", "16"))
+        max_frames = int(os.getenv("HAWKEYE_VLM_MAX_FRAMES", "100"))
     except ValueError:
-        max_frames = 16
+        max_frames = 100
     try:
         timeout = float(os.getenv("HAWKEYE_VLM_TIMEOUT_SECONDS", "180"))
     except ValueError:
@@ -96,7 +101,20 @@ def get_config() -> FinetunedVLMConfig | None:
         api_key=(os.getenv("HAWKEYE_VLM_API_KEY") or "").strip(),
         max_frames=max(1, max_frames),
         timeout_seconds=timeout,
+        condition=(os.getenv("HAWKEYE_VLM_CONDITION") or "C0B").strip().upper(),
     )
+
+
+def status() -> dict[str, Any]:
+    """Return safe endpoint state for diagnostics; never expose the API key."""
+    config = get_config()
+    return {
+        "configured": config is not None,
+        "model": config.model if config else None,
+        "base_url_configured": bool(config),
+        "max_frames": config.max_frames if config else None,
+        "condition": config.condition if config else None,
+    }
 
 
 def build_prompt(duration_sec: float, n_frames: int) -> str:
@@ -160,8 +178,14 @@ def parse_response(text: str, duration_sec: float | None = None) -> dict[str, An
 
     try:
         payload = json.loads(candidate)
-    except json.JSONDecodeError as exc:
-        raise FinetunedVLMUnavailable(f"model reply was not JSON: {exc.msg}") from exc
+    except json.JSONDecodeError:
+        # The training prompts in Drive terminate with `answer: <0-4>`.
+        # Accept that contract as a score-only response instead of discarding
+        # a valid model prediction merely because it is not JSON.
+        answer = re.search(r"(?:^|\n)\s*answer\s*:\s*([0-4])\s*$", candidate, re.IGNORECASE)
+        if not answer:
+            raise FinetunedVLMUnavailable("model reply was not JSON or an answer line")
+        payload = {"updrs_3_10": int(answer.group(1))}
     if not isinstance(payload, dict):
         raise FinetunedVLMUnavailable("model reply was not a JSON object")
 
@@ -189,6 +213,8 @@ def parse_response(text: str, duration_sec: float | None = None) -> dict[str, An
             }
 
     score = _number(payload.get("updrs_3_10"))
+    if score is None:
+        score = _number(payload.get("score"))
     if score is not None and not 0 <= score <= 4:
         score = None
 
@@ -208,9 +234,13 @@ def call_endpoint(
     config: FinetunedVLMConfig,
 ) -> str:
     """POST frames to an OpenAI-compatible chat endpoint and return the raw reply."""
-    content: list[dict[str, Any]] = [
-        {"type": "text", "text": build_prompt(duration_sec, len(frames_b64))}
-    ]
+    if config.condition != "C0B":
+        raise FinetunedVLMUnavailable(
+            f"condition {config.condition} is not wired for autonomous inference; use C0B"
+        )
+
+    messages = build_c0b_messages()
+    content = messages[1]["content"]
     for frame in frames_b64:
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frame}"}})
 
@@ -222,7 +252,12 @@ def call_endpoint(
         response = requests.post(
             f"{config.base_url}/chat/completions",
             headers=headers,
-            json={"model": config.model, "messages": [{"role": "user", "content": content}]},
+            json={
+                "model": config.model,
+                "messages": messages,
+                "temperature": 0,
+                "max_tokens": 16,
+            },
             timeout=config.timeout_seconds,
         )
     except requests.RequestException as exc:

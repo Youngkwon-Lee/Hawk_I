@@ -10,6 +10,7 @@ from services.gemini_vlm import GeminiResearchVLM
 from services.openai_research_vlm import GPT56TerraResearchVLM
 from services.analysis_media import load_analysis_result, resolve_media_path
 from domain.context import analysis_results
+from services.finetuned_vlm import status as finetuned_status
 
 bp = Blueprint('vlm', __name__, url_prefix='/api/vlm')
 vlm_scorer = VLMScorer()
@@ -66,6 +67,12 @@ def get_status():
         "available": vlm_scorer.is_available(),
         "model": "gpt-4o" if vlm_scorer.is_available() else None
     })
+
+
+@bp.route('/finetuned/status', methods=['GET'])
+def get_finetuned_status():
+    """Expose safe configuration state for the self-hosted research model."""
+    return jsonify({"success": True, **finetuned_status()})
 
 
 @bp.route('/analyze/<video_id>', methods=['POST'])
