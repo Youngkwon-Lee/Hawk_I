@@ -5,6 +5,48 @@ Health Check Route
 from flask import Blueprint, jsonify
 import cv2
 import mediapipe as mp
+import os
+
+
+def _prediction_status():
+    """Report configured model paths without loading a heavyweight model in health checks."""
+    coral_files = {
+        "gait": "gait_coral_raw_kfold_best.pth",
+        "finger_tapping": "finger_coral_raw_kfold_best.pth",
+        "hand_movement": "hand_coral_raw_kfold_best.pth",
+        "leg_agility": "leg_coral_raw_kfold_best.pth",
+    }
+    try:
+        from models.coral_scorer import MODEL_DIR, TORCH_AVAILABLE
+        coral_tasks = [
+            task for task, filename in coral_files.items()
+            if TORCH_AVAILABLE and os.path.isfile(os.path.join(MODEL_DIR, filename))
+        ]
+    except Exception:
+        coral_tasks = []
+
+    try:
+        from services.finetuned_vlm import get_config
+        finetuned_config = get_config()
+    except Exception:
+        finetuned_config = None
+
+    methods = []
+    if coral_tasks:
+        methods.append("coral")
+    if finetuned_config:
+        methods.append("finetuned_vlm")
+
+    return {
+        # This flag means a trained prediction model is actually configured,
+        # not merely that rule-based scoring can produce a number.
+        "updrs_prediction": bool(methods),
+        "updrs_prediction_methods": methods,
+        "coral_tasks": coral_tasks,
+        "finetuned_vlm_configured": bool(finetuned_config),
+        "finetuned_vlm_model": finetuned_config.model if finetuned_config else None,
+        "finetuned_vlm_condition": finetuned_config.condition if finetuned_config else None,
+    }
 
 # PyTorch is optional (for UPDRS prediction)
 try:
@@ -55,8 +97,9 @@ def health_check():
                 "roi_detection": True,
                 "task_classification": True,
                 "skeleton_extraction": True,
-                "updrs_prediction": False  # Will be True after model integration
-            }
+                "rule_based_scoring": True,
+                **_prediction_status(),
+            },
         }), 200
 
     except Exception as e:

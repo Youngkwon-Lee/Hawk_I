@@ -13,6 +13,7 @@ from services.finetuned_vlm import (
     parse_response,
     to_analysis_fields,
 )
+from services.vlm_training_contract import build_c0b_messages
 
 
 def _config():
@@ -47,6 +48,7 @@ def test_config_is_none_until_both_url_and_model_are_set(monkeypatch):
     config = get_config()
     assert config.base_url == "https://gpu.example/v1"
     assert config.model == "qwen3-vl-4b"
+    assert config.condition == "C0B"
 
 
 def test_trailing_slash_is_stripped_and_local_endpoint_detected(monkeypatch):
@@ -116,6 +118,10 @@ def test_fenced_json_and_surrounding_prose_are_tolerated():
     assert parse_response(text)["updrs_3_10"] == 2
 
 
+def test_training_prompt_answer_line_is_accepted():
+    assert parse_response("reasoning omitted\nanswer: 2")["updrs_3_10"] == 2
+
+
 def test_non_json_reply_raises_rather_than_guessing():
     for text in ["I cannot tell.", "", None, "{broken"]:
         with pytest.raises(FinetunedVLMUnavailable):
@@ -180,6 +186,7 @@ def test_api_key_is_optional_for_local_endpoints(monkeypatch):
     def fake_post(url, headers=None, json=None, timeout=None):
         captured["headers"] = headers
         captured["url"] = url
+        captured["json"] = json
         return FakeResponse()
 
     monkeypatch.setattr(finetuned_vlm.requests, "post", fake_post)
@@ -189,6 +196,26 @@ def test_api_key_is_optional_for_local_endpoints(monkeypatch):
 
     assert captured["url"] == "http://127.0.0.1:8000/v1/chat/completions"
     assert "Authorization" not in captured["headers"]
+    assert captured["json"]["messages"][0] == build_c0b_messages()[0]
+    user_content = captured["json"]["messages"][1]["content"]
+    assert [block["type"] for block in user_content] == ["text", "text", "text", "image_url"]
+    assert user_content[0]["text"].startswith("Scoring Item: MDS-UPDRS")
+    assert user_content[2]["text"].startswith("Score the gait task")
+    assert captured["json"]["temperature"] == 0
+    assert captured["json"]["max_tokens"] == 16
+
+
+def test_non_autonomous_condition_is_not_silently_used(monkeypatch):
+    with pytest.raises(FinetunedVLMUnavailable, match="not wired for autonomous inference"):
+        finetuned_vlm.call_endpoint(
+            ["frame"],
+            20.0,
+            FinetunedVLMConfig(
+                base_url="http://127.0.0.1:8000/v1",
+                model="hawkeye-c3be",
+                condition="C3BE",
+            ),
+        )
 
 
 def test_frames_to_base64_skips_decoding_when_not_configured(monkeypatch):

@@ -2,6 +2,11 @@
 
 These helpers are for running `Qwen/Qwen2.5-VL-7B-Instruct` as an OpenAI-compatible backend for Hawkeye teacher prefill.
 
+> **C3BE production note:** the Drive adapter is for Qwen3-VL 4B with LoRA. The
+> existing Qwen2.5-VL image below is a prefill/smoke-test image and must not be
+> used as the final Hawk I scoring endpoint until an adapter-capable Qwen3-VL
+> image is built and its `/health` and `/v1/models` responses are verified.
+
 ## Recommended Path
 
 Use a **Runpod Pod** with HTTP port `8000` exposed and a custom image that already contains the Qwen VL server.
