@@ -8,6 +8,7 @@ from services import finetuned_vlm
 from services.finetuned_vlm import (
     FinetunedVLMConfig,
     FinetunedVLMUnavailable,
+    apply_to_analysis_response,
     build_prompt,
     get_config,
     parse_response,
@@ -147,6 +148,43 @@ def test_analysis_fields_keep_score_separate_from_primitives():
 def test_missing_score_leaves_updrs_out_entirely():
     fields = to_analysis_fields(parse_response(_reply(updrs_3_10=None)), _config())
     assert "updrs_score" not in fields
+
+
+def test_finetuned_score_becomes_primary_and_rule_score_is_retained():
+    response = {
+        "scoring_method": "rule",
+        "ml_model_type": "rule_based",
+        "updrs_score": {"total_score": 1.5, "method": "rule"},
+    }
+    finetuned = {
+        "scoring_method": "finetuned_vlm",
+        "ml_model_type": "hawkeye-c0b-seed42",
+        "updrs_score": {
+            "score": 0.0,
+            "total_score": 0.0,
+            "method": "finetuned_vlm",
+            "details": {"source": "model_predicted"},
+        },
+    }
+
+    apply_to_analysis_response(response, finetuned)
+
+    assert response["scoring_method"] == "finetuned_vlm"
+    assert response["ml_model_type"] == "hawkeye-c0b-seed42"
+    assert response["updrs_score"]["total_score"] == 0.0
+    assert response["updrs_score"]["method"] == "finetuned_vlm"
+    assert response["updrs_score"]["details"]["pipeline_reference"] == {
+        "score": 1.5,
+        "method": "rule",
+    }
+
+
+def test_missing_finetuned_score_leaves_pipeline_score_in_place():
+    response = {"updrs_score": {"total_score": 2.0, "method": "rule"}}
+
+    apply_to_analysis_response(response, {"scoring_method": "finetuned_vlm"})
+
+    assert response["updrs_score"] == {"total_score": 2.0, "method": "rule"}
 
 
 def test_analyze_returns_none_when_not_configured(monkeypatch):
