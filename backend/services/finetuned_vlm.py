@@ -305,6 +305,33 @@ def to_analysis_fields(parsed: dict[str, Any], config: FinetunedVLMConfig) -> di
     return fields
 
 
+def apply_to_analysis_response(response: dict[str, Any], finetuned: dict[str, Any]) -> None:
+    """Promote a real model score while retaining the prior pipeline reference.
+
+    The rule/CORAL pipeline runs first so analysis still works when the endpoint
+    is unavailable. Once the fine-tuned endpoint returns a score, however, that
+    score must become the primary result; otherwise the response advertises a
+    fine-tuned method while still showing a rule score.
+    """
+    model_fields = dict(finetuned)
+    supplied_score = model_fields.pop("updrs_score", None)
+    previous_score = response.get("updrs_score")
+    response.update(model_fields)
+
+    if not isinstance(supplied_score, dict):
+        return
+
+    if isinstance(previous_score, dict):
+        reference_score = previous_score.get("total_score")
+        if reference_score is None:
+            reference_score = previous_score.get("score")
+        supplied_score.setdefault("details", {})["pipeline_reference"] = {
+            "score": reference_score,
+            "method": previous_score.get("method") or response.get("scoring_method"),
+        }
+    response["updrs_score"] = supplied_score
+
+
 def frames_to_base64(video_path: str, max_frames: int | None = None) -> tuple[list[str], float]:
     """Sample frames as base64 JPEGs and return them with the clip duration.
 

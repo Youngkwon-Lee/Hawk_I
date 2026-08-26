@@ -488,16 +488,12 @@ def process_video_background(
         # missing or unreachable endpoint leaves the analysis intact.
         try:
             from services.finetuned_vlm import analyze as finetuned_analyze
-            from services.finetuned_vlm import frames_to_base64
+            from services.finetuned_vlm import apply_to_analysis_response, frames_to_base64
 
             frames_b64, clip_duration = frames_to_base64(video_path)
             finetuned = finetuned_analyze(frames_b64, clip_duration)
             if finetuned:
-                # Keep the pipeline's own score unless the model supplied one.
-                supplied_score = finetuned.pop("updrs_score", None)
-                response.update(finetuned)
-                if supplied_score and not response.get("updrs_score", {}).get("total_score"):
-                    response["updrs_score"] = supplied_score
+                apply_to_analysis_response(response, finetuned)
                 update_step(video_id, "finetuned_vlm", "completed")
         except Exception as exc:  # never let the add-on break a good analysis
             print(f"[finetuned_vlm] skipped: {exc}")
