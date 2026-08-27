@@ -81,10 +81,17 @@ Vulkan `llama.cpp`를 사용합니다. 로컬 OpenAI 호환 서버는 아래 스
 powershell -ExecutionPolicy Bypass -File .\scripts\local_gpu\start_hawkeye_c0b_windows.ps1
 ```
 
+Windows의 8000 포트는 WSL localhost forwarding과 충돌할 수 있어 기본값은 18000입니다.
+Vulkan이 VRAM 부족으로 종료되면 컨텍스트를 줄이기 전에 일부 레이어만 CPU로 분산합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\local_gpu\start_hawkeye_c0b_windows.ps1 -GpuLayers 60
+```
+
 집 데스크톱 WSL의 Hawk I 백엔드에서는 아래 주소를 사용합니다.
 
 ```bash
-HAWKEYE_VLM_BASE_URL=http://100.83.147.56:8000/v1
+HAWKEYE_VLM_BASE_URL=http://100.83.147.56:18000/v1
 HAWKEYE_VLM_MODEL=hawkeye-c0b-seed42
 HAWKEYE_VLM_CONDITION=C0B
 ```
@@ -95,7 +102,7 @@ HAWKEYE_VLM_CONDITION=C0B
 `5 fps`, `512 px`, `do_sample_frames=False` 계약으로 별도 검증해야 합니다.
 
 - **RunPod** — 저장소에 이미 `scripts/runpod/Dockerfile.qwen-vl-server`와 기동 스크립트가 있습니다. OpenAI 호환으로 뜨므로 URL만 넣으면 됩니다.
-- **로컬 GPU** — `HAWKEYE_VLM_BASE_URL=http://127.0.0.1:8000/v1` 형태. API 키 불필요.
+- **로컬 GPU** — `HAWKEYE_VLM_BASE_URL=http://127.0.0.1:18000/v1` 형태. API 키 불필요.
 
 ## 발표 전 확인할 것
 
