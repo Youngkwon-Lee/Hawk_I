@@ -190,6 +190,11 @@ Production smoke test:
 bash scripts/hawkeye_production_smoke.sh
 ```
 
+For an approval-based real colleague test from ParkiCheck into the Hawk I
+clinical timeline, follow [docs/COLLEAGUE_TESTING.md](docs/COLLEAGUE_TESTING.md).
+The operator-only tool defaults to dry-run and never places a Supabase
+service-role key in either browser application.
+
 By default this uses `/tmp/hawkeye_smoke/gait_smoke_6s.mp4`. To use a different file:
 
 ```bash
