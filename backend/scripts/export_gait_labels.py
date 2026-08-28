@@ -5,8 +5,8 @@
         --db ~/rehab_labeling_server/review_apps/exports/rehab_labeling.sqlite3 \\
         --out ~/gait_export
 
-Writes train.jsonl / validation.jsonl / test.jsonl, a summary.json, and a
-README.md describing the fields and their known gaps. Refuses to write if a
+Writes train.jsonl / validation.jsonl / test.jsonl, a summary.json, a
+handoff-manifest.json, and a README.md describing the fields and their known gaps. Refuses to write if a
 patient appears in more than one split, since that would invalidate the
 evaluation.
 """
@@ -28,6 +28,7 @@ from services.label_export import (  # noqa: E402
     summarise,
     to_training_record,
 )
+from services.handoff_manifest import build_handoff_manifest, write_handoff_manifest  # noqa: E402
 from services.primitive_eval import GAIT_LABEL_TO_PRIMITIVE  # noqa: E402
 
 README = """# PD4T gait labels — training export
@@ -150,7 +151,11 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
 
+    manifest = build_handoff_manifest(args.out, summary, task=args.item)
+    manifest_path = write_handoff_manifest(args.out, manifest)
+
     print(f"\n환자 누수 검사: 통과 (split 간 중복 0명)")
+    print(f"handoff: {manifest_path.name} · dataset sha256: {manifest['dataset_sha256']}")
     print(f"요약: {args.out / 'summary.json'} · 설명: {args.out / 'README.md'}")
     return 0
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=Export verified PD4T gait labels for HawkEye training handoff
+After=rehab-label-workbench.service
+ConditionPathExists=%h/rehab_labeling_server/review_apps/exports/rehab_labeling.sqlite3
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/Hawk_I/backend
+ExecStart=%h/projects/Hawk_I/.venv-py311/bin/python %h/projects/Hawk_I/backend/scripts/export_gait_labels.py --db %h/rehab_labeling_server/review_apps/exports/rehab_labeling.sqlite3 --out %h/gait_export
+Nice=10
+
+
