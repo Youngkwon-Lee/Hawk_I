@@ -374,7 +374,8 @@ def train(args: argparse.Namespace, stage_manifest: dict[str, Any]) -> int:
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
-        warmup_ratio=args.warmup_ratio,
+        # Transformers 5.16 accepts a fractional ratio through warmup_steps.
+        warmup_steps=args.warmup_ratio,
         weight_decay=args.weight_decay,
         bf16=True,
         tf32=True,
