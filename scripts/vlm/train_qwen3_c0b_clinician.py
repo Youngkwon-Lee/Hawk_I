@@ -426,6 +426,53 @@ def train(args: argparse.Namespace, stage_manifest: dict[str, Any]) -> int:
     return 0
 
 
+def smoke(args: argparse.Namespace, stage_manifest: dict[str, Any]) -> int:
+    """Run one real video through the exact training collator and model loss."""
+    import torch
+
+    stack = load_transformers_stack()
+    set_reproducible_seed(args.seed)
+    model, processor = load_base_and_processor(args, stack, training=True)
+    if args.quantization == "4bit":
+        model = stack["prepare_model_for_kbit_training"](
+            model, use_gradient_checkpointing=True
+        )
+    lora = stack["LoraConfig"](
+        r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        lora_dropout=args.lora_dropout,
+        target_modules=TARGET_MODULES,
+        exclude_modules=r".*visual.*",
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+    model = stack["get_peft_model"](model, lora)
+    dataset = StagedGaitDataset(args.data_dir, "train", fps=args.fps, frame_width=args.frame_width)
+    sample = dataset[0]
+    batch = C0BCollator(processor, max_length=args.max_length)([sample]).to(model.device)
+    model.eval()
+    with torch.no_grad():
+        output = model(**batch)
+    loss = float(output.loss.detach().cpu())
+    if not np.isfinite(loss):
+        raise RuntimeError("smoke forward produced a non-finite loss")
+    payload = {
+        "valid": True,
+        "source_dataset_sha256": stage_manifest["source_dataset_sha256"],
+        "prompt_contract_sha256": prompt_contract_sha256(),
+        "base_model": args.base_model,
+        "resolved_base_revision": resolved_model_revision(model, args.base_revision),
+        "quantization": args.quantization,
+        "encoded_tokens": int(batch["input_ids"].shape[1]),
+        "sampled_frames": len(sample["frames"]),
+        "loss": loss,
+        "gpu": torch.cuda.get_device_name(0),
+        "versions": package_versions(),
+    }
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
 def evaluate_existing(args: argparse.Namespace, stage_manifest: dict[str, Any]) -> int:
     if args.split == "test" and not args.unlock_test:
         raise SystemExit("Refusing test evaluation without --unlock-test after model selection is frozen.")
@@ -459,6 +506,14 @@ def common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-new-tokens", type=int, default=16)
 
 
+def lora_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--quantization", choices=("4bit", "bf16"), default="4bit")
+    parser.add_argument("--lora-r", type=int, default=16)
+    parser.add_argument("--lora-alpha", type=int, default=32)
+    parser.add_argument("--lora-dropout", type=float, default=0.05)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -466,20 +521,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     validate_parser = subparsers.add_parser("validate")
     common_arguments(validate_parser)
 
+    smoke_parser = subparsers.add_parser("smoke")
+    common_arguments(smoke_parser)
+    lora_arguments(smoke_parser)
+
     train_parser = subparsers.add_parser("train")
     common_arguments(train_parser)
     train_parser.add_argument("--output-dir", type=Path, required=True)
     train_parser.add_argument("--candidate-name", default="hawkeye-c0b-clinician-v2-seed42")
-    train_parser.add_argument("--seed", type=int, default=42)
+    lora_arguments(train_parser)
     train_parser.add_argument("--epochs", type=float, default=3.0)
     train_parser.add_argument("--learning-rate", type=float, default=2e-4)
     train_parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
     train_parser.add_argument("--warmup-ratio", type=float, default=0.05)
     train_parser.add_argument("--weight-decay", type=float, default=0.01)
-    train_parser.add_argument("--quantization", choices=("4bit", "bf16"), default="4bit")
-    train_parser.add_argument("--lora-r", type=int, default=16)
-    train_parser.add_argument("--lora-alpha", type=int, default=32)
-    train_parser.add_argument("--lora-dropout", type=float, default=0.05)
     train_parser.add_argument("--resume-from-checkpoint", default="")
 
     evaluate_parser = subparsers.add_parser("evaluate")
@@ -518,6 +573,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "smoke":
+        return smoke(args, stage_manifest)
     if args.command == "train":
         return train(args, stage_manifest)
     return evaluate_existing(args, stage_manifest)
