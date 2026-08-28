@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh the HawkEye label handoff after labeling activity
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=15min
+Persistent=true
+AccuracySec=1min
+Unit=hawkeye-label-handoff.service
+
+[Install]
+WantedBy=timers.target
+

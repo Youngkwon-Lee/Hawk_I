@@ -62,7 +62,7 @@ from services.progress_tracker import get_progress
 from services.analysis_media import load_analysis_access_record, load_analysis_result
 
 # Import routes
-from routes import analyze, chat, health, timeline, streaming, population_stats, history, vlm, physio_context
+from routes import analyze, chat, health, timeline, streaming, population_stats, history, vlm, physio_context, pipeline
 from services.analysis_media import classify_direct_file_access
 
 # Register blueprints
@@ -75,6 +75,7 @@ app.register_blueprint(population_stats.bp)
 app.register_blueprint(history.bp)
 app.register_blueprint(vlm.bp)
 app.register_blueprint(physio_context.bp)
+app.register_blueprint(pipeline.bp)
 
 @app.route('/')
 def index():
