@@ -39,6 +39,7 @@ from services.vlm_training_contract import build_c0b_messages  # noqa: E402
 
 LOGGER = logging.getLogger("hawkeye.c0b.train")
 BASE_MODEL = "Qwen/Qwen3-VL-4B-Instruct"
+BASE_REVISION = "ebb281ec70b05090aa6165b016eac8ec08e71b17"
 TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
 
@@ -148,6 +149,7 @@ class C0BCollator:
             text=[prompt],
             videos=[sample["frames"]],
             video_metadata=self.metadata(sample),
+            cap_pixels_per_frame=True,
             return_tensors="pt",
         )
 
@@ -159,6 +161,7 @@ class C0BCollator:
         common = {
             "videos": [sample["frames"]],
             "video_metadata": self.metadata(sample),
+            "cap_pixels_per_frame": True,
             "return_tensors": "pt",
         }
         prompt_inputs = self.processor(text=[prompt], **common)
@@ -333,7 +336,13 @@ def train(args: argparse.Namespace, stage_manifest: dict[str, Any]) -> int:
         "requested_base_revision": args.base_revision,
         "resolved_base_revision": resolved_model_revision(model, args.base_revision),
         "seed": args.seed,
-        "data": {"fps": args.fps, "frame_width": args.frame_width, "max_length": args.max_length},
+        "data": {
+            "fps": args.fps,
+            "frame_width": args.frame_width,
+            "processor_do_sample_frames": False,
+            "cap_pixels_per_frame": True,
+            "max_length": args.max_length,
+        },
         "lora": {
             "r": args.lora_r,
             "alpha": args.lora_alpha,
@@ -465,6 +474,7 @@ def smoke(args: argparse.Namespace, stage_manifest: dict[str, Any]) -> int:
         "quantization": args.quantization,
         "encoded_tokens": int(batch["input_ids"].shape[1]),
         "sampled_frames": len(sample["frames"]),
+        "cap_pixels_per_frame": True,
         "loss": loss,
         "gpu": torch.cuda.get_device_name(0),
         "versions": package_versions(),
@@ -499,7 +509,7 @@ def common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--expected-dataset-sha256", required=True)
     parser.add_argument("--base-model", default=BASE_MODEL)
-    parser.add_argument("--base-revision", default="main")
+    parser.add_argument("--base-revision", default=BASE_REVISION)
     parser.add_argument("--fps", type=float, default=5.0)
     parser.add_argument("--frame-width", type=int, default=512)
     parser.add_argument("--max-length", type=int, default=12288)

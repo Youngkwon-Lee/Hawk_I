@@ -18,7 +18,7 @@ python scripts/vlm/train_qwen3_c0b_clinician.py train \
   --output-dir "$run_dir" \
   --candidate-name hawkeye-c0b-clinician-v2-seed42 \
   --base-model Qwen/Qwen3-VL-4B-Instruct \
-  --base-revision main \
+  --base-revision ebb281ec70b05090aa6165b016eac8ec08e71b17 \
   --seed 42 \
   --fps 5 \
   --frame-width 512 \

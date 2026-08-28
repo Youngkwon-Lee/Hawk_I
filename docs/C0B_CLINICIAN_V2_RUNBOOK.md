@@ -12,7 +12,9 @@ labels. It does not overwrite or claim equivalence to the original
 - split rule: patient-disjoint; overlap must be zero
 - target: clinician `updrs_3_10`, integer 0–4
 - prompt: `SYSTEM → ANCHOR → GLOSSARY → QUESTION → VIDEO`
-- video preprocessing: 5 fps, width 512, processor resampling disabled
+- base revision: `ebb281ec70b05090aa6165b016eac8ec08e71b17`
+- video preprocessing: 5 fps, width 512, processor resampling disabled,
+  per-frame pixel cap enabled
 - test: locked until validation-based model selection is frozen
 
 The stage and run manifests bind the dataset SHA, prompt SHA, base-model
