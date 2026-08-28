@@ -1,0 +1,10 @@
+# Reproduce the Qwen3-VL / PEFT generation used by the 2026-08 adapter bundle.
+torch>=2.8,<3
+transformers>=5.0,<6
+peft==0.20.0
+accelerate>=1.10,<2
+bitsandbytes>=0.46,<0.50
+decord==0.6.0
+opencv-python-headless>=4.10,<5
+numpy>=1.26,<3
+safetensors>=0.5,<1

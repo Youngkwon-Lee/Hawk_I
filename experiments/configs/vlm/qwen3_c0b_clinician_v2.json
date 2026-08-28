@@ -1,0 +1,33 @@
+{
+  "candidate_name": "hawkeye-c0b-clinician-v2-seed42",
+  "source_dataset_sha256": "956e5b2add51eadbc3ccc5f437c65beeee30b71be8af93dd094e5c6c37d23f53",
+  "base_model": "Qwen/Qwen3-VL-4B-Instruct",
+  "base_revision": "main",
+  "prompt_order": ["SYSTEM", "ANCHOR", "GLOSSARY", "QUESTION", "VIDEO"],
+  "target": "answer: <integer 0-4>",
+  "seed": 42,
+  "sampling": {
+    "fps": 5.0,
+    "frame_width": 512,
+    "processor_do_sample_frames": false,
+    "max_length": 12288
+  },
+  "lora": {
+    "r": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "quantization": "4bit",
+    "exclude_modules": ".*visual.*"
+  },
+  "training": {
+    "epochs": 3,
+    "per_device_batch_size": 1,
+    "gradient_accumulation_steps": 8,
+    "learning_rate": 0.0002,
+    "warmup_ratio": 0.05,
+    "weight_decay": 0.01,
+    "selection_metric": "validation_qwk"
+  },
+  "test_policy": "locked_until_validation_model_selection_is_frozen",
+  "promotion_policy": "manual_after_validation_and_test_review"
+}

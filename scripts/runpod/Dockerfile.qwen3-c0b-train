@@ -1,0 +1,17 @@
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HF_HOME=/workspace/hf-cache
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg git libgl1 libglib2.0-0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace/Hawk_I
+COPY scripts/runpod/requirements-qwen3-c0b.txt /tmp/requirements-qwen3-c0b.txt
+RUN python -m pip install --no-cache-dir -r /tmp/requirements-qwen3-c0b.txt
+
+CMD ["bash"]
