@@ -1,0 +1,50 @@
+{
+  "schema_version": "hawkeye.c0b-model-selection.v1",
+  "candidate_name": "hawkeye-c0b-clinician-v2-seed42",
+  "status": "frozen_for_test",
+  "frozen_at": "2026-08-29T01:44:14.455138Z",
+  "source_dataset_sha256": "956e5b2add51eadbc3ccc5f437c65beeee30b71be8af93dd094e5c6c37d23f53",
+  "prompt_contract_sha256": "d82f77327664fa59896126181b377aa514accabccd4feb659788b4777c116e2c",
+  "artifact_archive": {
+    "filename": "hawkeye-c0b-clinician-v2-seed42-20260829.tar.gz",
+    "sha256": "5778cd90382db62c43e841ce853a9c6f034214198ade362389a5cea9f8c75c17"
+  },
+  "selection": {
+    "metric": "eval_loss",
+    "mode": "min",
+    "selected_checkpoint": 36,
+    "selected_epoch": 1.0,
+    "selected_value": 0.14554385840892792,
+    "epoch_values": {
+      "36": 0.14554385840892792,
+      "72": 0.17706160247325897,
+      "108": 0.19397853314876556
+    },
+    "trainer_evidence": "checkpoint-108/trainer_state.json",
+    "root_adapter_sha256": "8cc7f2beb3b32bb37702dda6904fffb4bd5b0e604cc974231a597079af8bdce0",
+    "selected_checkpoint_adapter_sha256": "8cc7f2beb3b32bb37702dda6904fffb4bd5b0e604cc974231a597079af8bdce0",
+    "root_matches_selected_checkpoint": true
+  },
+  "validation_acceptance": {
+    "predictions_sha256": "0f83205032ba6cc184331107626009204c1ba82e723ebd788c18f6c2bf47c942",
+    "n": 73,
+    "parse_failures": 0,
+    "qwk": 0.8360164732309996,
+    "exact": 0.7123287671232876,
+    "within_1": 0.9863013698630136,
+    "mae": 0.3013698630136986,
+    "balanced_accuracy": 0.5361881977671452,
+    "gt2_sensitivity": 0.8,
+    "majority_exact_baseline": 0.6027397260273972
+  },
+  "methodology_note": "The original JSON config labeled validation_qwk as the selection metric, while the executable Trainer configuration selected checkpoints by minimum eval_loss. This record follows the pre-run executable behavior and treats validation_qwk as the candidate acceptance metric; it does not claim that all checkpoints were ranked by QWK.",
+  "test": {
+    "split_size": 69,
+    "status": "locked_pending_billable_run_approval",
+    "policy": "one evaluation after model selection is frozen"
+  },
+  "promotion": {
+    "status": "not_promoted",
+    "serving_model_unchanged": "hawkeye-c0b-seed42"
+  }
+}

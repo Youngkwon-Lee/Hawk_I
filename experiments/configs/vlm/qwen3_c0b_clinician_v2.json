@@ -27,7 +27,9 @@
     "learning_rate": 0.0002,
     "warmup_ratio": 0.05,
     "weight_decay": 0.01,
-    "selection_metric": "validation_qwk"
+    "checkpoint_selection_metric": "eval_loss",
+    "checkpoint_selection_mode": "min",
+    "candidate_acceptance_metric": "validation_qwk"
   },
   "test_policy": "locked_until_validation_model_selection_is_frozen",
   "promotion_policy": "manual_after_validation_and_test_review"

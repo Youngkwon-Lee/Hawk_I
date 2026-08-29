@@ -68,6 +68,11 @@ Outputs include:
 - `metrics-validation.json`
 
 The run stays a `candidate` and is not automatically bound to inference.
+Checkpoint selection uses the minimum epoch `eval_loss`; generated validation
+QWK is the candidate acceptance metric. Freeze both in
+`experiments/manifests/vlm/qwen3_c0b_clinician_v2_seed42_selection.json` before
+opening test. This distinction prevents a validation acceptance metric from
+being misreported as the Trainer checkpoint-selection metric.
 
 ## 4. Freeze selection, then open test once
 
