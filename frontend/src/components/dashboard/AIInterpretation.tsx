@@ -98,7 +98,7 @@ export function AIInterpretation({
                     <div className="pt-3 border-t border-primary/10">
                         <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                             <Brain className="h-3 w-3" />
-                            GPT-4로 생성된 해석입니다. 전문의 상담을 대체하지 않습니다.
+                            자동 생성된 연구용 해석입니다. 의료진의 임상 판단을 대체하지 않습니다.
                         </p>
                     </div>
                 </CardContent>
