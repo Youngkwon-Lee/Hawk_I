@@ -127,6 +127,35 @@ NEXT_PUBLIC_SUPABASE_URL=https://iwtyzcwiovuvmsodtusx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<physio_app public anon/publishable key>
 ```
 
+### Vercel prebuilt release discipline
+
+Git-triggered Vercel builds remain disabled. Build on a reviewed local or
+project-controlled runner and deploy only Build Output API artifacts:
+
+1. Confirm the linked project is `hawkeye-labeling-tool` and production has
+   `NEXT_PUBLIC_API_URL`, `BACKEND_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` configured.
+2. Pull production values into a temporary file outside the repository. Do not
+   print, commit, or copy those values into documentation.
+3. Load that temporary file into the local build process, run
+   `vercel build --prod`, then delete the exact temporary file.
+4. Deploy only with `vercel deploy --prebuilt --prod`.
+5. Reload the stable `/history` URL in an authenticated browser. Verify the
+   unified timeline count, the latest ParkiCheck record, and zero new console
+   errors before calling the release complete.
+
+`NEXT_PUBLIC_*` values are compiled into the browser bundle. A successful
+Next.js build without the production values can still deploy a UI whose login
+panel says the clinical-record connection is unavailable. If this appears,
+immediately promote the last verified immutable deployment, correct the local
+build environment, and create a new prebuilt release. Do not repair it by
+placing secrets in Git or by falling back to a Vercel-managed source build.
+
+For patient self accounts, `/history` must wait until the subject scope has
+been resolved for the current access token. It then renders the authenticated
+Supabase timeline and must not call the clinician-only legacy history API or
+show that separate file list as a patient record count.
+
 Optional backend env for writing completed analyses into physio_app
 `public.activity_sessions` and `public.observations`:
 
