@@ -58,7 +58,9 @@
     }
   },
   "promotion": {
-    "status": "not_promoted",
-    "serving_model_unchanged": "hawkeye-c0b-seed42"
+    "status": "retained_existing_model",
+    "decided_at": "2026-08-30T00:00:00+09:00",
+    "serving_model_unchanged": "hawkeye-c0b-seed42",
+    "reason": "Retain the existing serving model. The clinician-v2 candidate uses a different 0-4 clinician target than the original C0B 0-3 target, so their test metrics are not a direct replacement comparison. Its held-out exact agreement (0.5217391304347826) is also below the same-split majority exact baseline (0.5362318840579711)."
   }
 }
