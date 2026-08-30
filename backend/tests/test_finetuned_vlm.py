@@ -142,7 +142,15 @@ def test_analysis_fields_keep_score_separate_from_primitives():
     assert fields["ai_interpretation"]["summary"].startswith("보폭")
     # the anchor is predicted, never summed from severities
     assert fields["updrs_score"]["total_score"] == 2.0
+    assert fields["updrs_score"]["severity"] == "Mild"
     assert fields["updrs_score"]["details"]["source"] == "model_predicted"
+
+
+def test_zero_finetuned_score_is_labeled_normal():
+    fields = to_analysis_fields(parse_response(_reply(updrs_3_10=0)), _config())
+
+    assert fields["updrs_score"]["total_score"] == 0.0
+    assert fields["updrs_score"]["severity"] == "Normal"
 
 
 def test_missing_score_leaves_updrs_out_entirely():

@@ -3,8 +3,16 @@ physio_app context routes.
 """
 from flask import Blueprint, g, jsonify, request
 
-from services.physio_context import PhysioContextError, load_physio_subject_context
-from services.supabase_auth import require_authenticated_person, require_clinician
+from services.physio_context import (
+    PhysioContextError,
+    load_physio_self_context,
+    load_physio_subject_context,
+)
+from services.supabase_auth import (
+    SupabaseClinicianForbidden,
+    require_authenticated_person,
+    require_clinician,
+)
 
 
 bp = Blueprint("physio_context", __name__, url_prefix="/api/physio")
@@ -20,19 +28,26 @@ def get_self():
     still the authorization boundary for every observation and medication row.
     """
     person = g.authenticated_person
+    try:
+        context = load_physio_self_context(person)
+    except SupabaseClinicianForbidden:
+        return jsonify({"success": False, "enabled": True, "error": "self access denied"}), 403
+    except PhysioContextError:
+        return jsonify({
+            "success": False,
+            "enabled": True,
+            "error": "failed to load self physio_app context",
+        }), 502
+
     return jsonify({
         "success": True,
         "enabled": True,
-        "subject": {
-            "id": person.person_id,
-            "display_name": "내 기록",
-            "email": None,
-            "user_type": "client",
-            "source_type": "self",
-            "role": "client",
-            "organization_id": "",
-            "is_default": True,
-        },
+        "subject": context["subject"],
+        "organization": context["organization"],
+        "default_created_by_person_id": person.person_id,
+        "default_performer_person_id": person.person_id,
+        "contract_version": "hawkeye-self/v1",
+        "persistence_owner": "self",
     })
 
 

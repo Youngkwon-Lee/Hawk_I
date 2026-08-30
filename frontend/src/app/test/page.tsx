@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
 import {
     analyzeVideoWithProgress,
+    getPhysioSelf,
     getPhysioSubjects,
     type AnalysisResult,
     type PhysioAnalysisContext,
@@ -94,8 +95,25 @@ export default function TestPage() {
                 setSelectedSubjectId("")
             }
         } catch {
-            setPhysioData(null)
-            setSelectedSubjectId("")
+            try {
+                const selfData = await getPhysioSelf(accessToken)
+                const selfSubjects: PhysioSubjectsResponse = {
+                    success: selfData.success,
+                    enabled: selfData.enabled,
+                    organization: selfData.organization ?? null,
+                    subjects: [selfData.subject],
+                    default_subject_id: selfData.subject.id,
+                    default_created_by_person_id: selfData.default_created_by_person_id,
+                    default_performer_person_id: selfData.default_performer_person_id,
+                    contract_version: selfData.contract_version,
+                    persistence_owner: selfData.persistence_owner,
+                }
+                setPhysioData(selfSubjects)
+                setSelectedSubjectId(selfData.subject.id)
+            } catch {
+                setPhysioData(null)
+                setSelectedSubjectId("")
+            }
         } finally {
             setIsLoadingPhysio(false)
         }
@@ -119,6 +137,8 @@ export default function TestPage() {
             performer_person_id: physioData.default_performer_person_id ?? undefined,
             subject_display_name: selectedSubject.display_name,
             organization_display_name: physioData.organization?.display_name || physioData.organization?.name || undefined,
+            contract_version: physioData.contract_version,
+            persistence_owner: physioData.persistence_owner,
         }
     }, [physioData, selectedSubject])
 

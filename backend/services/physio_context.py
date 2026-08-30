@@ -13,6 +13,7 @@ import requests
 
 from services.supabase_auth import (
     AuthenticatedClinician,
+    AuthenticatedPerson,
     SupabaseClinicianForbidden,
     authenticate_person,
     caller_headers,
@@ -222,6 +223,132 @@ def authorize_parkicheck_session(
         "created_by_person_id": caller.person_id,
         "performer_person_id": canonical_subject_id,
         "activity_session_id": activity_session_id,
+    }
+
+
+def load_physio_self_context(
+    person: AuthenticatedPerson,
+    config: SupabaseObservationConfig | None = None,
+) -> dict[str, Any]:
+    """Resolve the caller's own subject and organization through caller RLS."""
+    config = config or get_supabase_observation_config()
+    if not config:
+        raise PhysioContextError("Supabase context is not configured")
+
+    sessions = _get_rest(
+        config,
+        person.access_token,
+        config.activity_sessions_table,
+        {
+            "select": "organization_id,subject_person_id,performed_at,created_at",
+            "subject_person_id": f"eq.{person.person_id}",
+            "order": "performed_at.desc.nullslast,created_at.desc",
+            "limit": "1",
+        },
+    )
+    organization_id = str(sessions[0].get("organization_id") or "").strip() if sessions else ""
+
+    if not organization_id:
+        memberships = _get_rest(
+            config,
+            person.access_token,
+            "organization_members",
+            {
+                "select": "organization_id,person_id,role,status",
+                "person_id": f"eq.{person.person_id}",
+                "status": "eq.active",
+                "deleted_at": "is.null",
+                "limit": "2",
+            },
+        )
+        organization_ids = list(dict.fromkeys(
+            str(row.get("organization_id") or "").strip()
+            for row in memberships
+            if str(row.get("organization_id") or "").strip()
+        ))
+        if len(organization_ids) != 1:
+            raise PhysioContextError("self organization context is unavailable or ambiguous")
+        organization_id = organization_ids[0]
+
+    people = _get_rest(
+        config,
+        person.access_token,
+        "persons",
+        {
+            "select": "id,display_name,user_type,source_type",
+            "id": f"eq.{person.person_id}",
+            "is_active": "eq.true",
+            "limit": "1",
+        },
+    )
+    if not people:
+        raise SupabaseClinicianForbidden("active self subject not found")
+
+    organizations = _get_rest(
+        config,
+        person.access_token,
+        "organizations",
+        {
+            "select": "id,name,display_name,slug,org_type,status",
+            "id": f"eq.{organization_id}",
+            "status": "eq.active",
+            "limit": "1",
+        },
+    )
+    if not organizations:
+        raise SupabaseClinicianForbidden("active self organization not found")
+
+    person_row = people[0]
+    organization = organizations[0]
+    subject_display_name = str(person_row.get("display_name") or "내 기록")
+    organization_display_name = str(
+        organization.get("display_name") or organization.get("name") or "개인 기록"
+    )
+    return {
+        "subject_person_id": person.person_id,
+        "organization_id": organization_id,
+        "created_by_person_id": person.person_id,
+        "performer_person_id": person.person_id,
+        "subject_display_name": subject_display_name,
+        "organization_display_name": organization_display_name,
+        "subject": {
+            "id": person.person_id,
+            "display_name": subject_display_name,
+            "email": None,
+            "user_type": person_row.get("user_type"),
+            "source_type": person_row.get("source_type") or "self",
+            "role": "self",
+            "organization_id": organization_id,
+            "is_default": True,
+        },
+        "organization": organization,
+    }
+
+
+def authorize_physio_self(
+    person: AuthenticatedPerson,
+    subject_person_id: str,
+    organization_id: str,
+    config: SupabaseObservationConfig | None = None,
+) -> dict[str, Any]:
+    """Authorize one self analysis and return server-canonical context."""
+    if subject_person_id != person.person_id:
+        raise SupabaseClinicianForbidden("self subject access denied")
+
+    context = load_physio_self_context(person, config=config)
+    if context["organization_id"] != organization_id:
+        raise SupabaseClinicianForbidden("self organization access denied")
+
+    return {
+        key: context[key]
+        for key in (
+            "subject_person_id",
+            "organization_id",
+            "created_by_person_id",
+            "performer_person_id",
+            "subject_display_name",
+            "organization_display_name",
+        )
     }
 
 
