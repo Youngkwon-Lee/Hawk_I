@@ -12,6 +12,7 @@ reachable, the caller keeps its existing score rather than failing the analysis.
 from __future__ import annotations
 
 import json
+from numbers import Real
 import os
 import re
 from dataclasses import dataclass
@@ -316,8 +317,10 @@ def apply_to_analysis_response(response: dict[str, Any], finetuned: dict[str, An
     fine-tuned method while still showing a rule score.
     """
     model_fields = dict(finetuned)
+    model_interpretation = model_fields.get("ai_interpretation")
     supplied_score = model_fields.pop("updrs_score", None)
     previous_score = response.get("updrs_score")
+    previous_interpretation = response.get("ai_interpretation")
     response.update(model_fields)
 
     if not isinstance(supplied_score, dict):
@@ -327,11 +330,43 @@ def apply_to_analysis_response(response: dict[str, Any], finetuned: dict[str, An
         reference_score = previous_score.get("total_score")
         if reference_score is None:
             reference_score = previous_score.get("score")
-        supplied_score.setdefault("details", {})["pipeline_reference"] = {
+        pipeline_reference = {
             "score": reference_score,
             "method": previous_score.get("method") or response.get("scoring_method"),
         }
+        if isinstance(previous_interpretation, dict):
+            reference_summary = previous_interpretation.get("summary")
+            if isinstance(reference_summary, str) and reference_summary.strip():
+                pipeline_reference["summary"] = reference_summary.strip()
+        supplied_score.setdefault("details", {})["pipeline_reference"] = pipeline_reference
     response["updrs_score"] = supplied_score
+
+    # The C0B training contract commonly returns only ``answer: <0-4>``. In
+    # that case the rule pipeline's earlier narrative must not remain as the
+    # primary finding after the model score has replaced the rule score. Keep
+    # the rule narrative in ``pipeline_reference`` above and generate a
+    # deliberately conservative, score-consistent model finding for display.
+    if not isinstance(model_interpretation, dict):
+        score = supplied_score.get("total_score", supplied_score.get("score"))
+        model_name = response.get("ml_model_type") or "fine-tuned VLM"
+        if isinstance(score, Real):
+            score_index = int(round(float(score)))
+            severity = supplied_score.get("severity")
+            if not severity and 0 <= score_index <= 4:
+                severity = ("Normal", "Slight", "Mild", "Moderate", "Severe")[score_index]
+            severity = severity or "Unknown"
+            display_score = int(score) if float(score).is_integer() else float(score)
+            response["ai_interpretation"] = {
+                "summary": (
+                    f"미세조정 모델은 이번 보행의 UPDRS 3.10 점수를 "
+                    f"{display_score}점({severity})으로 추정했습니다."
+                ),
+                "explanation": (
+                    f"최종 표시는 {model_name}의 모델 예측값을 사용합니다. "
+                    "보행 속도·보폭 등 정량 지표와 원본 영상을 함께 검토하세요."
+                ),
+                "recommendations": [],
+            }
 
 
 def frames_to_base64(video_path: str, max_frames: int | None = None) -> tuple[list[str], float]:

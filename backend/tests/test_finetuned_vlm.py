@@ -163,6 +163,10 @@ def test_finetuned_score_becomes_primary_and_rule_score_is_retained():
         "scoring_method": "rule",
         "ml_model_type": "rule_based",
         "updrs_score": {"total_score": 1.5, "method": "rule"},
+        "ai_interpretation": {
+            "summary": "규칙 기반 분석은 중간 정도의 보행 변화를 추정했습니다.",
+            "explanation": "규칙 기반 설명",
+        },
     }
     finetuned = {
         "scoring_method": "finetuned_vlm",
@@ -184,7 +188,39 @@ def test_finetuned_score_becomes_primary_and_rule_score_is_retained():
     assert response["updrs_score"]["details"]["pipeline_reference"] == {
         "score": 1.5,
         "method": "rule",
+        "summary": "규칙 기반 분석은 중간 정도의 보행 변화를 추정했습니다.",
     }
+    assert response["ai_interpretation"]["summary"] == (
+        "미세조정 모델은 이번 보행의 UPDRS 3.10 점수를 0점(Normal)으로 추정했습니다."
+    )
+    assert "hawkeye-c0b-seed42" in response["ai_interpretation"]["explanation"]
+    assert "중간 정도" not in response["ai_interpretation"]["summary"]
+
+
+def test_finetuned_narrative_is_retained_when_model_supplies_one():
+    response = {
+        "updrs_score": {"total_score": 2.7, "method": "rule"},
+        "ai_interpretation": {"summary": "규칙 기반 설명"},
+    }
+    finetuned = {
+        "scoring_method": "finetuned_vlm",
+        "ml_model_type": "hawkeye-c0b-seed42",
+        "updrs_score": {
+            "score": 1.0,
+            "total_score": 1.0,
+            "severity": "Slight",
+            "method": "finetuned_vlm",
+        },
+        "ai_interpretation": {
+            "summary": "모델이 직접 생성한 설명",
+            "explanation": "모델 설명",
+            "recommendations": [],
+        },
+    }
+
+    apply_to_analysis_response(response, finetuned)
+
+    assert response["ai_interpretation"]["summary"] == "모델이 직접 생성한 설명"
 
 
 def test_missing_finetuned_score_leaves_pipeline_score_in_place():
