@@ -111,6 +111,7 @@ export default function HistoryPage() {
   // Unified patient timeline (ParkiCheck + Hawk I via shared Supabase)
   const [physioData, setPhysioData] = React.useState<PhysioSubjectsResponse | null>(null)
   const [isSelfTimeline, setIsSelfTimeline] = React.useState(false)
+  const [subjectScopeToken, setSubjectScopeToken] = React.useState<string | null>(null)
   const [selectedSubjectId, setSelectedSubjectId] = React.useState("")
   const [timeline, setTimeline] = React.useState<TimelineItem[]>([])
   const [timelineMedications, setTimelineMedications] = React.useState<MedicationEvent[]>([])
@@ -191,13 +192,17 @@ export default function HistoryPage() {
     if (!accessToken) {
       setPhysioData(null)
       setIsSelfTimeline(false)
+      setSubjectScopeToken(null)
       setSelectedSubjectId("")
       setTimelineMedications([])
       return
     }
+    let cancelled = false
+    setSubjectScopeToken(null)
     const loadSubjects = async () => {
       try {
         const data = await getPhysioSubjects(accessToken)
+        if (cancelled) return
         setPhysioData(data)
         setIsSelfTimeline(false)
         if (data.enabled && data.subjects.length > 0) {
@@ -206,6 +211,7 @@ export default function HistoryPage() {
       } catch {
         try {
           const self = await getPhysioSelf(accessToken)
+          if (cancelled) return
           const selfSubjectData: PhysioSubjectsResponse = {
             success: self.success,
             enabled: self.enabled,
@@ -217,12 +223,18 @@ export default function HistoryPage() {
           setIsSelfTimeline(true)
           setSelectedSubjectId(self.subject.id)
         } catch {
+          if (cancelled) return
           setPhysioData(null)
           setIsSelfTimeline(false)
         }
+      } finally {
+        if (!cancelled) setSubjectScopeToken(accessToken)
       }
     }
     void loadSubjects()
+    return () => {
+      cancelled = true
+    }
   }, [accessToken])
 
   React.useEffect(() => {
@@ -244,7 +256,7 @@ export default function HistoryPage() {
       }
     }
     void loadTimeline()
-  }, [accessToken, selectedSubjectId])
+  }, [accessToken, historyRetry, selectedSubjectId])
 
   // Fetch data
   React.useEffect(() => {
@@ -252,6 +264,10 @@ export default function HistoryPage() {
       setHistory([])
       setStats(null)
       setIsLoading(false)
+      return
+    }
+    if (subjectScopeToken !== accessToken) {
+      setIsLoading(true)
       return
     }
     if (isSelfTimeline) {
@@ -284,7 +300,7 @@ export default function HistoryPage() {
       }
     }
     fetchData()
-  }, [accessToken, filters, historyRetry, isSelfTimeline])
+  }, [accessToken, filters, historyRetry, isSelfTimeline, subjectScopeToken])
 
   const handleDelete = async (videoId: string) => {
     if (!accessToken) return
@@ -458,7 +474,11 @@ export default function HistoryPage() {
               </div>
               <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">분석 이력</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                {stats ? `총 ${stats.total_analyses}건의 검사 결과와 시간에 따른 변화를 확인합니다.` : '검사 기록을 확인하고 추이를 분석하세요.'}
+                {isSelfTimeline
+                  ? `총 ${timeline.length}건의 ParkiCheck·Hawk I 통합 기록과 시간에 따른 변화를 확인합니다.`
+                  : stats
+                    ? `총 ${stats.total_analyses}건의 검사 결과와 시간에 따른 변화를 확인합니다.`
+                    : '검사 기록을 확인하고 추이를 분석하세요.'}
               </p>
             </div>
 
@@ -478,52 +498,56 @@ export default function HistoryPage() {
             </div>
           </div>
 
-          <div className="relative mt-7 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
-            <label className="relative block">
-              <span className="sr-only">검사 기록 검색</span>
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="search"
-                placeholder="검사 유형, 환자 ID, 세션 검색"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-11 w-full rounded-lg border border-input bg-background pl-10 pr-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-              />
-            </label>
-            <Button variant="outline" className="h-11 justify-center gap-2" onClick={() => setShowFilters(!showFilters)}>
-              <Filter className="h-4 w-4" />
-              필터
-              <ChevronDown className={cn("h-4 w-4 transition-transform", showFilters && "rotate-180")} />
-            </Button>
-            <div className="hidden items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 text-xs text-muted-foreground md:flex">
-              <Database className="h-4 w-4 text-primary" aria-hidden="true" />
-              API 연결됨
-            </div>
-          </div>
+          {!isSelfTimeline && (
+            <>
+              <div className="relative mt-7 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                <label className="relative block">
+                  <span className="sr-only">검사 기록 검색</span>
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="search"
+                    placeholder="검사 유형, 환자 ID, 세션 검색"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="h-11 w-full rounded-lg border border-input bg-background pl-10 pr-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                </label>
+                <Button variant="outline" className="h-11 justify-center gap-2" onClick={() => setShowFilters(!showFilters)}>
+                  <Filter className="h-4 w-4" />
+                  필터
+                  <ChevronDown className={cn("h-4 w-4 transition-transform", showFilters && "rotate-180")} />
+                </Button>
+                <div className="hidden items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 text-xs text-muted-foreground md:flex">
+                  <Database className="h-4 w-4 text-primary" aria-hidden="true" />
+                  API 연결됨
+                </div>
+              </div>
 
-          {showFilters && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              className="mt-4 grid gap-4 rounded-xl border border-border bg-muted/25 p-4 sm:grid-cols-2 xl:grid-cols-4"
-            >
-              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">검사 유형
-                <select value={filters.task_type || ''} onChange={(e) => setFilters(prev => ({ ...prev, task_type: e.target.value || undefined }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal text-foreground">
-                  <option value="">전체</option><option value="finger_tapping">Finger Tapping</option><option value="gait">Gait</option>
-                </select>
-              </label>
-              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">정렬
-                <select value={filters.sort} onChange={(e) => setFilters(prev => ({ ...prev, sort: e.target.value as HistoryFilters['sort'] }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal text-foreground">
-                  <option value="date_desc">최신순</option><option value="date_asc">오래된순</option><option value="score_desc">점수 높은순</option><option value="score_asc">점수 낮은순</option>
-                </select>
-              </label>
-              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">시작일
-                <input type="date" value={filters.start_date || ''} onChange={(e) => setFilters(prev => ({ ...prev, start_date: e.target.value || undefined }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground" />
-              </label>
-              <label className="space-y-1.5 text-xs font-medium text-muted-foreground">종료일
-                <input type="date" value={filters.end_date || ''} onChange={(e) => setFilters(prev => ({ ...prev, end_date: e.target.value || undefined }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground" />
-              </label>
-            </motion.div>
+              {showFilters && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="mt-4 grid gap-4 rounded-xl border border-border bg-muted/25 p-4 sm:grid-cols-2 xl:grid-cols-4"
+                >
+                  <label className="space-y-1.5 text-xs font-medium text-muted-foreground">검사 유형
+                    <select value={filters.task_type || ''} onChange={(e) => setFilters(prev => ({ ...prev, task_type: e.target.value || undefined }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal text-foreground">
+                      <option value="">전체</option><option value="finger_tapping">Finger Tapping</option><option value="gait">Gait</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-xs font-medium text-muted-foreground">정렬
+                    <select value={filters.sort} onChange={(e) => setFilters(prev => ({ ...prev, sort: e.target.value as HistoryFilters['sort'] }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal text-foreground">
+                      <option value="date_desc">최신순</option><option value="date_asc">오래된순</option><option value="score_desc">점수 높은순</option><option value="score_asc">점수 낮은순</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-xs font-medium text-muted-foreground">시작일
+                    <input type="date" value={filters.start_date || ''} onChange={(e) => setFilters(prev => ({ ...prev, start_date: e.target.value || undefined }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground" />
+                  </label>
+                  <label className="space-y-1.5 text-xs font-medium text-muted-foreground">종료일
+                    <input type="date" value={filters.end_date || ''} onChange={(e) => setFilters(prev => ({ ...prev, end_date: e.target.value || undefined }))} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground" />
+                  </label>
+                </motion.div>
+              )}
+            </>
           )}
         </motion.section>
 
@@ -541,17 +565,22 @@ export default function HistoryPage() {
                     ParkiCheck 검사와 Hawk I AI 분석이 공통 기록(physio_app)에서 함께 표시됩니다
                   </CardDescription>
                 </div>
-                <select
-                  value={selectedSubjectId}
-                  onChange={(e) => setSelectedSubjectId(e.target.value)}
-                  className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground"
-                >
-                  {physioData.subjects.map((subject) => (
-                    <option key={subject.id} value={subject.id}>
-                      {subject.display_name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full border border-border bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+                    {timeline.length}건
+                  </span>
+                  <select
+                    value={selectedSubjectId}
+                    onChange={(e) => setSelectedSubjectId(e.target.value)}
+                    className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground"
+                  >
+                    {physioData.subjects.map((subject) => (
+                      <option key={subject.id} value={subject.id}>
+                        {subject.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -887,7 +916,9 @@ export default function HistoryPage() {
           </motion.div>
         )}
 
-        {/* History List */}
+        {/* Clinician-owned file history is separate from the authenticated
+            patient's canonical ParkiCheck/Hawk I timeline above. */}
+        {!isSelfTimeline && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -999,6 +1030,7 @@ export default function HistoryPage() {
             </Card>
           )}
         </div>
+        )}
       </motion.div>
     </PageLayout>
   )
