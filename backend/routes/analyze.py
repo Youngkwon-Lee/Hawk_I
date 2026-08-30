@@ -30,6 +30,7 @@ from services.supabase_observations import get_supabase_observation_config
 from services.physio_context import (
     PhysioContextError,
     authorize_parkicheck_session,
+    authorize_physio_self,
     authorize_physio_subject,
 )
 from services.analysis_media import (
@@ -42,6 +43,7 @@ from services.supabase_auth import (
     SupabaseAuthUnavailable,
     SupabaseClinicianForbidden,
     SupabaseInvalidToken,
+    authenticate_person,
     authenticate_clinician,
     extract_bearer_token,
 )
@@ -60,7 +62,7 @@ PHYSIO_IDENTITY_FIELDS = (
     "physio_subject_display_name",
     "physio_organization_display_name",
 )
-PHYSIO_PERSISTENCE_OWNERS = frozenset({"hawk_i", "parkicheck"})
+PHYSIO_PERSISTENCE_OWNERS = frozenset({"hawk_i", "parkicheck", "self"})
 
 
 class InvalidAnalysisContext(ValueError):
@@ -130,6 +132,26 @@ def _build_physio_context() -> dict | None:
         context["persistence_owner"] = persistence_owner
         return context
 
+    if persistence_owner == "self":
+        access_token = extract_bearer_token(request.headers.get("Authorization"))
+        if contract_version != "hawkeye-self/v1":
+            raise InvalidAnalysisContext("invalid self analysis contract version")
+        if not subject_id or not supplied_org_id:
+            raise InvalidAnalysisContext("self analysis requires subject and organization")
+        config = get_supabase_observation_config()
+        if config is None:
+            raise SupabaseAuthUnavailable("Supabase authentication is not configured")
+        person = authenticate_person(access_token, config=config)
+        context = authorize_physio_self(
+            person,
+            subject_id,
+            supplied_org_id,
+            config=config,
+        )
+        context["contract_version"] = contract_version
+        context["persistence_owner"] = persistence_owner
+        return context
+
     has_identity_context = any(_optional_text(name) for name in PHYSIO_IDENTITY_FIELDS)
     if not has_identity_context:
         delegated = {
@@ -174,6 +196,7 @@ def _authorize_result_context(result: dict) -> tuple[dict | None, int | None]:
     persistence_owner = context.get("persistence_owner")
     activity_session_id = context.get("activity_session_id")
     is_parkicheck = persistence_owner == "parkicheck"
+    is_self = persistence_owner == "self"
     if not is_parkicheck and (not isinstance(subject_id, str) or not subject_id.strip()):
         return None, None
 
@@ -199,6 +222,16 @@ def _authorize_result_context(result: dict) -> tuple[dict | None, int | None]:
                 activity_session_id,
                 subject_person_id=canonical_subject_id,
                 organization_id=canonical_organization_id,
+                config=config,
+            )
+        elif is_self:
+            subject_id = str(UUID(subject_id.strip()))
+            organization_id = str(UUID(str(context.get("organization_id")).strip()))
+            person = authenticate_person(access_token, config=config)
+            authorize_physio_self(
+                person,
+                subject_id,
+                organization_id,
                 config=config,
             )
         else:
