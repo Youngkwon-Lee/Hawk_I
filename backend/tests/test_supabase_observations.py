@@ -310,3 +310,26 @@ def test_parkicheck_caller_owned_persistence_does_not_use_service_role(monkeypat
     assert result.persistence_owner == "parkicheck"
     assert result.activity_session_id == "assessment-1"
     assert result.as_public_dict()["delegated"] is True
+
+
+def test_self_persistence_retains_owner_in_result(monkeypatch):
+    from services import supabase_observations
+
+    saved = supabase_observations.SupabaseObservationResult(
+        enabled=True,
+        saved=True,
+        observation_id="obs-self",
+        activity_session_id="session-self",
+    )
+    monkeypatch.setattr(supabase_observations, "save_analysis_observation", lambda result: saved)
+    result_payload = _sample_result(score=0)
+    result_payload["physio_context"] = {
+        **_sample_physio_context(),
+        "persistence_owner": "self",
+    }
+
+    result = supabase_observations.persist_analysis_observation(result_payload)
+
+    assert result.saved is True
+    assert result.persistence_owner == "self"
+    assert result.as_public_dict()["persistence_owner"] == "self"

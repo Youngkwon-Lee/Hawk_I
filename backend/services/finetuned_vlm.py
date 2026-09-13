@@ -295,10 +295,12 @@ def to_analysis_fields(parsed: dict[str, Any], config: FinetunedVLMConfig) -> di
 
     score = parsed["updrs_3_10"]
     if score is not None:
+        severity = ("Normal", "Slight", "Mild", "Moderate", "Severe")[score]
         # The score stays a separate anchor; severities are never summed into it.
         fields["updrs_score"] = {
             "score": float(score),
             "total_score": float(score),
+            "severity": severity,
             "method": "finetuned_vlm",
             "details": {"model": config.model, "source": "model_predicted"},
         }

@@ -29,28 +29,24 @@ interface SpeedProfileChartProps {
     data?: SpeedData[]
     className?: string
     taskType?: "gait" | "finger"
+    title?: string
+    description?: string
+    speedUnit?: string
+    showReferenceRange?: boolean
+    emptyMessage?: string
 }
 
-// Mock data - shows speed variation over ~5 second walking test (PD4T 기준: 0.55-0.95)
-const MOCK_SPEED_DATA: SpeedData[] = Array.from({ length: 50 }, (_, i) => {
-    const time = i * 0.1
-    // Simulate: start slow, accelerate, maintain, then slow down slightly (fatigue)
-    let baseSpeed = 0.75  // PD4T normal mean
-    if (time < 1) baseSpeed = 0.5 + time * 0.25 // Acceleration
-    else if (time < 4) baseSpeed = 0.72 + Math.sin(time * 2) * 0.08 // Steady with variation
-    else baseSpeed = 0.75 - (time - 4) * 0.03 // Slight fatigue
-
-    return {
-        time: parseFloat(time.toFixed(1)),
-        speed: parseFloat((baseSpeed + Math.random() * 0.08 - 0.04).toFixed(3)),
-        normalLow: 0.55,
-        normalHigh: 0.95
-    }
-})
-
-export function SpeedProfileChart({ data, className, taskType = "gait" }: SpeedProfileChartProps) {
-    const isUsingMockData = !data || data.length === 0
-    const chartData = data && data.length > 0 ? data : MOCK_SPEED_DATA
+export function SpeedProfileChart({
+    data,
+    className,
+    taskType = "gait",
+    title: titleOverride,
+    description: descriptionOverride,
+    speedUnit: speedUnitOverride,
+    showReferenceRange = true,
+    emptyMessage = "속도 데이터가 없습니다.",
+}: SpeedProfileChartProps) {
+    const chartData = data ?? []
     const isFinger = taskType === "finger"
 
     // Normalize data - finger tapping uses avgSpeed, gait uses speed
@@ -93,12 +89,28 @@ export function SpeedProfileChart({ data, className, taskType = "gait" }: SpeedP
     }
 
     // Task-specific labels
-    const title = isFinger ? "탭핑 속도 프로파일" : "보행 속도 프로파일"
-    const description = isFinger ? "시간에 따른 탭핑 속도 변화" : "시간에 따른 순간 보행 속도 변화"
-    const speedLabel = isFinger ? "탭핑 속도" : "속도 (m/s)"
-    const speedUnit = isFinger ? "" : "m/s"
+    const title = titleOverride ?? (isFinger ? "탭핑 속도 프로파일" : "보행 속도 프로파일")
+    const description = descriptionOverride ?? (isFinger ? "시간에 따른 탭핑 속도 변화" : "시간에 따른 순간 보행 속도 변화")
+    const speedUnit = speedUnitOverride ?? (isFinger ? "" : "m/s")
+    const speedLabel = speedUnit ? `속도 (${speedUnit})` : "탭핑 속도"
 
     const trendInfo = getTrendInfo(trend)
+
+    if (chartData.length === 0) {
+        return (
+            <Card className={className}>
+                <CardHeader>
+                    <CardTitle className="text-sm">{title}</CardTitle>
+                    <CardDescription>{description}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center text-sm text-muted-foreground">
+                        {emptyMessage}
+                    </div>
+                </CardContent>
+            </Card>
+        )
+    }
 
     return (
         <Card className={className}>
@@ -152,7 +164,7 @@ export function SpeedProfileChart({ data, className, taskType = "gait" }: SpeedP
                             }}
                             formatter={(value: number, name: string) => {
                                 if (name === 'speed') return [
-                                    isFinger ? value.toFixed(2) : `${value.toFixed(2)} m/s`,
+                                    speedUnit ? `${value.toFixed(2)} ${speedUnit}` : value.toFixed(2),
                                     isFinger ? '순간 탭핑 속도' : '순간 보행 속도'
                                 ]
                                 return [value, name]
@@ -160,7 +172,7 @@ export function SpeedProfileChart({ data, className, taskType = "gait" }: SpeedP
                         />
 
                         {/* Normal range band - only for gait (PD4T: 0.55-0.95) */}
-                        {!isFinger && (
+                        {!isFinger && showReferenceRange && (
                             <>
                                 <ReferenceLine y={0.55} stroke="#22c55e" strokeDasharray="5 5" />
                                 <ReferenceLine y={0.95} stroke="#22c55e" strokeDasharray="5 5" />
@@ -208,7 +220,6 @@ export function SpeedProfileChart({ data, className, taskType = "gait" }: SpeedP
                         </div>
                     </div>
                 </div>
-                {isUsingMockData && <p className="text-xs text-muted-foreground text-center mt-2">(임시 데이터)</p>}
             </CardContent>
         </Card>
     )

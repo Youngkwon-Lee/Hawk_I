@@ -39,6 +39,19 @@ def test_physio_self_returns_only_authenticated_person(monkeypatch):
             user_id="auth-user-1", person_id="person-1", access_token=access_token
         ),
     )
+    monkeypatch.setattr(
+        physio_context,
+        "load_physio_self_context",
+        lambda person: {
+            "subject": {
+                "id": person.person_id,
+                "display_name": "내 기록",
+                "organization_id": "org-personal",
+                "is_default": True,
+            },
+            "organization": {"id": "org-personal", "display_name": "개인 기록"},
+        },
+    )
 
     response = _app().test_client().get(
         "/api/physio/self", headers={"Authorization": "Bearer caller-token"}
@@ -47,6 +60,9 @@ def test_physio_self_returns_only_authenticated_person(monkeypatch):
     assert response.status_code == 200
     assert response.get_json()["subject"]["id"] == "person-1"
     assert response.get_json()["subject"]["display_name"] == "내 기록"
+    assert response.get_json()["organization"]["id"] == "org-personal"
+    assert response.get_json()["contract_version"] == "hawkeye-self/v1"
+    assert response.get_json()["persistence_owner"] == "self"
 
 
 def test_legacy_simulated_medication_timeline_is_retired():

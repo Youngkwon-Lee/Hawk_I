@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button"
 import { SummaryCard } from "@/components/dashboard/SummaryCard"
 import { MetricsTable, MetricRow } from "@/components/dashboard/MetricsTable"
 import { VideoPlayer, type Marker } from "@/components/dashboard/VideoPlayer"
+import { SynchronizedVideoComparison } from "@/components/dashboard/SynchronizedVideoComparison"
 import { AIInterpretation } from "@/components/dashboard/AIInterpretation"
 import { MedicationTimeline } from "@/components/dashboard/MedicationTimeline"
 import { PopulationComparison } from "@/components/dashboard/PopulationComparison"
@@ -41,24 +42,9 @@ import { JointAngleChart } from "@/components/dashboard/JointAngleChart"
 import { SymmetryChart } from "@/components/dashboard/SymmetryChart"
 import { SpeedProfileChart } from "@/components/dashboard/SpeedProfileChart"
 import { SOAPNote } from "@/components/dashboard/SOAPNote"
+import { getUnifiedTimeline, type TimelineItem } from "@/lib/services/timeline"
 
 const DEBUG_LOGS = process.env.NODE_ENV !== "production"
-
-// Mock Data - Gait (PD4T 기준)
-const GAIT_METRICS: MetricRow[] = [
-    { label: "보행 속도", value: "0.75 m/s", unit: "", change: "-2%", status: "good", normalRange: "0.55-0.95" },
-    { label: "보행률 (Cadence)", value: "140", unit: "steps/min", change: "+1%", status: "good", normalRange: "120-160" },
-    { label: "보폭 길이", value: "0.33", unit: "(정규화)", change: "-8%", status: "good", normalRange: "0.25-0.45" },
-    { label: "팔 흔들기 비대칭", value: "12", unit: "%", change: "+5%", status: "good", normalRange: "<20" },
-]
-
-// Mock Data - Finger
-const FINGER_METRICS: MetricRow[] = [
-    { label: "태핑 속도", value: "3.2 Hz", unit: "", change: "-5%", status: "warning", normalRange: "3.0-6.0" },
-    { label: "진폭 (Amplitude)", value: "4.5 cm", unit: "", change: "-10%", status: "bad", normalRange: ">0.8" },
-    { label: "주저함", value: "3", unit: "회", change: "+1", status: "warning", normalRange: "≤2" },
-    { label: "피로율", value: "12", unit: "%", change: "+3%", status: "bad", normalRange: "<20" },
-]
 
 function getPerformabilityPresentation(assessment: FingerPerformabilityAssessment) {
     switch (assessment.status) {
@@ -252,6 +238,52 @@ function convertGaitMetricsToRows(metrics: GaitMetrics): MetricRow[] {
     ]
 }
 
+function finiteMetric(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return value
+    if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
+        return Number(value)
+    }
+    return null
+}
+
+function metricValue(metrics: Record<string, unknown> | null | undefined, ...keys: string[]): number | null {
+    for (const key of keys) {
+        const value = finiteMetric(metrics?.[key])
+        if (value !== null) return value
+    }
+    return null
+}
+
+function convertTimelineFingerMetricsToRows(metrics: Record<string, unknown>): MetricRow[] {
+    const rows: MetricRow[] = []
+    const tappingSpeed = metricValue(metrics, "tapping_speed", "frequency")
+    const amplitude = metricValue(metrics, "amplitude_mean", "amplitude", "max_amplitude")
+    const hesitation = metricValue(metrics, "hesitation_count", "arrests")
+    const fatigue = metricValue(metrics, "fatigue_rate", "fatigability")
+    const totalTaps = metricValue(metrics, "total_taps", "n_taps")
+
+    if (tappingSpeed !== null) rows.push({ label: "태핑 속도", value: tappingSpeed.toFixed(2), unit: "Hz", normalRange: "3.0-6.0", status: tappingSpeed >= 3 ? "good" : "warning" })
+    if (amplitude !== null) rows.push({ label: "진폭 (Amplitude)", value: amplitude.toFixed(2), unit: "×finger", normalRange: ">0.8", status: amplitude > 0.8 ? "good" : amplitude >= 0.4 ? "warning" : "bad" })
+    if (hesitation !== null) rows.push({ label: "주저함", value: hesitation.toFixed(0), unit: "회", normalRange: "≤2", status: hesitation <= 2 ? "good" : hesitation <= 5 ? "warning" : "bad" })
+    if (fatigue !== null) rows.push({ label: "피로율", value: fatigue.toFixed(1), unit: "%", normalRange: "<20", status: fatigue < 20 ? "good" : fatigue < 40 ? "warning" : "bad" })
+    if (totalTaps !== null) rows.push({ label: "총 탭 수", value: totalTaps.toFixed(0), unit: "", normalRange: "-", status: "neutral" })
+    return rows
+}
+
+function convertTimelineGaitMetricsToRows(metrics: Record<string, unknown>): MetricRow[] {
+    const rows: MetricRow[] = []
+    const speed = metricValue(metrics, "walking_speed", "gait_speed")
+    const stride = metricValue(metrics, "stride_length", "step_length")
+    const cadence = metricValue(metrics, "cadence")
+    const asymmetry = metricValue(metrics, "arm_swing_asymmetry", "arm_swing")
+
+    if (speed !== null) rows.push({ label: "보행 속도", value: speed.toFixed(2), unit: "m/s", normalRange: "0.55-0.95", status: speed >= 0.55 && speed <= 0.95 ? "good" : "warning" })
+    if (stride !== null) rows.push({ label: "보폭 길이", value: stride.toFixed(2), unit: "m", normalRange: "0.25-0.45", status: stride >= 0.25 && stride <= 0.45 ? "good" : "warning" })
+    if (cadence !== null) rows.push({ label: "보행률", value: cadence.toFixed(0), unit: "steps/min", normalRange: "120-160", status: cadence >= 120 && cadence <= 160 ? "good" : "warning" })
+    if (asymmetry !== null) rows.push({ label: "팔 흔들기 비대칭", value: asymmetry.toFixed(1), unit: "%", normalRange: "<20", status: asymmetry < 20 ? "good" : "warning" })
+    return rows
+}
+
 export default function ResultPage() {
     return (
         <React.Suspense fallback={<div>Loading...</div>}>
@@ -269,6 +301,7 @@ function ResultContent() {
     const { result: analysisResult, setResult, error, setError, clearResult } = useAnalysisStore()
     const [isLoading, setIsLoading] = React.useState(false)
     const [protectedMediaReady, setProtectedMediaReady] = React.useState(false)
+    const [linkedTimelineItem, setLinkedTimelineItem] = React.useState<TimelineItem | null>(null)
 
     // Fetch from API if id is present in URL and result doesn't match
     React.useEffect(() => {
@@ -307,6 +340,51 @@ function ResultContent() {
     }, [searchParams, analysisResult, setResult, setError, clearResult])
 
     const isPatientLinked = Boolean(analysisResult?.physio_context?.subject_person_id)
+
+    const linkedSubjectId = analysisResult?.physio_context?.subject_person_id || null
+    const linkedActivitySessionId = analysisResult?.analysis_trace?.activity_session_id || analysisResult?.assessment_session_id || null
+    const linkedAnalysisId = analysisResult?.id || analysisResult?.video_id || null
+    const linkedObservationFhirId = analysisResult?.analysis_trace?.observation_fhir_id || null
+
+    React.useEffect(() => {
+        let cancelled = false
+        const controller = new AbortController()
+
+        if (!linkedSubjectId) {
+            setLinkedTimelineItem(null)
+            return () => controller.abort()
+        }
+
+        const loadLinkedTimelineItem = async () => {
+            try {
+                const supabase = getSupabaseBrowserClient()
+                const { data } = supabase
+                    ? await supabase.auth.getSession()
+                    : { data: { session: null } }
+                const accessToken = data.session?.access_token
+                if (!accessToken) return
+
+                const timeline = await getUnifiedTimeline(linkedSubjectId, accessToken, 100, controller.signal)
+                const item = timeline.items.find((candidate) =>
+                    (linkedAnalysisId && candidate.analysis_id === linkedAnalysisId) ||
+                    (linkedActivitySessionId && candidate.activity_session_id === linkedActivitySessionId) ||
+                    (linkedObservationFhirId && candidate.fhir_id === linkedObservationFhirId)
+                ) || null
+                if (!cancelled) setLinkedTimelineItem(item)
+            } catch (timelineError) {
+                if (!cancelled && !(timelineError instanceof DOMException && timelineError.name === "AbortError")) {
+                    setLinkedTimelineItem(null)
+                }
+            }
+        }
+
+        void loadLinkedTimelineItem()
+        return () => {
+            cancelled = true
+            controller.abort()
+        }
+    }, [linkedActivitySessionId, linkedAnalysisId, linkedObservationFhirId, linkedSubjectId])
+
     React.useEffect(() => {
         let cancelled = false
         if (!isPatientLinked) {
@@ -350,14 +428,22 @@ function ResultContent() {
     const type = analysisResult?.video_type || searchParams.get("type") || "gait"
     const isFinger = type === "finger_tapping" || type === "finger"  // hand_movement not implemented yet
 
-    // Use real metrics from backend if available, otherwise fall back to mock
-    let metrics: MetricRow[] = isFinger ? FINGER_METRICS : GAIT_METRICS
-    if (analysisResult?.metrics) {
-        if (isFinger && 'tapping_speed' in analysisResult.metrics) {
-            metrics = convertFingerMetricsToRows(analysisResult.metrics as FingerTappingMetrics)
-        } else if (!isFinger && 'walking_speed' in analysisResult.metrics) {
-            metrics = convertGaitMetricsToRows(analysisResult.metrics as GaitMetrics)
+    // Only display measurements returned by Hawk I or the linked
+    // ParkiCheck observation. Never substitute demo values for missing data.
+    const timelineMetrics = linkedTimelineItem?.metrics || null
+    const analysisMetrics = analysisResult?.metrics || null
+    const effectiveMetrics = analysisMetrics || timelineMetrics
+    let metrics: MetricRow[] = []
+    if (analysisMetrics) {
+        if (isFinger && 'tapping_speed' in analysisMetrics) {
+            metrics = convertFingerMetricsToRows(analysisMetrics as FingerTappingMetrics)
+        } else if (!isFinger && 'walking_speed' in analysisMetrics) {
+            metrics = convertGaitMetricsToRows(analysisMetrics as GaitMetrics)
         }
+    } else if (timelineMetrics) {
+        metrics = isFinger
+            ? convertTimelineFingerMetricsToRows(timelineMetrics)
+            : convertTimelineGaitMetricsToRows(timelineMetrics)
     }
     const title = isFinger ? "손가락 태핑 분석" : "보행 분석"
     const detectionMode = analysisResult?.auto_detected === false
@@ -369,15 +455,26 @@ function ResultContent() {
             : `• 분석 유형: ${title} · ${detectionMode} (신뢰도: ${(analysisResult.confidence * 100).toFixed(0)}%)`
         : null
 
+    // A rule-based fallback is useful for debugging, but must not be presented
+    // as a trained research-model prediction.
+    const scoringMethod = analysisResult?.updrs_score?.method || "rule"
+
     // Get UPDRS score from backend result
     // Backend returns total_score, not score
-    const score = analysisResult?.updrs_score?.total_score?.toString() ||
-                  analysisResult?.updrs_score?.score?.toString() ||
-                  "N/A"
-    const severity = analysisResult?.updrs_score?.severity || "Unknown"
+    const aiScoreValue = analysisResult?.updrs_score?.total_score ?? analysisResult?.updrs_score?.score
+    const scoreValue = aiScoreValue ?? linkedTimelineItem?.score
+    const score = scoreValue !== null && scoreValue !== undefined ? String(scoreValue) : "N/A"
+    const hasAiScore = finiteMetric(aiScoreValue) !== null && scoringMethod !== "rule"
+    const severity = analysisResult?.updrs_score?.severity || linkedTimelineItem?.severity || "Unknown"
+    const scoreTitle = hasAiScore
+        ? "연구 추정 점수"
+        : linkedTimelineItem?.app_source === "parkicheck"
+            ? "ParkiCheck 측정 점수"
+            : finiteMetric(aiScoreValue) !== null
+                ? "규칙 기반 참고 점수"
+                : "연구 추정 점수"
 
     // Get individual scoring method results (Rule, ML, Ensemble)
-    const scoringMethod = analysisResult?.updrs_score?.method || "rule"
     const ruleScore = analysisResult?.updrs_score?.details?.rule
     const mlScore = analysisResult?.updrs_score?.details?.ml
     const confidence = analysisResult?.updrs_score?.confidence
@@ -413,6 +510,11 @@ function ResultContent() {
         analysisResult,
         "skeleton_video",
         skeletonData?.skeleton_video_url,
+    )
+    const originalVideoUrl = mediaAssetUrl(
+        analysisResult,
+        "original_video",
+        skeletonData?.original_video_url,
     )
 
     const videoSrc = skeletonVideoUrl || undefined
@@ -483,7 +585,7 @@ function ResultContent() {
             {
                 id: "1",
                 role: "agent",
-                content: `${title} 결과입니다. UPDRS 점수는 ${score}점으로 ${severityKorean}을 나타냅니다.`,
+                content: `${title} 결과입니다. ${hasAiScore ? `Hawk I UPDRS 점수는 ${score}점으로 ${severityKorean}을 나타냅니다.` : linkedTimelineItem?.app_source === "parkicheck" ? `ParkiCheck 측정 점수는 ${score}점입니다. Hawk I AI 점수는 아직 없습니다.` : "아직 확정된 점수가 없습니다."}`,
                 timestamp: new Date()
             },
             ...(analysisResult?.ai_interpretation?.summary ? [{
@@ -555,11 +657,12 @@ function ResultContent() {
                 <div className="grid gap-4 md:grid-cols-4">
                     <div className="md:col-span-1">
                         <SummaryCard
-                            title="연구 추정 점수"
+                            title={scoreTitle}
                             value={score}
-                            subtext={`UPDRS (0-4) · ${severityKorean}`}
+                            subtext={hasAiScore ? `UPDRS (0-4) · ${severityKorean}` : "기록된 측정값 · Hawk I AI 점수 없음"}
                             status={
-                                severity === "Normal" ? "good" :
+                                !hasAiScore ? "neutral" :
+                                    severity === "Normal" ? "good" :
                                     severity === "Slight" ? "neutral" :
                                         severity === "Mild" ? "warning" :
                                             "bad"
@@ -574,44 +677,48 @@ function ResultContent() {
                             </button>
                         )}
                     </div>
-                    {isFinger && analysisResult?.metrics && 'amplitude_mean' in analysisResult.metrics ? (
+                    {isFinger && effectiveMetrics && metricValue(effectiveMetrics as Record<string, unknown>, "amplitude_mean", "amplitude", "max_amplitude") !== null ? (
                         <>
                             <SummaryCard
                                 title="진폭"
-                                value={`${analysisResult.metrics.amplitude_mean.toFixed(2)}×`}
+                                value={`${metricValue(effectiveMetrics as Record<string, unknown>, "amplitude_mean", "amplitude", "max_amplitude")?.toFixed(2)}×`}
                                 subtext="검지손가락 대비"
                                 className="md:col-span-1"
                             />
                             <SummaryCard
                                 title="태핑 속도"
-                                value={`${analysisResult.metrics.tapping_speed.toFixed(2)} Hz`}
-                                subtext={`총 ${analysisResult.metrics.total_taps}회 탭`}
+                                value={`${metricValue(effectiveMetrics as Record<string, unknown>, "tapping_speed", "frequency")?.toFixed(2) || "-"} Hz`}
+                                subtext={metricValue(effectiveMetrics as Record<string, unknown>, "total_taps", "n_taps") !== null
+                                    ? `총 ${metricValue(effectiveMetrics as Record<string, unknown>, "total_taps", "n_taps")}회 탭`
+                                    : "총 탭 수 미기록"}
                                 className="md:col-span-1"
                             />
                             <SummaryCard
                                 title="피로도"
-                                value={`${analysisResult.metrics.fatigue_rate.toFixed(1)}%`}
+                                value={`${metricValue(effectiveMetrics as Record<string, unknown>, "fatigue_rate", "fatigability")?.toFixed(1) || "-"}%`}
                                 subtext="피로율"
-                                status={analysisResult.metrics.fatigue_rate > 20 ? "bad" : "neutral"}
+                                status={(metricValue(effectiveMetrics as Record<string, unknown>, "fatigue_rate", "fatigability") || 0) > 20 ? "bad" : "neutral"}
                                 className="md:col-span-1"
                             />
                         </>
-                    ) : !isFinger && analysisResult?.metrics && 'walking_speed' in analysisResult.metrics ? (
+                    ) : !isFinger && effectiveMetrics && metricValue(effectiveMetrics as Record<string, unknown>, "walking_speed", "gait_speed") !== null ? (
                         <>
                             <SummaryCard
                                 title="보폭 길이"
-                                value={`${analysisResult.metrics.stride_length.toFixed(2)}m`}
+                                value={`${metricValue(effectiveMetrics as Record<string, unknown>, "stride_length", "step_length")?.toFixed(2) || "-"}m`}
                                 className="md:col-span-1"
                             />
                             <SummaryCard
                                 title="보행 속도"
-                                value={`${analysisResult.metrics.walking_speed.toFixed(2)} m/s`}
-                                subtext={`총 ${analysisResult.metrics.step_count}걸음`}
+                                value={`${metricValue(effectiveMetrics as Record<string, unknown>, "walking_speed", "gait_speed")?.toFixed(2) || "-"} m/s`}
+                                subtext={metricValue(effectiveMetrics as Record<string, unknown>, "step_count") !== null
+                                    ? `총 ${metricValue(effectiveMetrics as Record<string, unknown>, "step_count")}걸음`
+                                    : "걸음 수 미기록"}
                                 className="md:col-span-1"
                             />
                             <SummaryCard
                                 title="보행률"
-                                value={`${analysisResult.metrics.cadence.toFixed(0)}`}
+                                value={`${metricValue(effectiveMetrics as Record<string, unknown>, "cadence")?.toFixed(0) || "-"}`}
                                 subtext="steps/min"
                                 className="md:col-span-1"
                             />
@@ -621,20 +728,20 @@ function ResultContent() {
                             <SummaryCard
                                 title={isFinger ? "진폭" : "보폭 길이"}
                                 value="-"
-                                subtext="분석 데이터 없음"
+                                subtext="분석 결과에 측정값이 없습니다"
                                 status="neutral"
                                 className="md:col-span-1"
                             />
                             <SummaryCard
                                 title={isFinger ? "태핑 속도" : "보행 속도"}
                                 value="-"
-                                subtext="분석 데이터 없음"
+                                subtext="분석 결과에 측정값이 없습니다"
                                 className="md:col-span-1"
                             />
                             <SummaryCard
                                 title={isFinger ? "피로도" : "보행률"}
                                 value="-"
-                                subtext="분석 데이터 없음"
+                                subtext="분석 결과에 측정값이 없습니다"
                                 className="md:col-span-1"
                             />
                         </>
@@ -783,7 +890,7 @@ function ResultContent() {
 
                     if (isFinger) {
                         // Finger tapping warnings
-                        const ftMetrics = analysisResult?.metrics as { decrement_ratio?: number; fatigue_index?: number } | undefined;
+                        const ftMetrics = effectiveMetrics as { decrement_ratio?: number; fatigue_index?: number } | undefined;
                         if (ftMetrics?.decrement_ratio && ftMetrics.decrement_ratio > 20) {
                             warnings.push(`진폭 감소율이 ${ftMetrics.decrement_ratio.toFixed(1)}%로 측정되었습니다.`);
                         }
@@ -792,7 +899,7 @@ function ResultContent() {
                         }
                     } else {
                         // Gait warnings (PD4T 기준)
-                        const gaitMetrics = analysisResult?.metrics as { walking_speed?: number; cadence?: number; arm_swing_asymmetry?: number } | undefined;
+                        const gaitMetrics = effectiveMetrics as { walking_speed?: number; cadence?: number; arm_swing_asymmetry?: number } | undefined;
                         if (gaitMetrics?.walking_speed && gaitMetrics.walking_speed < 0.55) {
                             warnings.push(`보행 속도가 ${gaitMetrics.walking_speed.toFixed(2)} m/s로 정상 범위(0.55-0.95)보다 낮습니다.`);
                         }
@@ -915,14 +1022,24 @@ function ResultContent() {
                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
                         <div className="grid md:grid-cols-3 gap-6">
                             <div className="md:col-span-2">
-                                <VideoPlayer
-                                    className="w-full shadow-2xl"
-                                    videoSrc={videoSrc}
-                                    keypointsData={keypointsData}
-                                    keypointsFps={keypointsFps}
-                                    taskType={isFinger ? "finger" : "gait"}
-                                    markers={markers}
-                                />
+                                {originalVideoUrl && skeletonVideoUrl ? (
+                                    <SynchronizedVideoComparison
+                                        className="w-full shadow-2xl"
+                                        originalSrc={originalVideoUrl}
+                                        analysisSrc={skeletonVideoUrl}
+                                        originalLabel="원본 영상"
+                                        analysisLabel="스켈레톤 분석"
+                                    />
+                                ) : (
+                                    <VideoPlayer
+                                        className="w-full shadow-2xl"
+                                        videoSrc={videoSrc}
+                                        keypointsData={keypointsData}
+                                        keypointsFps={keypointsFps}
+                                        taskType={isFinger ? "finger" : "gait"}
+                                        markers={markers}
+                                    />
+                                )}
                             </div>
                             <div className="space-y-4">
                                 {/* 감지된 이벤트 - 정확도 개선 후 다시 활성화 예정
@@ -1046,7 +1163,7 @@ function ResultContent() {
                                     <details className="rounded-lg border border-border/70 bg-background p-3">
                                         <summary className="cursor-pointer font-medium">구조화된 측정값 보기</summary>
                                         <pre className="mt-3 max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs leading-5 text-muted-foreground">
-                                            {JSON.stringify(analysisResult?.metrics ?? {}, null, 2)}
+                                            {JSON.stringify(effectiveMetrics ?? {}, null, 2)}
                                         </pre>
                                     </details>
                                 </CardContent>
@@ -1230,7 +1347,7 @@ function ResultContent() {
                         <PopulationComparison
                             taskType={type}
                             patientScore={analysisResult?.updrs_score?.total_score ?? analysisResult?.updrs_score?.score ?? undefined}
-                            patientMetrics={analysisResult?.metrics as Record<string, number> | undefined}
+                            patientMetrics={effectiveMetrics as Record<string, number> | undefined}
                         />
                     </div>
                 )}
@@ -1271,7 +1388,7 @@ function ResultContent() {
                     <div className="animate-in fade-in slide-in-from-bottom-2">
                         <SOAPNote
                             taskType={type}
-                            metrics={analysisResult?.metrics as Record<string, number> | undefined}
+                            metrics={effectiveMetrics as Record<string, number> | undefined}
                             performabilityAssessment={performabilityAssessment}
                             scoreAdvisory={scoreAdvisory}
                             updrsScore={analysisResult?.updrs_score ?? undefined}

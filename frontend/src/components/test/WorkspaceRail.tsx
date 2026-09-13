@@ -18,11 +18,11 @@ interface WorkspaceRailProps {
 
 export function WorkspaceRail({ selectedSubject, subjects = [], selectedSubjectId = "", onSelectSubject }: WorkspaceRailProps) {
     const [showSubjectPicker, setShowSubjectPicker] = React.useState(false)
-    const patientName = selectedSubject?.display_name || "김하늘"
+    const patientName = selectedSubject?.display_name || "기록 연결 안 됨"
     const patientSexAge = selectedSubject
         ? `${selectedSubject.sex || ""}${selectedSubject.age ? ` · ${selectedSubject.age}세` : ""}`.trim()
-        : "여 · 62세"
-    const patientPid = selectedSubject?.patient_id || "00012345"
+        : "로그인 또는 환자 선택이 필요합니다"
+    const patientPid = selectedSubject?.patient_id || "-"
 
     return (
         <div className="flex h-full flex-col bg-card/55">
@@ -41,7 +41,7 @@ export function WorkspaceRail({ selectedSubject, subjects = [], selectedSubjectI
                 </div>
                 <div className="mt-4 flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full border border-primary/25 bg-primary/10 text-primary"><UserRound className="h-5 w-5" aria-hidden="true" /></div>
-                    <div><p className="text-sm font-semibold">{patientName} <span className="text-xs font-normal text-muted-foreground">· 데모</span></p><p className="mt-1 text-xs text-muted-foreground">{patientSexAge}</p></div>
+                    <div><p className="text-sm font-semibold">{patientName}</p><p className="mt-1 text-xs text-muted-foreground">{patientSexAge}</p></div>
                 </div>
                 <dl className="mt-5 grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
                     <div><dt className="text-muted-foreground">PID</dt><dd className="mt-1 font-medium text-foreground">{patientPid}</dd></div>

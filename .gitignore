@@ -58,6 +58,7 @@ experiments/results/
 *.mov
 *.webm
 *.mkv
+!frontend/public/demo/*.mp4
 
 # ============ Node.js / Frontend ============
 node_modules/
@@ -92,6 +93,7 @@ Desktop.ini
 *.temp
 nul
 *.bak
+/tmp/
 
 # ============ Archives ============
 *.zip
@@ -116,3 +118,4 @@ hawkeye_test_samples_*.json
 
 # ============ Benchmark Data ============
 benchmark/data/
+.vercel

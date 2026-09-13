@@ -8,6 +8,7 @@ from flask import Flask
 from routes import analyze
 from services.supabase_auth import (
     AuthenticatedClinician,
+    AuthenticatedPerson,
     SupabaseClinicianForbidden,
 )
 from services.supabase_observations import SupabaseObservationConfig
@@ -37,6 +38,14 @@ def _clinician() -> AuthenticatedClinician:
         person_id=CLINICIAN_ID,
         organization_id=ORG_ID,
         role="provider",
+        access_token="caller-token",
+    )
+
+
+def _person() -> AuthenticatedPerson:
+    return AuthenticatedPerson(
+        user_id="55555555-5555-4555-8555-555555555555",
+        person_id=SUBJECT_ID,
         access_token="caller-token",
     )
 
@@ -250,6 +259,83 @@ def test_parkicheck_context_uses_authorized_activity_session(tmp_path, monkeypat
     }
 
 
+def test_self_context_uses_authenticated_person_and_canonical_context(tmp_path, monkeypatch):
+    captured = {}
+
+    class FakeThread:
+        daemon = False
+
+        def __init__(self, target, args):
+            captured["args"] = args
+
+        def start(self):
+            return None
+
+    canonical_context = {
+        "subject_person_id": SUBJECT_ID,
+        "organization_id": ORG_ID,
+        "created_by_person_id": SUBJECT_ID,
+        "performer_person_id": SUBJECT_ID,
+        "subject_display_name": "Self Tester",
+        "organization_display_name": "Personal Workspace",
+    }
+    monkeypatch.setattr(analyze, "get_supabase_observation_config", _config)
+    monkeypatch.setattr(analyze, "authenticate_person", lambda token, config: _person())
+    monkeypatch.setattr(
+        analyze,
+        "authorize_physio_self",
+        lambda person, subject_id, organization_id, config: canonical_context.copy(),
+    )
+    monkeypatch.setattr(analyze.threading, "Thread", FakeThread)
+    monkeypatch.setattr(analyze, "init_analysis", lambda *args, **kwargs: None)
+
+    response = _app(tmp_path).test_client().post(
+        "/api/analyze",
+        data=_video_form(
+            physio_subject_person_id=SUBJECT_ID,
+            physio_organization_id=ORG_ID,
+            physio_contract_version="hawkeye-self/v1",
+            physio_persistence_owner="self",
+        ),
+        headers={"Authorization": "Bearer caller-token"},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 202
+    assert captured["args"][7] == {
+        **canonical_context,
+        "contract_version": "hawkeye-self/v1",
+        "persistence_owner": "self",
+    }
+
+
+def test_self_context_rejects_other_subject_before_file_save(tmp_path, monkeypatch):
+    monkeypatch.setattr(analyze, "get_supabase_observation_config", _config)
+    monkeypatch.setattr(analyze, "authenticate_person", lambda token, config: _person())
+    monkeypatch.setattr(
+        analyze,
+        "authorize_physio_self",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            SupabaseClinicianForbidden("self subject access denied")
+        ),
+    )
+
+    response = _app(tmp_path).test_client().post(
+        "/api/analyze",
+        data=_video_form(
+            physio_subject_person_id="77777777-7777-4777-8777-777777777777",
+            physio_organization_id=ORG_ID,
+            physio_contract_version="hawkeye-self/v1",
+            physio_persistence_owner="self",
+        ),
+        headers={"Authorization": "Bearer caller-token"},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 403
+    assert list(tmp_path.iterdir()) == []
+
+
 def _write_result(tmp_path, analysis_id: str, physio_context=None):
     (tmp_path / f"{analysis_id}_result.json").write_text(
         json.dumps({"success": True, "id": analysis_id, "physio_context": physio_context}),
@@ -302,6 +388,24 @@ def test_patient_linked_result_allows_authorized_clinician(tmp_path, monkeypatch
 
     response = _app(tmp_path).test_client().get(
         "/api/analysis/result/private_123",
+        headers={"Authorization": "Bearer caller-token"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_self_result_allows_only_authenticated_person(tmp_path, monkeypatch):
+    _write_result(tmp_path, "self_123", {
+        "subject_person_id": SUBJECT_ID,
+        "organization_id": ORG_ID,
+        "persistence_owner": "self",
+    })
+    monkeypatch.setattr(analyze, "get_supabase_observation_config", _config)
+    monkeypatch.setattr(analyze, "authenticate_person", lambda token, config: _person())
+    monkeypatch.setattr(analyze, "authorize_physio_self", lambda *args, **kwargs: {})
+
+    response = _app(tmp_path).test_client().get(
+        "/api/analysis/result/self_123",
         headers={"Authorization": "Bearer caller-token"},
     )
 

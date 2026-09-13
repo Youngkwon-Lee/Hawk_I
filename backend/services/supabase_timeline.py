@@ -49,6 +49,35 @@ MEDICATION_SELECT = ",".join(
     ]
 )
 
+# ParkiCheck stores its device measurements as top-level fields in
+# ``measurement_context`` while Hawk I stores a nested ``metrics`` object.
+# Normalize both shapes to the same canonical names so downstream screens do
+# not have to guess which producer wrote the observation.
+PARKICHECK_METRIC_ALIASES: dict[str, tuple[str, ...]] = {
+    "tapping_speed": ("tapping_speed", "frequency"),
+    "amplitude_mean": ("amplitude_mean", "amplitude", "max_amplitude"),
+    "hesitation_count": ("hesitation_count", "arrests"),
+    "rhythm_variability": ("rhythm_variability", "iti_cv"),
+    "fatigue_rate": ("fatigue_rate", "fatigability"),
+    "total_taps": ("total_taps", "n_taps"),
+    "duration": ("duration", "duration_sec"),
+}
+
+
+def _normalize_metrics(context: dict[str, Any]) -> dict[str, Any]:
+    raw_metrics = context.get("metrics")
+    metrics = dict(raw_metrics) if isinstance(raw_metrics, dict) else {}
+
+    for canonical_key, aliases in PARKICHECK_METRIC_ALIASES.items():
+        if metrics.get(canonical_key) is not None:
+            continue
+        for alias in aliases:
+            value = context.get(alias)
+            if value is not None:
+                metrics[canonical_key] = value
+                break
+    return metrics
+
 
 def _resolve_app_source(row: dict[str, Any], context: dict[str, Any]) -> str:
     app_source = context.get("app_source")
@@ -75,8 +104,7 @@ def normalize_observation(row: dict[str, Any]) -> dict[str, Any]:
     hawk_i = context.get("hawk_i")
     hawk_i = hawk_i if isinstance(hawk_i, dict) else {}
 
-    metrics = context.get("metrics")
-    metrics = metrics if isinstance(metrics, dict) else {}
+    metrics = _normalize_metrics(context)
     interpretation = context.get("ai_interpretation")
     interpretation = interpretation if isinstance(interpretation, dict) else {}
     advisory = context.get("score_advisory")
