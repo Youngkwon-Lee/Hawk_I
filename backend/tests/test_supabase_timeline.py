@@ -34,6 +34,13 @@ def _parkicheck_row():
             "confidence": "HIGH",
             "medication_context": {"available": True, "medication": "levodopa"},
             "hawk_i": {"analysis_id": "ft_123", "score": 2},
+            "frequency": 3.2,
+            "amplitude": 0.72,
+            "arrests": 2,
+            "iti_cv": 0.18,
+            "fatigability": 11.0,
+            "n_taps": 24,
+            "duration_sec": 8.0,
         },
     }
 
@@ -88,6 +95,15 @@ def test_normalize_parkicheck_row():
     assert item["analysis_id"] == "ft_123"
     assert item["observation_id"] == "observation-1"
     assert item["observed_at"] == "2026-07-28T10:00:00Z"
+    assert item["metrics"] == {
+        "tapping_speed": 3.2,
+        "amplitude_mean": 0.72,
+        "hesitation_count": 2,
+        "rhythm_variability": 0.18,
+        "fatigue_rate": 11.0,
+        "total_taps": 24,
+        "duration": 8.0,
+    }
 
 
 def test_normalize_hawk_i_row_uses_quantity_and_app_source():

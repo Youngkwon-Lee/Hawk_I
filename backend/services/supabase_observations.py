@@ -559,4 +559,5 @@ def persist_analysis_observation(result: dict[str, Any]) -> SupabaseObservationR
             persistence_owner="parkicheck",
             delegated=True,
         )
-    return save_analysis_observation(result)
+    saved = save_analysis_observation(result)
+    return replace(saved, persistence_owner=owner or "hawk_i")

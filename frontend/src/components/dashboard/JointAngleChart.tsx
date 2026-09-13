@@ -26,29 +26,18 @@ interface JointAngleData {
 interface JointAngleChartProps {
     data?: JointAngleData[]
     className?: string
+    emptyMessage?: string
 }
 
-// Mock data for demo
-const MOCK_JOINT_ANGLE_DATA: JointAngleData[] = Array.from({ length: 100 }, (_, i) => {
-    const time = i * 0.033 // ~30fps
-    const phase = (i / 30) * Math.PI * 2
-    return {
-        frame: i,
-        time: parseFloat(time.toFixed(2)),
-        leftKnee: 15 + 45 * Math.sin(phase) + Math.random() * 3,
-        rightKnee: 15 + 45 * Math.sin(phase + Math.PI) + Math.random() * 3,
-        leftHip: 10 + 25 * Math.sin(phase + 0.5) + Math.random() * 2,
-        rightHip: 10 + 25 * Math.sin(phase + Math.PI + 0.5) + Math.random() * 2,
-    }
-})
+const EMPTY_JOINT_ANGLE_DATA: JointAngleData[] = []
 
-export function JointAngleChart({ data, className }: JointAngleChartProps) {
+export function JointAngleChart({ data, className, emptyMessage = "관절 각도 데이터가 없습니다." }: JointAngleChartProps) {
     const [activeTab, setActiveTab] = React.useState<'knee' | 'hip'>('knee')
-    const isUsingMockData = !data || data.length === 0
-    const chartData = data && data.length > 0 ? data : MOCK_JOINT_ANGLE_DATA
+    const chartData = data ?? EMPTY_JOINT_ANGLE_DATA
 
     // Calculate statistics
     const kneeStats = React.useMemo(() => {
+        if (chartData.length === 0) return { leftROM: 0, rightROM: 0, asymmetry: 0 }
         const leftKnees = chartData.map(d => d.leftKnee)
         const rightKnees = chartData.map(d => d.rightKnee)
         return {
@@ -62,6 +51,7 @@ export function JointAngleChart({ data, className }: JointAngleChartProps) {
     }, [chartData])
 
     const hipStats = React.useMemo(() => {
+        if (chartData.length === 0) return { leftROM: 0, rightROM: 0, asymmetry: 0 }
         const leftHips = chartData.map(d => d.leftHip)
         const rightHips = chartData.map(d => d.rightHip)
         return {
@@ -81,6 +71,22 @@ export function JointAngleChart({ data, className }: JointAngleChartProps) {
     }
 
     const stats = activeTab === 'knee' ? kneeStats : hipStats
+
+    if (chartData.length === 0) {
+        return (
+            <Card className={className}>
+                <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">관절 각도 변화</CardTitle>
+                    <CardDescription>시간에 따른 관절 굴곡각 변화</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center text-sm text-muted-foreground">
+                        {emptyMessage}
+                    </div>
+                </CardContent>
+            </Card>
+        )
+    }
 
     return (
         <Card className={className}>
@@ -182,8 +188,6 @@ export function JointAngleChart({ data, className }: JointAngleChartProps) {
                         </div>
                     </div>
                 </div>
-
-                {isUsingMockData && <p className="text-xs text-muted-foreground text-center mt-2">(임시 데이터)</p>}
             </CardContent>
         </Card>
     )

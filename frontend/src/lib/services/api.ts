@@ -282,12 +282,19 @@ export interface PhysioSubjectsResponse {
   default_performer_person_id?: string | null
   reason?: string
   error?: string
+  contract_version?: string
+  persistence_owner?: 'hawk_i' | 'self'
 }
 
 export interface PhysioSelfResponse {
   success: boolean
   enabled: boolean
   subject: PhysioSubject
+  organization?: PhysioOrganization | null
+  default_created_by_person_id?: string | null
+  default_performer_person_id?: string | null
+  contract_version?: string
+  persistence_owner?: 'self'
 }
 
 export interface PhysioAnalysisContext {
@@ -297,6 +304,8 @@ export interface PhysioAnalysisContext {
   performer_person_id?: string
   subject_display_name?: string
   organization_display_name?: string
+  contract_version?: string
+  persistence_owner?: 'hawk_i' | 'self'
 }
 
 export interface HealthStatus {
@@ -314,6 +323,11 @@ export interface HealthStatus {
     task_classification: boolean
     skeleton_extraction: boolean
     updrs_prediction: boolean
+    rule_based_scoring?: boolean
+    updrs_prediction_methods?: string[]
+    coral_tasks?: string[]
+    finetuned_vlm_configured?: boolean
+    finetuned_vlm_model?: string | null
   }
 }
 
@@ -363,6 +377,12 @@ function appendPhysioContext(formData: FormData, context?: PhysioAnalysisContext
 
   formData.append('physio_subject_person_id', context.subject_person_id)
   formData.append('physio_organization_id', context.organization_id)
+  if (context.contract_version) {
+    formData.append('physio_contract_version', context.contract_version)
+  }
+  if (context.persistence_owner) {
+    formData.append('physio_persistence_owner', context.persistence_owner)
+  }
 }
 
 /**
