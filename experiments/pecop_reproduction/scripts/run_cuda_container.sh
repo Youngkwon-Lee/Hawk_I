@@ -20,6 +20,7 @@ docker build -f "$ROOT/Dockerfile.cuda" -t "$IMAGE" "$(cd "$ROOT/../.." && pwd)"
 docker run --rm -it \
   --gpus all \
   -e PD4T_ROOT=/data/pd4t \
+  -e PD4T_FRAME_ROOT=/workspace/Hawk_I/experiments/pecop_reproduction/results/runtime/gait_frames \
   -v "$PD4T_ROOT:/data/pd4t:ro" \
   -v "$ROOT/results/runtime:/workspace/Hawk_I/experiments/pecop_reproduction/results/runtime" \
   "$IMAGE"
