@@ -12,6 +12,7 @@ voter_number: 10
 
 # Runtime PD4T_ROOT environment variable overrides this placeholder.
 pd4t_root: ""
+pd4t_frame_root: ""
 pd4t_task: "Gait"
 expected_train_subjects: 22
 expected_test_subjects: 8
