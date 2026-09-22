@@ -6,6 +6,7 @@ CORE_DIR="${CORE_DIR:-$ROOT/_upstream/CoRe}"
 PYTHON="${PYTHON:-python3}"
 GPU_IDS="${GPU_IDS:-0}"
 EXP_NAME="${EXP_NAME:-pd4t_gait_core_seed0}"
+PD4T_FRAME_ROOT="${PD4T_FRAME_ROOT:-$ROOT/results/runtime/gait_frames}"
 
 if [[ -z "${PD4T_ROOT:-}" ]]; then
   echo "PD4T_ROOT is required" >&2
@@ -34,6 +35,8 @@ print(f"GPU runtime: {backend}; device: {torch.cuda.get_device_name(0)}")
 PY
 
 "$ROOT/scripts/preflight.sh"
+"$PYTHON" "$ROOT/scripts/prepare_gait_frame_cache.py" --frame-root "$PD4T_FRAME_ROOT"
+export PD4T_FRAME_ROOT
 "$ROOT/scripts/bootstrap_upstreams.sh"
 "$PYTHON" "$ROOT/scripts/patch_core_for_pd4t.py" "$CORE_DIR"
 
