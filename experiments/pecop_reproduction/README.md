@@ -78,24 +78,31 @@ Gate: investigate preprocessing, validation, sampling, and score normalization u
 
 Upstream PECoP uses Kinetics-pretrained I3D plus trainable 3D adapters and self-supervised playback/segment prediction.
 
-Paper/repo defaults to preserve first:
+Paper-faithful settings reported in the WACV paper:
 
+- epochs: 8
+- batch size: 16
+- optimizer: SGD
+- learning rate: 0.001
 - clip_len: 32
 - crop: 224
-- max playback rate: 5
-- max segments: 4
-- gait sampling rate: 3
-- batch size in README example: 16
+- VSPP playback parameter λ: 4
+- VSPP segment parameter ζ: 4 or 3 depending on task
+- gait frame sampling rate in the public code: 3
 
-### Known upstream learning-rate discrepancy
+### Known upstream code/paper discrepancies
 
-The upstream README example calls `train.py --lr 0.001`, while the current upstream `train.py` constructs SGD with a hard-coded `lr=0.01`. The scheduler still reads `args.lr`.
+The current upstream repository does not encode all of those values faithfully:
 
-Record both:
-- **code-faithful**: optimizer LR 0.01
-- **README-intent sensitivity**: optimizer LR 0.001
+1. the README calls `train.py --lr 0.001`, but `train.py` constructs SGD with a hard-coded `lr=0.01`; the scheduler still reads `args.lr`
+2. the current `train.py` default for `max_sr` is 5, while the paper reports λ=4
 
-Never silently patch this difference.
+Therefore record at least two sensitivity conditions:
+
+- **paper-faithful**: optimizer LR 0.001, λ=4
+- **current-code**: optimizer LR 0.01, `max_sr=5`
+
+Keep all other settings identical. Never silently patch or collapse this difference.
 
 ## Phase 3 — CoRe + PECoP
 
