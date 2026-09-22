@@ -43,6 +43,30 @@ PD4T annotation IDs encode the subject as the **final 3-digit suffix**.
 
 Older Hawkeye split scripts use a regex that can interpret the middle numeric token as a patient identifier. This reproduction harness intentionally does not reuse that parser.
 
+
+## Recommended execution target
+
+Use a supported **Linux + NVIDIA CUDA** GPU for full reproduction. The harness is packaged with `Dockerfile.cuda` so the same environment can run on a V100/A100/RTX-class machine or a cloud GPU.
+
+The current CoRe adapter uses a local-only deterministic frame cache:
+
+1. validate the original Gait split
+2. uniformly sample 103 frames from each of the 426 Gait videos once
+3. store those derived frames under `results/runtime/gait_frames/` (Git ignored)
+4. train CoRe from the cached frames
+
+The 103-frame full-video uniform sampling policy is a **reproduction hypothesis**, not a published PECoP detail. The PECoP paper publishes the 32-frame SSL pretraining setup but states only that downstream baselines follow their original training/evaluation strategies.
+
+Typical CUDA-host flow:
+
+```bash
+export PD4T_ROOT=/secure/path/to/PD4T/PD4T/PD4T
+bash experiments/pecop_reproduction/scripts/run_cuda_container.sh
+
+# inside the container
+bash experiments/pecop_reproduction/scripts/run_core_gait_baseline.sh
+```
+
 ## Phase 0 — deterministic checks
 
 ```bash
