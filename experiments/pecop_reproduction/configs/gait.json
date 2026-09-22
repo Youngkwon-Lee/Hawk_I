@@ -24,14 +24,21 @@
       256
     ],
     "crop": 224,
-    "max_playback_rate": 5,
-    "max_segments": 4,
     "gait_frame_sampling_rate": 3,
-    "readme_batch_size": 16,
-    "upstream_epochs_default": 8,
-    "lr_conditions": {
-      "code_faithful_optimizer_lr": 0.01,
-      "readme_intent_optimizer_lr": 0.001
+    "paper_faithful": {
+      "epochs": 8,
+      "batch_size": 16,
+      "optimizer": "SGD",
+      "learning_rate": 0.001,
+      "clip_len": 32,
+      "crop": 224,
+      "max_playback_rate_lambda": 4,
+      "max_segments_zeta": 4
+    },
+    "current_upstream_code": {
+      "optimizer_learning_rate": 0.01,
+      "default_max_playback_rate": 5,
+      "note": "train.py hard-codes SGD lr=0.01 and defaults max_sr=5"
     }
   },
   "reproduction_order": [
