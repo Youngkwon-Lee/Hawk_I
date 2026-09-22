@@ -64,6 +64,28 @@ Expected paper-comparison boundary:
 
 A failing check blocks training.
 
+## Accelerator support gate
+
+The upstream harness uses PyTorch's `torch.cuda` APIs. PyTorch's ROCm build intentionally maps those APIs to HIP. The launcher keeps `CUDA_VISIBLE_DEVICES` for NVIDIA and also sets `ROCR_VISIBLE_DEVICES` for AMD; AMD recommends `ROCR_VISIBLE_DEVICES` on Linux. This API compatibility does **not** make every AMD GPU or operating system ROCm-supported.
+
+Before training on AMD, confirm that the exact GPU, operating system, driver, and PyTorch/ROCm versions appear together in AMD's [ROCm compatibility matrix](https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html). As of 2026-09-23, the matrix lists Windows 11 25H2 for Radeon and the [Radeon support page](https://rocm.docs.amd.com/projects/radeon/en/latest/docs/docs/compatibility/compatibility.html) names RX 9000 and select RX 7000 series GPUs. An RX 6700 XT on Windows 10 is outside that listed configuration.
+
+Do not use an unsupported-GPU override as evidence of a reproducible run. Use a GPU/OS/driver combination listed by AMD, or a supported CUDA machine, then verify the active PyTorch backend before starting this launcher:
+
+```bash
+python3 - <<'PY'
+import torch
+
+assert torch.cuda.is_available(), "No CUDA/HIP GPU is visible to PyTorch"
+backend = "ROCm/HIP" if torch.version.hip else "CUDA" if torch.version.cuda else "unknown"
+assert backend != "unknown", "PyTorch reports a GPU but not a CUDA or HIP build"
+print(f"backend={backend}")
+print(f"device={torch.cuda.get_device_name(0)}")
+print(f"hip={torch.version.hip}")
+print(f"cuda={torch.version.cuda}")
+PY
+```
+
 ## Phase 1 — reproduce CoRe without PECoP
 
 1. clone the pinned CoRe revision

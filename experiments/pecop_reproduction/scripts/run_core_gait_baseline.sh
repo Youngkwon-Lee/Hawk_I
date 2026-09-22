@@ -12,6 +12,27 @@ if [[ -z "${PD4T_ROOT:-}" ]]; then
   exit 2
 fi
 
+export CUDA_VISIBLE_DEVICES="$GPU_IDS"
+export ROCR_VISIBLE_DEVICES="$GPU_IDS"
+"$PYTHON" - <<'PY'
+try:
+    import torch
+except ImportError as exc:
+    raise SystemExit("PyTorch is required; install a CUDA or ROCm/HIP build first") from exc
+
+if not torch.cuda.is_available():
+    raise SystemExit("No CUDA/HIP GPU is visible to PyTorch; refusing to start training")
+
+if torch.version.hip:
+    backend = f"ROCm/HIP {torch.version.hip}"
+elif torch.version.cuda:
+    backend = f"CUDA {torch.version.cuda}"
+else:
+    raise SystemExit("PyTorch reports a GPU but its build is neither ROCm/HIP nor CUDA")
+
+print(f"GPU runtime: {backend}; device: {torch.cuda.get_device_name(0)}")
+PY
+
 "$ROOT/scripts/preflight.sh"
 "$ROOT/scripts/bootstrap_upstreams.sh"
 "$PYTHON" "$ROOT/scripts/patch_core_for_pd4t.py" "$CORE_DIR"
@@ -23,5 +44,4 @@ if [[ ! -f "$CORE_DIR/model_rgb.pth" ]]; then
 fi
 
 cd "$CORE_DIR"
-export CUDA_VISIBLE_DEVICES="$GPU_IDS"
 "$PYTHON" main.py --benchmark PD4T --exp_name "$EXP_NAME"
