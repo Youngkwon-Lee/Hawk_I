@@ -1,0 +1,10 @@
+# Runtime-only dependencies for the PECoP/CoRe reproduction harness.
+# PyTorch/CUDA come from the base image.
+numpy<2
+scipy>=1.10,<2
+PyYAML>=6,<7
+Pillow>=10,<12
+opencv-python-headless>=4.8,<5
+tensorboardX>=2.6,<3
+ptflops>=0.7,<1
+git+https://github.com/hassony2/torch_videovision.git
