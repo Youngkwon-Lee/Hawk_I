@@ -1,7 +1,7 @@
 """PD4T Gait adapter for the pinned CoRe implementation.
 
 Copied into the private upstream CoRe checkout by patch_core_for_pd4t.py.
-Reads local PD4T annotations/videos at runtime and writes no row-level data.
+Reads protected PD4T annotations and a local-only sampled-frame cache.
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ import random
 import re
 from pathlib import Path
 
-import cv2
-import numpy as np
 import torch
 from PIL import Image
 
@@ -51,18 +49,12 @@ def read_rows(path: Path):
     return rows
 
 
-def uniform_indices(frame_count: int, length: int) -> np.ndarray:
-    if frame_count <= 0:
-        raise ValueError("frame_count must be positive")
-    return np.rint(np.linspace(0, frame_count - 1, num=length)).astype(np.int64)
-
-
 class PD4T_Dataset(torch.utils.data.Dataset):
     """CoRe-compatible PD4T Gait pair dataset.
 
-    Temporal policy v0 uniformly samples frame_length frames across each source
-    video. This is an explicit reproduction hypothesis because the PECoP paper
-    does not publish the downstream PD4T temporal sampling implementation.
+    Temporal policy v0 uses a deterministic 103-frame cache uniformly sampled
+    across each full source video. This is an explicit reproduction hypothesis
+    because the PECoP paper does not publish downstream PD4T CoRe sampling.
     """
 
     def __init__(self, args, subset, transform):
@@ -74,16 +66,25 @@ class PD4T_Dataset(torch.utils.data.Dataset):
         self.length = int(args.frame_length)
         self.voter_number = int(args.voter_number)
         self.seed = int(args.seed)
+
         configured_root = getattr(args, "pd4t_root", None)
         root_value = os.environ.get("PD4T_ROOT", configured_root or "")
         if not root_value:
             raise RuntimeError("PD4T_ROOT or config pd4t_root is required")
         self.root = Path(root_value)
+
+        configured_frames = getattr(args, "pd4t_frame_root", None)
+        frame_value = os.environ.get("PD4T_FRAME_ROOT", configured_frames or "")
+        if not frame_value:
+            raise RuntimeError("PD4T_FRAME_ROOT or config pd4t_frame_root is required")
+        self.frame_root = Path(frame_value)
+
         self.task = "Gait"
         annotation_dir = self.root / "Annotations" / self.task
         self.train_rows = read_rows(annotation_dir / "train.csv")
         self.test_rows = read_rows(annotation_dir / "test.csv")
         self.dataset = self.test_rows if subset == "test" else self.train_rows
+
         train_subjects = {parse_subject(r["annotation_id"]) for r in self.train_rows}
         test_subjects = {parse_subject(r["annotation_id"]) for r in self.test_rows}
         overlap = train_subjects & test_subjects
@@ -94,37 +95,26 @@ class PD4T_Dataset(torch.utils.data.Dataset):
         if len(train_subjects) != expected_train or len(test_subjects) != expected_test:
             raise RuntimeError("unexpected PD4T subject counts: train=%d test=%d" % (len(train_subjects), len(test_subjects)))
 
-    def _video_path(self, row) -> Path:
+    def _frame_dir(self, row) -> Path:
         subject = parse_subject(row["annotation_id"])
         stem = video_stem(row["annotation_id"])
-        return self.root / "Videos" / self.task / subject / (stem + ".mp4")
+        return self.frame_root / subject / stem
 
-    def _load_uniform_clip(self, path: Path):
-        if not path.exists():
-            raise FileNotFoundError(path)
-        cap = cv2.VideoCapture(str(path))
-        if not cap.isOpened():
-            raise RuntimeError("failed to open video: %s" % path)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if frame_count <= 0:
-            cap.release()
-            raise RuntimeError("invalid video frame count: %s" % path)
+    def _load_cached_clip(self, row):
+        frame_dir = self._frame_dir(row)
+        paths = sorted(frame_dir.glob("img_*.jpg"))
+        if len(paths) != self.length:
+            raise RuntimeError("expected %d cached frames in %s, found %d" % (self.length, frame_dir, len(paths)))
         frames = []
-        for frame_idx in uniform_indices(frame_count, self.length):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
-            ok, frame = cap.read()
-            if not ok:
-                cap.release()
-                raise RuntimeError("failed reading frame %d from %s" % (frame_idx, path))
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frames.append(Image.fromarray(frame))
-        cap.release()
+        for path in paths:
+            with Image.open(path) as image:
+                frames.append(image.convert("RGB").copy())
         return self.transforms(frames)
 
     def _pack(self, row):
         score = float(row["score"])
         return {
-            "video": self._load_uniform_clip(self._video_path(row)),
+            "video": self._load_cached_clip(row),
             "final_score": score,
             "difficulty": 1.0,
             "completeness": score,
