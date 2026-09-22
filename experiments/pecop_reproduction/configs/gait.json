@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "task": "Gait",
+  "paper": "PECoP: Parameter Efficient Continual Pretraining for Action Quality Assessment",
+  "venue": "WACV 2024",
+  "metric": "Spearman Rank Correlation",
+  "split": {
+    "train_subjects": 22,
+    "test_subjects": 8,
+    "total_videos": 426,
+    "test_videos": 116
+  },
+  "table4_targets": {
+    "USDL": 0.7914,
+    "USDL+PECoP": 0.8068,
+    "CoRe": 0.7887,
+    "CoRe+PECoP": 0.8233
+  },
+  "pecop_pretraining": {
+    "backbone": "I3D Kinetics-400 pretrained",
+    "clip_len": 32,
+    "resize": [
+      455,
+      256
+    ],
+    "crop": 224,
+    "max_playback_rate": 5,
+    "max_segments": 4,
+    "gait_frame_sampling_rate": 3,
+    "readme_batch_size": 16,
+    "upstream_epochs_default": 8,
+    "lr_conditions": {
+      "code_faithful_optimizer_lr": 0.01,
+      "readme_intent_optimizer_lr": 0.001
+    }
+  },
+  "reproduction_order": [
+    "CoRe",
+    "CoRe+PECoP",
+    "USDL",
+    "USDL+PECoP"
+  ],
+  "test_policy": "sealed"
+}
