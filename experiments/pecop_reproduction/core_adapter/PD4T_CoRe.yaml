@@ -1,0 +1,28 @@
+# PECoP reproduction: CoRe baseline on PD4T Gait
+bs_train: 1
+bs_test: 1
+workers: 4
+step_per_update: 2
+max_epoch: 200
+
+pretrained_i3d_weight: "./model_rgb.pth"
+RT_depth: 5
+score_range: 4
+voter_number: 10
+
+# Runtime PD4T_ROOT environment variable overrides this placeholder.
+pd4t_root: ""
+pd4t_task: "Gait"
+expected_train_subjects: 22
+expected_test_subjects: 8
+frame_length: 103
+seed: 0
+usingDD: False
+dive_number_choosing: False
+
+optimizer: "Adam"
+weight_decay: 0
+base_lr: 0.001
+lr_factor: 0.1
+
+print_freq: 40
