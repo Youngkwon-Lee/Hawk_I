@@ -1,0 +1,21 @@
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace/Hawk_I
+
+COPY experiments/pecop_reproduction/requirements.cuda.txt /tmp/requirements.cuda.txt
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --no-cache-dir -r /tmp/requirements.cuda.txt
+
+COPY . /workspace/Hawk_I
+
+CMD ["bash"]

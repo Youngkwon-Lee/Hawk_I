@@ -1,0 +1,20 @@
+{
+  "generated_for": "PECoP PD4T gait reproduction",
+  "upstream": {
+    "pecop": {
+      "repo": "Plrbear/PECoP",
+      "ref": "main",
+      "commit": "af79e55c926457580989b72d27737c6e40f09e8f"
+    },
+    "core": {
+      "repo": "yuxumin/CoRe",
+      "ref": "master",
+      "commit": "f7881a9ff6d8be3cd6549fd58f1456d671537e76"
+    },
+    "usdl_musdl": {
+      "repo": "nzl-thu/MUSDL",
+      "ref": "master",
+      "commit": "205868a826e4df3d0bcac5aa03ca36761aad43cd"
+    }
+  }
+}
