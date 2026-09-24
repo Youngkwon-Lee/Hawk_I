@@ -1,5 +1,7 @@
 # 🦅 Hawkeye - Parkinson's Disease Motor Assessment
 
+> Research project. Start with [PROJECT_CHARTER.md](PROJECT_CHARTER.md) for scope, validation, data, and clinical-claim boundaries. Model outputs are research outputs and do not independently establish clinical validity.
+
 AI-powered motor function assessment system for Parkinson's Disease using video analysis.
 
 ## 📋 Overview
