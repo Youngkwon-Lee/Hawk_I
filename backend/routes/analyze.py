@@ -484,16 +484,17 @@ def process_video_background(
             "reasoning": ctx.vision_meta.get("reasoning", ""), # Legacy single string
             "reasoning_log": reasoning_log, # NEW: Full log
             "video_metadata": {
-                "width": 0, # TODO: Get from meta
-                "height": 0,
+                "width": ctx.vision_meta.get("frame_width", 0),
+                "height": ctx.vision_meta.get("frame_height", 0),
                 "fps": ctx.vision_meta.get("fps", 0),
-                "duration": 0,
+                "duration": ctx.vision_meta.get("duration", 0),
                 "total_frames": ctx.vision_meta.get("frame_count", 0)
             },
             "metrics": metrics,
+            "validation_result": ctx.validation_result,
             "skeleton_data": {
                 "total_frames": len(landmarks),
-                "detection_rate": 0, # Calculate if needed
+                "detection_rate": min(1.0, len(landmarks) / max(1, ctx.vision_meta.get("frame_count", 0))),
                 "mode": "pose" if ctx.task_type in ["gait", "leg_agility"] else "hand",
                 "skeleton_video_url": skeleton_video_url,
                 "original_video_url": original_video_url,  # For canvas overlay mode

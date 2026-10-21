@@ -327,6 +327,22 @@ class ValidationAgent(BaseAgent):
             if stride < thresholds.get('stride_length_min', 0) or stride > thresholds.get('stride_length_max', 3):
                 out_of_range.append(f"stride={stride:.2f}m")
 
+        if task_type == 'gait':
+            from services.gait_quality import periodicity_cadence_reference
+            frames = (ctx.skeleton_data or {}).get('landmarks', [])
+            fps = (ctx.vision_meta or {}).get('fps', 0)
+            reference = periodicity_cadence_reference(frames, fps)
+            if reference is not None:
+                result['details']['cadence_periodicity_reference_spm'] = reference
+                result['details']['cadence_reference_type'] = 'ankle_periodicity_heuristic_not_ground_truth'
+                cadence = metrics.get('cadence')
+                if cadence is not None and abs(cadence - reference) / reference > 0.20:
+                    result['warnings'].append(
+                        f"Cadence disagreement: heel-strike estimate {cadence:.1f} vs "
+                        f"ankle-periodicity reference {reference:.1f} steps/min; manual review required"
+                    )
+                    result['details']['cadence_disagreement'] = True
+
         if out_of_range:
             result['warnings'].append(f"Metrics out of range: {', '.join(out_of_range)}")
 
