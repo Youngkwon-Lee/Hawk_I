@@ -351,7 +351,7 @@ function ResultContent() {
     const isFinger = type === "finger_tapping" || type === "finger"  // hand_movement not implemented yet
 
     // Use real metrics from backend if available, otherwise fall back to mock
-    let metrics: MetricRow[] = isFinger ? FINGER_METRICS : GAIT_METRICS
+    let metrics: MetricRow[] = []
     if (analysisResult?.metrics) {
         if (isFinger && 'tapping_speed' in analysisResult.metrics) {
             metrics = convertFingerMetricsToRows(analysisResult.metrics as FingerTappingMetrics)
@@ -494,6 +494,22 @@ function ResultContent() {
             }] : [])
         ]} />}>
             <div className="space-y-6 pb-10">
+                {analysisResult?.validation_result?.checks?.metrics?.details?.cadence_disagreement && (
+                    <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm">
+                        <div className="flex items-center gap-2 font-semibold text-amber-800 dark:text-amber-300">
+                            <AlertTriangle className="h-4 w-4" />
+                            보행률 자동 추정값 검토 필요
+                        </div>
+                        <p className="mt-2 text-amber-900 dark:text-amber-200">
+                            서로 다른 보행 주기 추정 방식이 20% 넘게 불일치합니다.
+                            아래 측정값을 임상 판정에 사용하기 전 실제 발 접촉 프레임을 수동 확인하세요.
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            비교용 발목 주기 추정: {analysisResult.validation_result.checks.metrics.details.cadence_periodicity_reference_spm?.toFixed(1) ?? "확인 불가"} steps/min
+                            (검증된 정답이 아닌 QA 참고값)
+                        </p>
+                    </div>
+                )}
                 {/* Header */}
                 <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
                     <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -904,7 +920,7 @@ function ResultContent() {
                                     <CardDescription>현재 영상에서 추출된 수치입니다. 최종 임상 평가는 담당자가 확인합니다.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-0">
-                                    <MetricsTable data={metrics} />
+                                    {metrics.length > 0 ? <MetricsTable data={metrics} /> : <p className="px-5 py-4 text-sm text-muted-foreground">이 영상에서 산출된 측정값이 없습니다. 예시값은 표시하지 않습니다.</p>}
                                 </CardContent>
                             </Card>
                         </div>
@@ -1022,7 +1038,7 @@ function ResultContent() {
                                     <CardDescription>화면 요약에 사용된 자동 추출 수치를 단위와 참조 범위로 확인합니다.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-0">
-                                    <MetricsTable data={metrics} />
+                                    {metrics.length > 0 ? <MetricsTable data={metrics} /> : <p className="px-5 py-4 text-sm text-muted-foreground">이 영상에서 산출된 측정값이 없습니다. 예시값은 표시하지 않습니다.</p>}
                                 </CardContent>
                             </Card>
                             <Card>

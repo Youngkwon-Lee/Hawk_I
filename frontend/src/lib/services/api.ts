@@ -122,6 +122,22 @@ export interface AnalysisResult {
     total_frames: number
   }
   metrics?: FingerTappingMetrics | GaitMetrics | null
+  validation_result?: {
+    is_valid?: boolean
+    quality_score?: number
+    warnings?: string[]
+    issues?: string[]
+    checks?: {
+      metrics?: {
+        warnings?: string[]
+        details?: {
+          cadence_disagreement?: boolean
+          cadence_periodicity_reference_spm?: number
+          cadence_reference_type?: string
+        }
+      }
+    }
+  } | null
   skeleton_data?: {
     total_frames: number
     detection_rate: number
