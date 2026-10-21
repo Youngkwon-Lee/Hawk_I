@@ -44,22 +44,6 @@ import { SOAPNote } from "@/components/dashboard/SOAPNote"
 
 const DEBUG_LOGS = process.env.NODE_ENV !== "production"
 
-// Mock Data - Gait (PD4T 기준)
-const GAIT_METRICS: MetricRow[] = [
-    { label: "보행 속도", value: "0.75 m/s", unit: "", change: "-2%", status: "good", normalRange: "0.55-0.95" },
-    { label: "보행률 (Cadence)", value: "140", unit: "steps/min", change: "+1%", status: "good", normalRange: "120-160" },
-    { label: "보폭 길이", value: "0.33", unit: "(정규화)", change: "-8%", status: "good", normalRange: "0.25-0.45" },
-    { label: "팔 흔들기 비대칭", value: "12", unit: "%", change: "+5%", status: "good", normalRange: "<20" },
-]
-
-// Mock Data - Finger
-const FINGER_METRICS: MetricRow[] = [
-    { label: "태핑 속도", value: "3.2 Hz", unit: "", change: "-5%", status: "warning", normalRange: "3.0-6.0" },
-    { label: "진폭 (Amplitude)", value: "4.5 cm", unit: "", change: "-10%", status: "bad", normalRange: ">0.8" },
-    { label: "주저함", value: "3", unit: "회", change: "+1", status: "warning", normalRange: "≤2" },
-    { label: "피로율", value: "12", unit: "%", change: "+3%", status: "bad", normalRange: "<20" },
-]
-
 function getPerformabilityPresentation(assessment: FingerPerformabilityAssessment) {
     switch (assessment.status) {
         case "performable":
