@@ -53,3 +53,18 @@ def test_validation_flags_cadence_disagreement_without_rewriting_measurement():
     assert 108 <= result["details"]["cadence_periodicity_reference_spm"] <= 118
     assert any("manual review required" in warning for warning in result["warnings"])
     assert ctx.kinematic_metrics["cadence"] == 182.0
+
+def test_validation_respects_skipped_frame_sampling():
+    from agents.validation_agent import ValidationAgent
+    from domain.context import AnalysisContext
+
+    # A 60 FPS source with every third frame retained is 20 FPS data.
+    ctx = AnalysisContext(video_path="synthetic.mp4")
+    ctx.task_type = "gait"
+    ctx.vision_meta = {"fps": 60, "frame_skip": 3, "frame_count": 240}
+    ctx.skeleton_data = {"landmarks": _frames(fps=20)}
+    ctx.kinematic_metrics = {"cadence": 182.0, "stride_length": 0.25}
+    result = ValidationAgent()._validate_metrics(ctx)
+    ref = result["details"]["cadence_periodicity_reference_spm"]
+    assert 108 <= ref <= 118
+    assert result["details"]["cadence_disagreement"] is True

@@ -332,8 +332,13 @@ class ValidationAgent(BaseAgent):
         if task_type == 'gait':
             from services.gait_quality import periodicity_cadence_reference
             frames = (ctx.skeleton_data or {}).get('landmarks', [])
-            fps = (ctx.vision_meta or {}).get('fps', 0)
-            reference = periodicity_cadence_reference(frames, fps)
+            meta = ctx.vision_meta or {}
+            fps = meta.get('fps', 0)
+            frame_skip = max(1, meta.get('frame_skip', 1))
+            # The reference consumes only frames retained by the pose extractor.
+            # Its sample spacing is frame_skip / source_fps, not 1 / source_fps.
+            effective_fps = fps / frame_skip
+            reference = periodicity_cadence_reference(frames, effective_fps)
             if reference is not None:
                 result['details']['cadence_periodicity_reference_spm'] = reference
                 result['details']['cadence_reference_type'] = 'ankle_periodicity_heuristic_not_ground_truth'
