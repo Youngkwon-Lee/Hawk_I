@@ -200,6 +200,8 @@ class ValidationAgent(BaseAgent):
             return result
 
         total_frames = ctx.vision_meta.get('frame_count', len(landmarks)) if ctx.vision_meta else len(landmarks)
+        frame_skip = max(1, (ctx.vision_meta or {}).get('frame_skip', 1))
+        total_frames = (total_frames + frame_skip - 1) // frame_skip
 
         # Frame coverage
         frame_coverage = len(landmarks) / max(total_frames, 1)

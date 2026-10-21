@@ -130,6 +130,7 @@ class VisionAgent(BaseAgent):
 
             # Frame skip for high FPS videos (60fps -> ~20fps processing)
             frame_skip = 3 if video_fps > 35 else 1
+            ctx.vision_meta["frame_skip"] = frame_skip
 
             self._log(f"Processing: {resize_width}px, fps={video_fps:.0f}, skip={frame_skip}, no_video={skip_video}")
 

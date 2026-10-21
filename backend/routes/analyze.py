@@ -494,7 +494,14 @@ def process_video_background(
             "validation_result": ctx.validation_result,
             "skeleton_data": {
                 "total_frames": len(landmarks),
-                "detection_rate": min(1.0, len(landmarks) / max(1, ctx.vision_meta.get("frame_count", 0))),
+                "detection_rate": min(
+                    1.0,
+                    len(landmarks) / max(
+                        1,
+                        (ctx.vision_meta.get("frame_count", 0) + max(1, ctx.vision_meta.get("frame_skip", 1)) - 1)
+                        // max(1, ctx.vision_meta.get("frame_skip", 1)),
+                    ),
+                ),
                 "mode": "pose" if ctx.task_type in ["gait", "leg_agility"] else "hand",
                 "skeleton_video_url": skeleton_video_url,
                 "original_video_url": original_video_url,  # For canvas overlay mode
