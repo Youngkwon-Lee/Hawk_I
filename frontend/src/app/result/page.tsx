@@ -468,7 +468,9 @@ function ResultContent() {
             {
                 id: "1",
                 role: "agent",
-                content: `${title} 결과입니다. UPDRS 점수는 ${score}점으로 ${severityKorean}을 나타냅니다.`,
+                content: score === "N/A"
+                    ? `${title}의 연구용 결과입니다. 자동 추정 점수가 없으며 임상 평가로 사용할 수 없습니다.`
+                    : `${title}의 자동 연구 추정 점수는 ${score}/4입니다. 임상 중증도 판정이나 진단 결과가 아닙니다.`,
                 timestamp: new Date()
             },
             ...(analysisResult?.ai_interpretation?.summary ? [{
@@ -493,6 +495,11 @@ function ResultContent() {
                             비교용 발목 주기 추정: {analysisResult.validation_result.checks.metrics.details.cadence_periodicity_reference_spm?.toFixed(1) ?? "확인 불가"} steps/min
                             (검증된 정답이 아닌 QA 참고값)
                         </p>
+                    </div>
+                )}
+                {!isFinger && analysisResult && !analysisResult.validation_result && (
+                    <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm text-amber-900 dark:text-amber-200">
+                        이 기록에는 보행 지표 품질 검증 결과가 없습니다. 보행률·보폭·속도는 검증되지 않은 자동 추정치이며, 불일치가 없는 것으로 해석할 수 없습니다.
                     </div>
                 )}
                 {/* Header */}
@@ -552,6 +559,33 @@ function ResultContent() {
                     </div>
                 </div>
 
+                {!isFinger && analysisResult && (
+                    <section aria-label="분석 출처 및 영상 품질 정보" className="rounded-xl border border-border bg-card px-5 py-4 space-y-2 text-sm">
+                        <h2 className="font-semibold">결과 출처 및 영상 품질 · 연구용 데모</h2>
+                        <p><strong>점수 출처:</strong> {isFinetunedVlm
+                            ? `파인튜닝 VLM 예측 (${analysisResult.ml_model_type || "모델명 미확인"})`
+                            : `기존 분석 파이프라인 자동 추정 (${scoringMethod})`}. 실제 질환 여부나 임상 중증도를 입증하지 않습니다.</p>
+                        <p><strong>보행 지표 출처:</strong> MediaPipe 관절 추적·규칙 기반 계산 (VLM 점수와 별도). 보행률·속도·보폭의 임상 정확도는 검증되지 않았습니다.</p>
+                        <p><strong>영상 메타데이터:</strong> {analysisResult.video_metadata?.width > 0 &&
+                            analysisResult.video_metadata?.height > 0 && analysisResult.video_metadata?.duration > 0 && analysisResult.video_metadata?.fps > 0
+                            ? `${analysisResult.video_metadata.width} × ${analysisResult.video_metadata.height}, ${analysisResult.video_metadata.duration.toFixed(2)}초, ${analysisResult.video_metadata.fps.toFixed(2)} fps`
+                            : "신뢰 가능한 원본 영상 메타데이터 없음 (기존 0값은 미확인)"}</p>
+                        <p><strong>관절 프레임 검출률:</strong> {skeletonData && skeletonData.total_frames > 0 && skeletonData.detection_rate === 0
+                            ? "기록 충돌: 관절 추적 프레임이 있지만 검출률이 0%로 기록됨"
+                            : typeof skeletonData?.detection_rate === "number" && Number.isFinite(skeletonData.detection_rate) &&
+                                skeletonData.detection_rate >= 0 && skeletonData.detection_rate <= 1
+                                ? `${(skeletonData.detection_rate * 100).toFixed(1)}% (샘플링 프레임 기준)`
+                                : "확인 불가"}. 관절 검출률은 임상 측정 정확도를 뜻하지 않습니다.</p>
+                        {analysisResult.validation_result?.warnings && analysisResult.validation_result.warnings.length > 0 && (
+                            <details className="text-amber-800 dark:text-amber-300">
+                                <summary className="cursor-pointer">추가 데이터 품질 경고 {analysisResult.validation_result.warnings.length}건</summary>
+                                <ul className="mt-2 list-disc pl-5">
+                                    {analysisResult.validation_result.warnings.map((warning, i) => <li key={i}>{warning}</li>)}
+                                </ul>
+                            </details>
+                        )}
+                    </section>
+                )}
                 {/* Summary Section */}
                 <div className="grid gap-4 md:grid-cols-4">
                     <div className="md:col-span-1">
