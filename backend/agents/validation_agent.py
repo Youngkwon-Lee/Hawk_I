@@ -200,6 +200,8 @@ class ValidationAgent(BaseAgent):
             return result
 
         total_frames = ctx.vision_meta.get('frame_count', len(landmarks)) if ctx.vision_meta else len(landmarks)
+        frame_skip = max(1, (ctx.vision_meta or {}).get('frame_skip', 1))
+        total_frames = (total_frames + frame_skip - 1) // frame_skip
 
         # Frame coverage
         frame_coverage = len(landmarks) / max(total_frames, 1)
@@ -326,6 +328,27 @@ class ValidationAgent(BaseAgent):
             stride = metrics.get('stride_length', 0)
             if stride < thresholds.get('stride_length_min', 0) or stride > thresholds.get('stride_length_max', 3):
                 out_of_range.append(f"stride={stride:.2f}m")
+
+        if task_type == 'gait':
+            from services.gait_quality import periodicity_cadence_reference
+            frames = (ctx.skeleton_data or {}).get('landmarks', [])
+            meta = ctx.vision_meta or {}
+            fps = meta.get('fps', 0)
+            frame_skip = max(1, meta.get('frame_skip', 1))
+            # The reference consumes only frames retained by the pose extractor.
+            # Its sample spacing is frame_skip / source_fps, not 1 / source_fps.
+            effective_fps = fps / frame_skip
+            reference = periodicity_cadence_reference(frames, effective_fps)
+            if reference is not None:
+                result['details']['cadence_periodicity_reference_spm'] = reference
+                result['details']['cadence_reference_type'] = 'ankle_periodicity_heuristic_not_ground_truth'
+                cadence = metrics.get('cadence')
+                if cadence is not None and abs(cadence - reference) / reference > 0.20:
+                    result['warnings'].append(
+                        f"Cadence disagreement: heel-strike estimate {cadence:.1f} vs "
+                        f"ankle-periodicity reference {reference:.1f} steps/min; manual review required"
+                    )
+                    result['details']['cadence_disagreement'] = True
 
         if out_of_range:
             result['warnings'].append(f"Metrics out of range: {', '.join(out_of_range)}")

@@ -191,7 +191,7 @@ def test_finetuned_score_becomes_primary_and_rule_score_is_retained():
         "summary": "규칙 기반 분석은 중간 정도의 보행 변화를 추정했습니다.",
     }
     assert response["ai_interpretation"]["summary"] == (
-        "미세조정 모델은 이번 보행의 UPDRS 3.10 점수를 0점(Normal)으로 추정했습니다."
+        "파인튜닝 VLM은 이 영상의 UPDRS 3.10 연구용 점수를 0/4로 자동 예측했습니다. 임상 판정이나 진단 결과가 아닙니다."
     )
     assert "hawkeye-c0b-seed42" in response["ai_interpretation"]["explanation"]
     assert "중간 정도" not in response["ai_interpretation"]["summary"]

@@ -44,22 +44,6 @@ import { SOAPNote } from "@/components/dashboard/SOAPNote"
 
 const DEBUG_LOGS = process.env.NODE_ENV !== "production"
 
-// Mock Data - Gait (PD4T 기준)
-const GAIT_METRICS: MetricRow[] = [
-    { label: "보행 속도", value: "0.75 m/s", unit: "", change: "-2%", status: "good", normalRange: "0.55-0.95" },
-    { label: "보행률 (Cadence)", value: "140", unit: "steps/min", change: "+1%", status: "good", normalRange: "120-160" },
-    { label: "보폭 길이", value: "0.33", unit: "(정규화)", change: "-8%", status: "good", normalRange: "0.25-0.45" },
-    { label: "팔 흔들기 비대칭", value: "12", unit: "%", change: "+5%", status: "good", normalRange: "<20" },
-]
-
-// Mock Data - Finger
-const FINGER_METRICS: MetricRow[] = [
-    { label: "태핑 속도", value: "3.2 Hz", unit: "", change: "-5%", status: "warning", normalRange: "3.0-6.0" },
-    { label: "진폭 (Amplitude)", value: "4.5 cm", unit: "", change: "-10%", status: "bad", normalRange: ">0.8" },
-    { label: "주저함", value: "3", unit: "회", change: "+1", status: "warning", normalRange: "≤2" },
-    { label: "피로율", value: "12", unit: "%", change: "+3%", status: "bad", normalRange: "<20" },
-]
-
 function getPerformabilityPresentation(assessment: FingerPerformabilityAssessment) {
     switch (assessment.status) {
         case "performable":
@@ -190,65 +174,12 @@ function convertFingerMetricsToRows(metrics: FingerTappingMetrics): MetricRow[] 
 }
 
 function convertGaitMetricsToRows(metrics: GaitMetrics): MetricRow[] {
-    // Status based on PD4T dataset (Score 0 = normal)
-    // walking_speed: 0.76 ± 0.13, cadence: 140 ± 11, stride_length: 0.33 ± 0.05
-    const getSpeedStatus = (speed: number) => {
-        // PD4T normal: 0.76 ± 0.13 (range ~0.55-0.95)
-        if (speed >= 0.55 && speed <= 0.95) return "good"
-        if (speed >= 0.40 && speed < 0.55) return "warning"
-        return "bad"
-    }
-
-    const getCadenceStatus = (cadence: number) => {
-        // PD4T normal: 140 ± 11 (range ~120-160)
-        if (cadence >= 120 && cadence <= 160) return "good"
-        if ((cadence >= 100 && cadence < 120) || (cadence > 160 && cadence <= 180)) return "warning"
-        return "bad"
-    }
-
-    const getStrideLengthStatus = (stride: number) => {
-        // PD4T normal: 0.33 ± 0.05 (range ~0.25-0.45) - normalized units
-        if (stride >= 0.25 && stride <= 0.45) return "good"
-        if ((stride >= 0.18 && stride < 0.25) || (stride > 0.45 && stride <= 0.55)) return "warning"
-        return "bad"
-    }
-
-    const getAsymmetryStatus = (asymmetry: number) => {
-        // PD4T normal: 11.7 ± 8.4
-        if (asymmetry < 20) return "good"
-        if (asymmetry < 35) return "warning"
-        return "bad"
-    }
-
+    // Research-only pose/rule estimates: no unvalidated clinical status classification.
     return [
-        {
-            label: "보행 속도",
-            value: metrics.walking_speed.toFixed(2),
-            unit: "m/s",
-            normalRange: "0.55-0.95",
-            status: getSpeedStatus(metrics.walking_speed)
-        },
-        {
-            label: "보행률 (Cadence)",
-            value: metrics.cadence.toFixed(0),
-            unit: "steps/min",
-            normalRange: "120-160",
-            status: getCadenceStatus(metrics.cadence)
-        },
-        {
-            label: "보폭 길이",
-            value: metrics.stride_length.toFixed(2),
-            unit: "(정규화)",
-            normalRange: "0.25-0.45",
-            status: getStrideLengthStatus(metrics.stride_length)
-        },
-        {
-            label: "팔 흔들기 비대칭",
-            value: metrics.arm_swing_asymmetry.toFixed(1),
-            unit: "%",
-            normalRange: "<20",
-            status: getAsymmetryStatus(metrics.arm_swing_asymmetry)
-        },
+        { label: "보행 속도 (자동 추정)", value: metrics.walking_speed.toFixed(2), unit: "m/s", status: "neutral" },
+        { label: "보행률 (자동 추정)", value: metrics.cadence.toFixed(1), unit: "steps/min", status: "neutral" },
+        { label: "보폭 길이 (자동 추정)", value: metrics.stride_length.toFixed(2), unit: "m", status: "neutral" },
+        { label: "팔 흔들기 비대칭 (자동 추정)", value: metrics.arm_swing_asymmetry.toFixed(1), unit: "%", status: "neutral" },
     ]
 }
 
@@ -351,7 +282,7 @@ function ResultContent() {
     const isFinger = type === "finger_tapping" || type === "finger"  // hand_movement not implemented yet
 
     // Use real metrics from backend if available, otherwise fall back to mock
-    let metrics: MetricRow[] = isFinger ? FINGER_METRICS : GAIT_METRICS
+    let metrics: MetricRow[] = []
     if (analysisResult?.metrics) {
         if (isFinger && 'tapping_speed' in analysisResult.metrics) {
             metrics = convertFingerMetricsToRows(analysisResult.metrics as FingerTappingMetrics)
@@ -377,7 +308,9 @@ function ResultContent() {
     const severity = analysisResult?.updrs_score?.severity || "Unknown"
 
     // Get individual scoring method results (Rule, ML, Ensemble)
-    const scoringMethod = analysisResult?.updrs_score?.method || "rule"
+    const scoringMethod = analysisResult?.updrs_score?.method || analysisResult?.scoring_method || "unknown"
+    const isFinetunedVlm = scoringMethod === "finetuned_vlm"
+    const isPublicStockDemo = /^mixkit_?4855(?:_|$)/i.test(analysisResult?.id || searchParams.get("analysisId") || "")
     const ruleScore = analysisResult?.updrs_score?.details?.rule
     const mlScore = analysisResult?.updrs_score?.details?.ml
     const confidence = analysisResult?.updrs_score?.confidence
@@ -483,10 +416,12 @@ function ResultContent() {
             {
                 id: "1",
                 role: "agent",
-                content: `${title} 결과입니다. UPDRS 점수는 ${score}점으로 ${severityKorean}을 나타냅니다.`,
+                content: score === "N/A"
+                    ? `${title}의 연구용 결과입니다. 자동 추정 점수가 없으며 임상 평가로 사용할 수 없습니다.`
+                    : `${title}의 자동 연구 추정 점수는 ${score}/4입니다. 임상 중증도 판정이나 진단 결과가 아닙니다.`,
                 timestamp: new Date()
             },
-            ...(analysisResult?.ai_interpretation?.summary ? [{
+            ...(analysisResult?.ai_interpretation?.summary && !isPublicStockDemo ? [{
                 id: "2",
                 role: "agent" as const,
                 content: analysisResult.ai_interpretation.summary,
@@ -494,12 +429,33 @@ function ResultContent() {
             }] : [])
         ]} />}>
             <div className="space-y-6 pb-10">
+                {analysisResult?.validation_result?.checks?.metrics?.details?.cadence_disagreement && (
+                    <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm">
+                        <div className="flex items-center gap-2 font-semibold text-amber-800 dark:text-amber-300">
+                            <AlertTriangle className="h-4 w-4" />
+                            보행률 자동 추정값 검토 필요
+                        </div>
+                        <p className="mt-2 text-amber-900 dark:text-amber-200">
+                            서로 다른 보행 주기 추정 방식이 20% 넘게 불일치합니다.
+                            수동 접촉 라벨 검증 전 이 보행률을 임상적 판정에 사용하지 마세요.
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            비교용 발목 주기 추정: {analysisResult.validation_result.checks.metrics.details.cadence_periodicity_reference_spm?.toFixed(1) ?? "확인 불가"} steps/min
+                            (검증된 정답이 아닌 QA 참고값)
+                        </p>
+                    </div>
+                )}
+                {!isFinger && analysisResult && !analysisResult.validation_result && (
+                    <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm text-amber-900 dark:text-amber-200">
+                        이 기록에는 보행 지표 품질 검증 결과가 없습니다. 보행률·보폭·속도는 검증되지 않은 자동 추정치이며, 불일치가 없는 것으로 해석할 수 없습니다.
+                    </div>
+                )}
                 {/* Header */}
                 <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
                     <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                         <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">연구용 분석 기록</span>
+                                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">연구용 데모 · 임상 미검증</span>
                                 <span className="text-xs text-muted-foreground">전문의 검토 후 기록에 반영</span>
                             </div>
                             <h1 className="mt-3 text-2xl font-semibold tracking-tight md:text-3xl">{title} 검토</h1>
@@ -551,19 +507,42 @@ function ResultContent() {
                     </div>
                 </div>
 
+                {!isFinger && analysisResult && (
+                    <section aria-label="분석 출처 및 영상 품질 정보" className="rounded-xl border border-border bg-card px-5 py-4 space-y-2 text-sm">
+                        <h2 className="font-semibold">결과 출처 및 영상 품질 · 연구용 데모</h2>
+                        {isPublicStockDemo && <p className="font-medium">Mixkit #4855 공개 스톡 영상이며 영상 속 인물은 임상 연구 대상자가 아닙니다. 출력된 점수와 보행 수치의 임상 정확도는 확인되지 않았습니다.</p>}
+                        <p><strong>점수 출처:</strong> {isFinetunedVlm
+                            ? `파인튜닝 VLM 예측 (${analysisResult.ml_model_type || "모델명 미확인"})`
+                            : `기존 분석 파이프라인 자동 추정 (${scoringMethod})`}. 실제 질환 여부나 임상 중증도를 입증하지 않습니다.</p>
+                        <p><strong>보행 지표 출처:</strong> MediaPipe 관절 추적·규칙 기반 계산 (VLM 점수와 별도). 보행률·속도·보폭의 임상 정확도는 검증되지 않았습니다.</p>
+                        <p><strong>영상 메타데이터:</strong> {analysisResult.video_metadata?.width > 0 &&
+                            analysisResult.video_metadata?.height > 0 && analysisResult.video_metadata?.duration > 0 && analysisResult.video_metadata?.fps > 0
+                            ? `${analysisResult.video_metadata.width} × ${analysisResult.video_metadata.height}, ${analysisResult.video_metadata.duration.toFixed(2)}초, ${analysisResult.video_metadata.fps.toFixed(2)} fps`
+                            : "신뢰 가능한 원본 영상 메타데이터 없음 (기존 0값은 미확인)"}</p>
+                        <p><strong>관절 프레임 검출률:</strong> {skeletonData && skeletonData.total_frames > 0 && skeletonData.detection_rate === 0
+                            ? "기록 충돌: 관절 추적 프레임이 있지만 검출률이 0%로 기록됨"
+                            : typeof skeletonData?.detection_rate === "number" && Number.isFinite(skeletonData.detection_rate) &&
+                                skeletonData.detection_rate >= 0 && skeletonData.detection_rate <= 1
+                                ? `${(skeletonData.detection_rate * 100).toFixed(1)}% (샘플링 프레임 기준)`
+                                : "확인 불가"}. 관절 검출률은 임상 측정 정확도를 뜻하지 않습니다.</p>
+                        {analysisResult.validation_result?.warnings && analysisResult.validation_result.warnings.length > 0 && (
+                            <details className="text-amber-800 dark:text-amber-300">
+                                <summary className="cursor-pointer">추가 데이터 품질 경고 {analysisResult.validation_result.warnings.length}건</summary>
+                                <ul className="mt-2 list-disc pl-5">
+                                    {analysisResult.validation_result.warnings.map((warning, i) => <li key={i}>{warning}</li>)}
+                                </ul>
+                            </details>
+                        )}
+                    </section>
+                )}
                 {/* Summary Section */}
                 <div className="grid gap-4 md:grid-cols-4">
                     <div className="md:col-span-1">
                         <SummaryCard
-                            title="연구 추정 점수"
+                            title={isFinetunedVlm ? "파인튜닝 VLM 예측 점수" : "기존 파이프라인 추정 점수"}
                             value={score}
-                            subtext={`UPDRS (0-4) · ${severityKorean}`}
-                            status={
-                                severity === "Normal" ? "good" :
-                                    severity === "Slight" ? "neutral" :
-                                        severity === "Mild" ? "warning" :
-                                            "bad"
-                            }
+                            subtext="UPDRS 3.10 연구용 추정 (0–4) · 임상 미검증"
+                            status="neutral"
                         />
                         {scoringMethod === "ensemble" && ruleScore !== undefined && mlScore !== undefined && (
                             <button
@@ -599,18 +578,18 @@ function ResultContent() {
                     ) : !isFinger && analysisResult?.metrics && 'walking_speed' in analysisResult.metrics ? (
                         <>
                             <SummaryCard
-                                title="보폭 길이"
+                                title="추정 보폭 길이"
                                 value={`${analysisResult.metrics.stride_length.toFixed(2)}m`}
                                 className="md:col-span-1"
                             />
                             <SummaryCard
-                                title="보행 속도"
+                                title="추정 보행 속도"
                                 value={`${analysisResult.metrics.walking_speed.toFixed(2)} m/s`}
                                 subtext={`총 ${analysisResult.metrics.step_count}걸음`}
                                 className="md:col-span-1"
                             />
                             <SummaryCard
-                                title="보행률"
+                                title="추정 보행률"
                                 value={`${analysisResult.metrics.cadence.toFixed(0)}`}
                                 subtext="steps/min"
                                 className="md:col-span-1"
@@ -791,16 +770,11 @@ function ResultContent() {
                             warnings.push("후반부 피로 징후가 감지되었습니다.");
                         }
                     } else {
-                        // Gait warnings (PD4T 기준)
-                        const gaitMetrics = analysisResult?.metrics as { walking_speed?: number; cadence?: number; arm_swing_asymmetry?: number } | undefined;
-                        if (gaitMetrics?.walking_speed && gaitMetrics.walking_speed < 0.55) {
-                            warnings.push(`보행 속도가 ${gaitMetrics.walking_speed.toFixed(2)} m/s로 정상 범위(0.55-0.95)보다 낮습니다.`);
-                        }
-                        if (gaitMetrics?.cadence && gaitMetrics.cadence < 120) {
-                            warnings.push(`보행률이 ${Math.round(gaitMetrics.cadence)} steps/min으로 정상 범위(120-160)보다 낮습니다.`);
-                        }
-                        if (gaitMetrics?.arm_swing_asymmetry && gaitMetrics.arm_swing_asymmetry > 20) {
-                            warnings.push(`팔 흔들기 비대칭이 ${gaitMetrics.arm_swing_asymmetry.toFixed(1)}%로 기준치(20%)를 초과합니다.`);
+                        // Only explicit algorithm QA warnings are shown; these are not clinical normal ranges.
+                        for (const warning of analysisResult?.validation_result?.warnings ?? []) {
+                            if (!warning.includes("Cadence disagreement")) {
+                                warnings.push("알고리즘 QA(임상 판정 아님): " + warning)
+                            }
                         }
                     }
 
@@ -901,10 +875,10 @@ function ResultContent() {
                             <Card className="h-full">
                                 <CardHeader>
                                     <CardTitle className="text-lg">핵심 측정값</CardTitle>
-                                    <CardDescription>현재 영상에서 추출된 수치입니다. 최종 임상 평가는 담당자가 확인합니다.</CardDescription>
+                                    <CardDescription>MediaPipe 관절 추적·규칙 기반 자동 추정치로 VLM 점수와 구분됩니다. 임상 정확도는 검증되지 않았습니다.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-0">
-                                    <MetricsTable data={metrics} />
+                                    {metrics.length > 0 ? <MetricsTable data={metrics} showClinicalColumns={isFinger} /> : <p className="px-5 py-4 text-sm text-muted-foreground">이 영상에서 산출된 측정값이 없습니다. 예시값은 표시하지 않습니다.</p>}
                                 </CardContent>
                             </Card>
                         </div>
@@ -954,7 +928,7 @@ function ResultContent() {
                                         <p className="text-sm text-muted-foreground">
                                             {isFinger
                                                 ? "손 관절(엄지, 검지)에 집중 분석. 떨림 분석 포함."
-                                                : "하체 관절(엉덩이, 무릎, 발목)에 집중 분석. 상체 흔들림은 정상 범위 내."
+                                                : "하체 관절(엉덩이, 무릎, 발목)에 집중 분석. 상체 움직임도 자동 추정 항목이며 정상 여부는 판정하지 않습니다."
                                             }
                                         </p>
                                     </CardContent>
@@ -1019,10 +993,10 @@ function ResultContent() {
                             <Card>
                                 <CardHeader>
                                     <CardTitle className="text-lg">추출 측정값</CardTitle>
-                                    <CardDescription>화면 요약에 사용된 자동 추출 수치를 단위와 참조 범위로 확인합니다.</CardDescription>
+                                    <CardDescription>규칙 기반 자동 추정치를 표시합니다. 참조 범위는 임상 판정 기준이나 정확도 검증을 의미하지 않습니다.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-0">
-                                    <MetricsTable data={metrics} />
+                                    {metrics.length > 0 ? <MetricsTable data={metrics} showClinicalColumns={isFinger} /> : <p className="px-5 py-4 text-sm text-muted-foreground">이 영상에서 산출된 측정값이 없습니다. 예시값은 표시하지 않습니다.</p>}
                                 </CardContent>
                             </Card>
                             <Card>
@@ -1239,9 +1213,9 @@ function ResultContent() {
                     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr] animate-in fade-in slide-in-from-bottom-2">
                         {analysisResult?.ai_interpretation ? (
                             <AIInterpretation
-                                summary={analysisResult.ai_interpretation.summary}
-                                explanation={analysisResult.ai_interpretation.explanation}
-                                recommendations={analysisResult.ai_interpretation.recommendations}
+                                summary={isPublicStockDemo ? (isFinetunedVlm ? "파인튜닝 VLM" : "자동 분석") + " 점수 " + score + "점 출력. 공개 스톡 영상으로 질환이나 정상 여부를 판단한 결과가 아닙니다." : analysisResult.ai_interpretation.summary}
+                                explanation={isPublicStockDemo ? "VLM 점수와 보행 수치는 별도 계산되며 모두 임상적 정답 검증 전 연구용 출력입니다." : analysisResult.ai_interpretation.explanation}
+                                recommendations={isPublicStockDemo ? [] : analysisResult.ai_interpretation.recommendations}
                                 defaultExpanded
                             />
                         ) : (

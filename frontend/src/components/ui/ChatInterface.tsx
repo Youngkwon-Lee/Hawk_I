@@ -181,7 +181,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                 {hasContext && (
                     <div className="flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded-full text-xs">
                         <Database className="h-3 w-3" aria-hidden="true" />
-                        <span>환자 데이터 연동</span>
+                        <span>{analysisResult?.physio_context?.subject_person_id ? "연결된 대상자 기록" : "연구용 분석 결과"}</span>
                     </div>
                 )}
             </div>
@@ -193,7 +193,7 @@ export function ChatInterface({ initialMessages = [], className }: ChatInterface
                     {analysisResult?.video_type === "finger_tapping" ? "손가락 태핑" :
                      analysisResult?.video_type === "gait" ? "보행 분석" : analysisResult?.video_type}
                     {analysisResult?.updrs_score && (
-                        <span> • UPDRS: {updrsScore ?? "N/A"}점 ({analysisResult.updrs_score.severity})</span>
+                        <span> • UPDRS 형식 자동 출력: {updrsScore ?? "N/A"}점 · {analysisResult.updrs_score.method === "finetuned_vlm" ? "VLM 모델 예측" : "자동 추정"} · 임상 미검증</span>
                     )}
                     {analysisResult?.performability_assessment && (
                         <span> • 수행성: {analysisResult.performability_assessment.status}</span>
