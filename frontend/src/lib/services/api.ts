@@ -122,6 +122,8 @@ export interface AnalysisResult {
     total_frames: number
   }
   metrics?: FingerTappingMetrics | GaitMetrics | null
+  scoring_method?: string | null
+  ml_model_type?: string | null
   validation_result?: {
     is_valid?: boolean
     quality_score?: number
