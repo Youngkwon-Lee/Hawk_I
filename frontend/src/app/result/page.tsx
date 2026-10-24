@@ -361,7 +361,8 @@ function ResultContent() {
     const severity = analysisResult?.updrs_score?.severity || "Unknown"
 
     // Get individual scoring method results (Rule, ML, Ensemble)
-    const scoringMethod = analysisResult?.updrs_score?.method || "rule"
+    const scoringMethod = analysisResult?.updrs_score?.method || analysisResult?.scoring_method || "unknown"
+    const isFinetunedVlm = scoringMethod === "finetuned_vlm"
     const ruleScore = analysisResult?.updrs_score?.details?.rule
     const mlScore = analysisResult?.updrs_score?.details?.ml
     const confidence = analysisResult?.updrs_score?.confidence
@@ -486,7 +487,7 @@ function ResultContent() {
                         </div>
                         <p className="mt-2 text-amber-900 dark:text-amber-200">
                             서로 다른 보행 주기 추정 방식이 20% 넘게 불일치합니다.
-                            아래 측정값을 임상 판정에 사용하기 전 실제 발 접촉 프레임을 수동 확인하세요.
+                            수동 접촉 라벨 검증 전 이 보행률을 임상적 판정에 사용하지 마세요.
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                             비교용 발목 주기 추정: {analysisResult.validation_result.checks.metrics.details.cadence_periodicity_reference_spm?.toFixed(1) ?? "확인 불가"} steps/min
@@ -499,7 +500,7 @@ function ResultContent() {
                     <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                         <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">연구용 분석 기록</span>
+                                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">연구용 데모 · 임상 미검증</span>
                                 <span className="text-xs text-muted-foreground">전문의 검토 후 기록에 반영</span>
                             </div>
                             <h1 className="mt-3 text-2xl font-semibold tracking-tight md:text-3xl">{title} 검토</h1>
@@ -555,15 +556,10 @@ function ResultContent() {
                 <div className="grid gap-4 md:grid-cols-4">
                     <div className="md:col-span-1">
                         <SummaryCard
-                            title="연구 추정 점수"
+                            title={isFinetunedVlm ? "파인튜닝 VLM 예측 점수" : "기존 파이프라인 추정 점수"}
                             value={score}
-                            subtext={`UPDRS (0-4) · ${severityKorean}`}
-                            status={
-                                severity === "Normal" ? "good" :
-                                    severity === "Slight" ? "neutral" :
-                                        severity === "Mild" ? "warning" :
-                                            "bad"
-                            }
+                            subtext="UPDRS 3.10 연구용 추정 (0–4) · 임상 미검증"
+                            status="neutral"
                         />
                         {scoringMethod === "ensemble" && ruleScore !== undefined && mlScore !== undefined && (
                             <button
@@ -599,18 +595,18 @@ function ResultContent() {
                     ) : !isFinger && analysisResult?.metrics && 'walking_speed' in analysisResult.metrics ? (
                         <>
                             <SummaryCard
-                                title="보폭 길이"
+                                title="추정 보폭 길이"
                                 value={`${analysisResult.metrics.stride_length.toFixed(2)}m`}
                                 className="md:col-span-1"
                             />
                             <SummaryCard
-                                title="보행 속도"
+                                title="추정 보행 속도"
                                 value={`${analysisResult.metrics.walking_speed.toFixed(2)} m/s`}
                                 subtext={`총 ${analysisResult.metrics.step_count}걸음`}
                                 className="md:col-span-1"
                             />
                             <SummaryCard
-                                title="보행률"
+                                title="추정 보행률"
                                 value={`${analysisResult.metrics.cadence.toFixed(0)}`}
                                 subtext="steps/min"
                                 className="md:col-span-1"
@@ -901,7 +897,7 @@ function ResultContent() {
                             <Card className="h-full">
                                 <CardHeader>
                                     <CardTitle className="text-lg">핵심 측정값</CardTitle>
-                                    <CardDescription>현재 영상에서 추출된 수치입니다. 최종 임상 평가는 담당자가 확인합니다.</CardDescription>
+                                    <CardDescription>MediaPipe 관절 추적·규칙 기반 자동 추정치로 VLM 점수와 구분됩니다. 임상 정확도는 검증되지 않았습니다.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     {metrics.length > 0 ? <MetricsTable data={metrics} /> : <p className="px-5 py-4 text-sm text-muted-foreground">이 영상에서 산출된 측정값이 없습니다. 예시값은 표시하지 않습니다.</p>}
@@ -1019,7 +1015,7 @@ function ResultContent() {
                             <Card>
                                 <CardHeader>
                                     <CardTitle className="text-lg">추출 측정값</CardTitle>
-                                    <CardDescription>화면 요약에 사용된 자동 추출 수치를 단위와 참조 범위로 확인합니다.</CardDescription>
+                                    <CardDescription>규칙 기반 자동 추정치를 표시합니다. 참조 범위는 임상 판정 기준이나 정확도 검증을 의미하지 않습니다.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     {metrics.length > 0 ? <MetricsTable data={metrics} /> : <p className="px-5 py-4 text-sm text-muted-foreground">이 영상에서 산출된 측정값이 없습니다. 예시값은 표시하지 않습니다.</p>}
