@@ -310,7 +310,7 @@ function ResultContent() {
     // Get individual scoring method results (Rule, ML, Ensemble)
     const scoringMethod = analysisResult?.updrs_score?.method || analysisResult?.scoring_method || "unknown"
     const isFinetunedVlm = scoringMethod === "finetuned_vlm"
-    const isPublicStockDemo = (analysisResult?.id || searchParams.get("analysisId") || "").startsWith("mixkit4855_")
+    const isPublicStockDemo = /^mixkit_?4855(?:_|$)/i.test(analysisResult?.id || searchParams.get("analysisId") || "")
     const ruleScore = analysisResult?.updrs_score?.details?.rule
     const mlScore = analysisResult?.updrs_score?.details?.ml
     const confidence = analysisResult?.updrs_score?.confidence
