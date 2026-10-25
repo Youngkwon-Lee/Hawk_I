@@ -431,11 +431,11 @@ function ResultContent() {
             <div className="space-y-6 pb-10">
                 {analysisResult?.validation_result?.checks?.metrics?.details?.cadence_disagreement && (
                     <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm">
-                        <div className="flex items-center gap-2 font-semibold text-amber-800 dark:text-amber-300">
-                            <AlertTriangle className="h-4 w-4" />
+                        <div className="flex items-center gap-2 font-semibold text-foreground">
+                            <AlertTriangle className="h-4 w-4 text-amber-700 dark:text-amber-400" />
                             보행률 자동 추정값 검토 필요
                         </div>
-                        <p className="mt-2 text-amber-900 dark:text-amber-200">
+                        <p className="mt-2 font-medium text-foreground">
                             서로 다른 보행 주기 추정 방식이 20% 넘게 불일치합니다.
                             수동 접촉 라벨 검증 전 이 보행률을 임상적 판정에 사용하지 마세요.
                         </p>
@@ -446,7 +446,7 @@ function ResultContent() {
                     </div>
                 )}
                 {!isFinger && analysisResult && !analysisResult.validation_result && (
-                    <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm text-amber-900 dark:text-amber-200">
+                    <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm text-foreground">
                         이 기록에는 보행 지표 품질 검증 결과가 없습니다. 보행률·보폭·속도는 검증되지 않은 자동 추정치이며, 불일치가 없는 것으로 해석할 수 없습니다.
                     </div>
                 )}
@@ -526,7 +526,7 @@ function ResultContent() {
                                 ? `${(skeletonData.detection_rate * 100).toFixed(1)}% (샘플링 프레임 기준)`
                                 : "확인 불가"}. 관절 검출률은 임상 측정 정확도를 뜻하지 않습니다.</p>
                         {analysisResult.validation_result?.warnings && analysisResult.validation_result.warnings.length > 0 && (
-                            <details className="text-amber-800 dark:text-amber-300">
+                            <details className="text-foreground">
                                 <summary className="cursor-pointer">추가 데이터 품질 경고 {analysisResult.validation_result.warnings.length}건</summary>
                                 <ul className="mt-2 list-disc pl-5">
                                     {analysisResult.validation_result.warnings.map((warning, i) => <li key={i}>{warning}</li>)}
@@ -783,9 +783,9 @@ function ResultContent() {
 
                     return (
                         <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-4 flex items-start gap-3">
-                            <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5 shrink-0" />
+                            <AlertTriangle className="h-5 w-5 text-amber-700 dark:text-amber-400 mt-0.5 shrink-0" />
                             <div>
-                                <h3 className="font-semibold text-yellow-500 text-sm">주의 필요</h3>
+                                <h3 className="font-semibold text-foreground text-sm">주의 필요</h3>
                                 <ul className="text-sm text-muted-foreground mt-1 space-y-1">
                                     {warnings.map((warning, idx) => (
                                         <li key={idx}>• {warning}</li>
