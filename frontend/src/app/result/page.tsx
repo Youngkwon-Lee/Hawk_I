@@ -195,6 +195,7 @@ function ResultContent() {
     const searchParams = useSearchParams()
     const [activeTab, setActiveTab] = React.useState("dashboard")
     const [showScoreDetails, setShowScoreDetails] = React.useState(false)
+    const [videoMode, setVideoMode] = React.useState<"skeleton" | "original">("skeleton")
 
     // Zustand store for analysis state management
     const { result: analysisResult, setResult, error, setError, clearResult } = useAnalysisStore()
@@ -348,11 +349,18 @@ function ResultContent() {
         skeletonData?.skeleton_video_url,
     )
 
-    const videoSrc = skeletonVideoUrl || undefined
+    const originalVideoUrl = mediaAssetUrl(
+        analysisResult,
+        "original_video",
+        skeletonData?.original_video_url,
+    )
+    const videoSrc = (videoMode === "original"
+        ? (originalVideoUrl || skeletonVideoUrl)
+        : (skeletonVideoUrl || originalVideoUrl)) || undefined
 
-    // Keypoints data for canvas overlay
-    // When using skeleton video (backend-generated), don't use canvas overlay (avoid double skeleton)
-    const keypointsData = (hasKeypointsData && !skeletonVideoUrl)
+    // Original footage should stay unannotated. When the backend supplies an
+    // already-rendered skeleton video, don't draw a second skeleton overlay.
+    const keypointsData = (hasKeypointsData && !skeletonVideoUrl && videoMode !== "original")
         ? skeletonData?.keypoints
         : undefined
     const keypointsFps = skeletonData?.fps || 30
@@ -889,7 +897,21 @@ function ResultContent() {
                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
                         <div className="grid md:grid-cols-3 gap-6">
                             <div className="md:col-span-2">
+                                {skeletonVideoUrl && originalVideoUrl && skeletonVideoUrl !== originalVideoUrl && (
+                                    <div role="group" aria-label="보행 영상 선택" className="mb-3 flex flex-wrap items-center gap-2">
+                                        <Button type="button" size="sm" variant={videoMode === "skeleton" ? "default" : "outline"}
+                                            aria-pressed={videoMode === "skeleton"} onClick={() => setVideoMode("skeleton")}>
+                                            스켈레톤 영상
+                                        </Button>
+                                        <Button type="button" size="sm" variant={videoMode === "original" ? "default" : "outline"}
+                                            aria-pressed={videoMode === "original"} onClick={() => setVideoMode("original")}>
+                                            원본 영상
+                                        </Button>
+                                        <span className="text-xs text-muted-foreground">공개 스톡 영상 · 연구용 자동 분석 · 임상 미검증</span>
+                                    </div>
+                                )}
                                 <VideoPlayer
+                                    key={videoMode + (videoSrc || "")}
                                     className="w-full shadow-2xl"
                                     videoSrc={videoSrc}
                                     keypointsData={keypointsData}
