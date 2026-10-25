@@ -34,16 +34,20 @@ class VisionAgent(BaseAgent):
             cap = cv2.VideoCapture(video_path)
             fps = cap.get(cv2.CAP_PROP_FPS)
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+            duration = (frame_count / fps) if fps and fps > 0 else 0.0
 
             ctx.vision_meta = {
                 "fps": fps,
                 "frame_count": frame_count,
+                "frame_width": frame_width,
+                "frame_height": frame_height,
+                "duration": duration,
                 "quality_flag": "ok" # Placeholder for quality check
             }
             self._log(f"Video loaded: {frame_count} frames at {fps:.2f} fps", time.time() - t0)
-
-            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             video_dir = os.path.dirname(video_path)
             video_basename = os.path.splitext(os.path.basename(video_path))[0]
 
@@ -126,6 +130,7 @@ class VisionAgent(BaseAgent):
 
             # Frame skip for high FPS videos (60fps -> ~20fps processing)
             frame_skip = 3 if video_fps > 35 else 1
+            ctx.vision_meta["frame_skip"] = frame_skip
 
             self._log(f"Processing: {resize_width}px, fps={video_fps:.0f}, skip={frame_skip}, no_video={skip_video}")
 
