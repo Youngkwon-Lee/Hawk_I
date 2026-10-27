@@ -1,11 +1,22 @@
 param(
     [int]$Port = 8000,
-    [string]$Root = "D:\HawkEyeVLM",
+    [string]$Root = "",
     [int]$ContextSize = 8192,
     [string]$HostAddress = "100.83.147.56"
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $Root) {
+    # Resolve from the data-drive registry: KINELO_DATA_ROOT\data_registry.json (default D:\).
+    $dataRoot = if ($env:KINELO_DATA_ROOT) { $env:KINELO_DATA_ROOT } else { "D:\" }
+    $registryPath = Join-Path $dataRoot "data_registry.json"
+    $entry = (Get-Content -Raw -Encoding UTF8 $registryPath | ConvertFrom-Json).datasets.hawkeye_vlm
+    if (-not $entry -or $entry.kind -ne "local") {
+        throw "hawkeye_vlm is not registered as a local path in $registryPath"
+    }
+    $Root = Join-Path $dataRoot $entry.path
+}
 
 $server = Join-Path $Root "llama-b10423-vulkan\llama-server.exe"
 $model = Join-Path $Root "models\Qwen3-VL-4B-Instruct-GGUF\Qwen3VL-4B-Instruct-Q4_K_M.gguf"
