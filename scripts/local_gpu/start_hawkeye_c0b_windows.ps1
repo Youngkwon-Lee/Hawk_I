@@ -1,6 +1,7 @@
 param(
     [int]$Port = 8000,
     [string]$Root = "",
+    [string]$LlamaDir = "",
     [int]$ContextSize = 8192,
     [string]$HostAddress = "100.83.147.56"
 )
@@ -18,7 +19,17 @@ if (-not $Root) {
     $Root = Join-Path $dataRoot $entry.path
 }
 
-$server = Join-Path $Root "llama-b10423-vulkan\llama-server.exe"
+if (-not $LlamaDir) {
+    # Use the newest installed llama.cpp Vulkan build (llama-b<build>-vulkan) under the root.
+    $LlamaDir = Get-ChildItem -LiteralPath $Root -Directory -Filter "llama-b*-vulkan" |
+        Sort-Object { [int]($_.Name -replace '^llama-b(\d+)-vulkan$', '$1') } |
+        Select-Object -Last 1 -ExpandProperty Name
+    if (-not $LlamaDir) {
+        throw "No llama-b*-vulkan directory found under $Root"
+    }
+}
+
+$server = Join-Path (Join-Path $Root $LlamaDir) "llama-server.exe"
 $model = Join-Path $Root "models\Qwen3-VL-4B-Instruct-GGUF\Qwen3VL-4B-Instruct-Q4_K_M.gguf"
 $mmproj = Join-Path $Root "models\Qwen3-VL-4B-Instruct-GGUF\mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf"
 $adapter = Join-Path $Root "adapters\hawkeye-c0b-seed42-f16.gguf"
