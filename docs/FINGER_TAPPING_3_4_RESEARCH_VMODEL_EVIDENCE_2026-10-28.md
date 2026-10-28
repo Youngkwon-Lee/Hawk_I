@@ -4,6 +4,7 @@
 > **Owner:** Hawk_I research pipeline. Annotation ontology/schema and pilot records remain owned by `hawkeye-labeling-tool`; a second annotation database or medical product is **not** being created.
 > **Immutable source context:** Hawk_I `1feab81f867720625a774911a4fac55fcce15b58`; labeler `master@27bee119fdcd5aac5a9af5bbc4c334ef8a661587`; Hawkeye_paper `0b1c549393555c01371ce6bf20f51fff0bc296f4`.
 > **Execution:** documentation only. No model training, dataset access, video review, clinical/IRB approval, deployment, or new test run in this change.
+> **Clinical-study route:** [one-page study/IRB/data/measurement decision sheet (2026-10-28, unapproved)](FINGER_TAPPING_CLINICAL_STUDY_DECISION_SHEET_2026-10-28.md). This is a separate decision aid, not clinical approval.
 
 ## Product and research boundary (not an approval)
 
