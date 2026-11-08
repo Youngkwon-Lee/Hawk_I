@@ -539,7 +539,27 @@ def process_video_background(
         except Exception as exc:  # never let the add-on break a good analysis
             print(f"[finetuned_vlm] skipped: {exc}")
 
-        observation_result = persist_analysis_observation(response)
+        # Final clinical-release boundary AFTER all optional inference branches
+        # and BEFORE any DB/file output. Finger Tapping is research only and
+        # currently lacks verified expert review; never re-promote a candidate
+        # score, narrative or prior reasoning log. Canonical auth selectors
+        # remain in the stored result for protected media/result retrieval.
+        from services.finger_final_egress import (
+            is_finger_task, build_finger_research_hold_result,
+        )
+        if is_finger_task(response.get("video_type")):
+            response = build_finger_research_hold_result(response)
+            # Skip both Hawk_I and delegated scored persistence here. The
+            # ParkiCheck caller has a separate owner and still needs review.
+            observation_result = SupabaseObservationResult(
+                enabled=False,
+                saved=False,
+                reason="Finger-tapping research score held: no scored observation write",
+                persistence_owner="research_hold",
+            )
+        else:
+            observation_result = persist_analysis_observation(response)
+
         response["integrations"] = {
             "supabase_observation": observation_result.as_public_dict()
         }
