@@ -113,6 +113,12 @@ def validate_prediction(prediction: dict[str, Any]) -> None:
     on_hold = isinstance(quality_gate, dict) and quality_gate.get("status") == "hold"
 
     raw_score = score_from(prediction)
+    if on_hold:
+        if raw_score is not None:
+            raise PredictionValidationError("held clips must not contain an ordinal score")
+        if any(isinstance(p, dict) and p.get("severity") is not None
+               for p in (prediction.get("primitives") or {}).values()):
+            raise PredictionValidationError("held clips must not contain primitive severities")
     if raw_score is None:
         # A held clip, or a primitive-only run, legitimately carries no score.
         if on_hold or prediction.get("primitives"):
