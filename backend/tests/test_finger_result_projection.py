@@ -98,5 +98,61 @@ class FingerResultProjectionTests(unittest.TestCase):
         self.assertEqual(raw, original)
 
 
+    def test_final_research_projection_drops_earlier_score_logs_after_vlm_override(self):
+        """The final projection must run after optional model augmentation."""
+        from services.finetuned_vlm import apply_to_analysis_response
+
+        raw = candidate(0)
+        raw["reasoning_log"] = [{
+            "step": "clinical",
+            "content": "UPDRS Estimation: Score 0 (unapproved synthetic)",
+            "meta": {"total_score": 0, "record": "SECRET_TEST_ONLY"},
+        }]
+        raw["integration_status"] = {"saved": True, "id": "SECRET_TEST_ONLY"}
+        apply_to_analysis_response(raw, {
+            "scoring_method": "finetuned_vlm",
+            "ml_model_type": "synthetic_model",
+            "updrs_score": {"score": 2.0, "total_score": 2.0, "details": {}},
+        })
+        self.assertEqual(raw["updrs_score"]["total_score"], 2.0)
+
+        safe = project_finger_review(
+            raw,
+            sampling_precheck=sampling("hold"),
+            trace_qc=trace(),
+            validation_result={"is_valid": False},
+        )
+        wire = json.dumps(safe, ensure_ascii=False)
+        self.assertEqual(safe["state"], "hold")
+        self.assertIsNone(safe["clinical_score"])
+        self.assertIsNone(safe["clinical_report"])
+        self.assertIsNone(safe["score_anchor"]["updrs_3_4"])
+        for hidden in ("SECRET_TEST_ONLY", "UPDRS Estimation: Score 0",
+                       "synthetic_model", "finetuned_vlm", "pipeline_reference",
+                       "reasoning_log", "updrs_score", "ai_interpretation"):
+            self.assertNotIn(hidden, wire)
+
+    def test_technical_qc_pass_does_not_authorize_post_vlm_score(self):
+        """Even all green technical checks do not constitute expert review."""
+        from services.finetuned_vlm import apply_to_analysis_response
+
+        raw = candidate(0)
+        apply_to_analysis_response(raw, {
+            "scoring_method": "finetuned_vlm",
+            "ml_model_type": "synthetic_model",
+            "updrs_score": {"score": 4.0, "total_score": 4.0, "details": {}},
+        })
+        view = project_finger_review(
+            raw,
+            sampling_precheck=sampling(),
+            trace_qc=trace(),
+            validation_result={"is_valid": True},
+        )
+        self.assertEqual(view["state"], "human_review_required")
+        self.assertIsNone(view["clinical_score"])
+        self.assertEqual(view["release_status"], "not_authorized")
+        self.assertFalse(view["research_prediction_exposed"])
+
+
 if __name__ == "__main__":
     unittest.main()
