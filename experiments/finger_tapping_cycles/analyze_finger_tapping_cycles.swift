@@ -222,7 +222,7 @@ if let traceURL = traceURL {
             calibrated_physical_distance: false,
             side_verification: "operator_declared_unverified",
             continuous_hand_identity_verified: false))
-    try encoder.encode(trace).write(to: traceURL, options: [.atomic, .withoutOverwriting])
+    try encoder.encode(trace).write(to: traceURL, options: .withoutOverwriting)
 }
 FileHandle.standardOutput.write(try encoder.encode(result))
 FileHandle.standardOutput.write(Data("\n".utf8))
