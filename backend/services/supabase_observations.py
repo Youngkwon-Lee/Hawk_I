@@ -259,11 +259,14 @@ def _score_value(result: dict[str, Any]) -> float | None:
     if not isinstance(score, dict):
         return None
     value = score.get("total_score", score.get("score"))
+    if isinstance(value, bool) or value is None:
+        return None
     try:
         numeric = float(value)
     except (TypeError, ValueError):
         return None
-    return numeric if math.isfinite(numeric) else None
+    # A valid 0 is different from an unscorable or out-of-scale result.
+    return numeric if math.isfinite(numeric) and 0 <= numeric <= 4 else None
 
 
 def _score_fields(score: float) -> dict[str, Any]:
@@ -463,6 +466,15 @@ def save_analysis_observation(result: dict[str, Any]) -> SupabaseObservationResu
             enabled=False,
             saved=False,
             reason="missing Supabase URL/key or organization/operator context",
+        )
+    # Validate score BEFORE creating an activity session: a held/invalid
+    # estimate must not leave a completed assessment with no observation.
+    if _score_value(result) is None:
+        return SupabaseObservationResult(
+            enabled=True,
+            saved=False,
+            table=config.table,
+            reason="missing or invalid 0-4 research score: activity session and observation writes held",
         )
     if not has_explicit_subject_context(result):
         return SupabaseObservationResult(
