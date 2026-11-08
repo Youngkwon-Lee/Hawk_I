@@ -49,6 +49,7 @@ from services.supabase_auth import (
 )
 from services.visualization_data_generator import generate_visualization_data, detect_events
 from agents.orchestrator import OrchestratorAgent
+from services.finger_final_egress import is_finger_task, build_finger_research_hold_result
 from domain.context import AnalysisContext
 # asdict no longer needed - clinical_scores already converted in ClinicalAgent
 
@@ -524,29 +525,29 @@ def process_video_background(
             "gait_cycle_analysis": gait_analysis  # Include raw gait cycle data
         }
 
-        # A fine-tuned model, when one is served, adds the structured observation
-        # the clinical view renders. It runs after the existing pipeline so a
-        # missing or unreachable endpoint leaves the analysis intact.
-        try:
-            from services.finetuned_vlm import analyze as finetuned_analyze
-            from services.finetuned_vlm import apply_to_analysis_response, frames_to_base64
+        # Skip optional remote VLM before Finger Tapping frame extraction.
+        # A late score hold alone cannot undo an external video transfer.
+        if not is_finger_task(response.get("video_type")):
+            # A fine-tuned model, when one is served, adds the structured observation
+            # the clinical view renders. It runs after the existing pipeline so a
+            # missing or unreachable endpoint leaves the analysis intact.
+            try:
+                from services.finetuned_vlm import analyze as finetuned_analyze
+                from services.finetuned_vlm import apply_to_analysis_response, frames_to_base64
 
-            frames_b64, clip_duration = frames_to_base64(video_path)
-            finetuned = finetuned_analyze(frames_b64, clip_duration)
-            if finetuned:
-                apply_to_analysis_response(response, finetuned)
-                update_step(video_id, "finetuned_vlm", "completed")
-        except Exception as exc:  # never let the add-on break a good analysis
-            print(f"[finetuned_vlm] skipped: {exc}")
+                frames_b64, clip_duration = frames_to_base64(video_path)
+                finetuned = finetuned_analyze(frames_b64, clip_duration)
+                if finetuned:
+                    apply_to_analysis_response(response, finetuned)
+                    update_step(video_id, "finetuned_vlm", "completed")
+            except Exception as exc:  # never let the add-on break a good analysis
+                print(f"[finetuned_vlm] skipped: {exc}")
 
         # Final clinical-release boundary AFTER all optional inference branches
         # and BEFORE any DB/file output. Finger Tapping is research only and
         # currently lacks verified expert review; never re-promote a candidate
         # score, narrative or prior reasoning log. Canonical auth selectors
         # remain in the stored result for protected media/result retrieval.
-        from services.finger_final_egress import (
-            is_finger_task, build_finger_research_hold_result,
-        )
         if is_finger_task(response.get("video_type")):
             response = build_finger_research_hold_result(response)
             # Skip both Hawk_I and delegated scored persistence here. The
@@ -575,8 +576,12 @@ def process_video_background(
             json.dump(response, f, ensure_ascii=False, indent=2)
 
         # Mark analysis as completed
-        update_step(video_id, "updrs_calculation", "completed")
-        update_step(video_id, "ai_interpretation", "completed")
+        if is_finger_task(response.get("video_type")):
+            update_step(video_id, "updrs_calculation", "skipped")
+            update_step(video_id, "ai_interpretation", "skipped")
+        else:
+            update_step(video_id, "updrs_calculation", "completed")
+            update_step(video_id, "ai_interpretation", "completed")
         complete_analysis(video_id)
 
         print(f"\n{'='*50}")
