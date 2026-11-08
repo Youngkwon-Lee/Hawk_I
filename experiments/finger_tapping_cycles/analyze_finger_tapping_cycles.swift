@@ -49,6 +49,94 @@ struct NormalizedTrace: Codable {
     let provenance: TraceProvenance
 }
 
+
+struct ImagePoint2D {
+    let x: Double
+    let y: Double
+    let confidence: Double
+}
+
+// Pure image-plane geometry: makes scale/aspect/invalid-frame behavior
+// testable without camera access or synthetic hand detection claims.
+func normalizedThumbIndexImageGap(
+    time: Double, width: Double, height: Double,
+    thumb: ImagePoint2D, index: ImagePoint2D,
+    indexMCP: ImagePoint2D, littleMCP: ImagePoint2D
+) -> NormalizedTraceSample? {
+    guard time.isFinite, time >= 0,
+          width.isFinite, width > 0, height.isFinite, height > 0 else {
+        return nil
+    }
+    let points = [thumb, index, indexMCP, littleMCP]
+    guard points.allSatisfy({ point in
+        point.x.isFinite && point.y.isFinite && point.confidence.isFinite &&
+        (0...1).contains(point.x) && (0...1).contains(point.y) &&
+        (0.30...1).contains(point.confidence)
+    }) else { return nil }
+
+    let gap = hypot((thumb.x - index.x) * width, (thumb.y - index.y) * height)
+    let palmSpan = hypot((indexMCP.x - littleMCP.x) * width,
+                         (indexMCP.y - littleMCP.y) * height)
+    guard palmSpan > 1e-6 else { return nil }
+    let ratio = gap / palmSpan
+    guard ratio.isFinite, (0...3).contains(ratio) else { return nil }
+    return NormalizedTraceSample(
+        time_s: time, gap_norm: ratio,
+        confidence: points.map(\.confidence).min() ?? 0
+    )
+}
+
+// Fixture invariants only. Passing here does not establish real Vision
+// detection, hand tracking, camera orientation, or clinical accuracy.
+func geometrySelfTest() -> Bool {
+    let thumb = ImagePoint2D(x: 0.30, y: 0.45, confidence: 0.90)
+    let index = ImagePoint2D(x: 0.50, y: 0.45, confidence: 0.85)
+    let indexMCP = ImagePoint2D(x: 0.20, y: 0.55, confidence: 0.95)
+    let littleMCP = ImagePoint2D(x: 0.60, y: 0.55, confidence: 0.93)
+    func sample(_ a: ImagePoint2D = thumb,
+                _ b: ImagePoint2D = index,
+                _ c: ImagePoint2D = indexMCP,
+                _ d: ImagePoint2D = littleMCP,
+                time: Double = 1, width: Double = 800, height: Double = 600
+    ) -> NormalizedTraceSample? {
+        normalizedThumbIndexImageGap(
+            time: time, width: width, height: height,
+            thumb: a, index: b, indexMCP: c, littleMCP: d
+        )
+    }
+    func mirror(_ point: ImagePoint2D) -> ImagePoint2D {
+        ImagePoint2D(x: 1 - point.x, y: point.y, confidence: point.confidence)
+    }
+    guard let expected = sample(), abs(expected.gap_norm - 0.5) < 1e-10,
+          expected.confidence == 0.85,
+          let bigger = sample(width: 1600, height: 1200),
+          abs(bigger.gap_norm - expected.gap_norm) < 1e-10,
+          let mirrored = sample(mirror(thumb), mirror(index),
+                                mirror(indexMCP), mirror(littleMCP)),
+          abs(mirrored.gap_norm - expected.gap_norm) < 1e-10 else {
+        return false
+    }
+    let verticalThumb = ImagePoint2D(x: 0.25, y: 0.25, confidence: 0.95)
+    let verticalIndex = ImagePoint2D(x: 0.25, y: 0.50, confidence: 0.95)
+    let horizontalMCP = ImagePoint2D(x: 0.10, y: 0.20, confidence: 0.95)
+    let horizontalLittle = ImagePoint2D(x: 0.40, y: 0.20, confidence: 0.95)
+    guard let aspect = sample(verticalThumb, verticalIndex,
+                              horizontalMCP, horizontalLittle),
+          abs(aspect.gap_norm - 0.625) < 1e-10,
+          sample(thumb, index, indexMCP, indexMCP) == nil,
+          sample(ImagePoint2D(x: thumb.x, y: thumb.y, confidence: 0.1)) == nil,
+          sample(time: .nan) == nil,
+          sample(width: 0) == nil,
+          sample(ImagePoint2D(x: -0.1, y: thumb.y, confidence: 0.9)) == nil,
+          sample(ImagePoint2D(x: 0, y: 0, confidence: 0.9),
+                 ImagePoint2D(x: 1, y: 1, confidence: 0.9),
+                 ImagePoint2D(x: 0.49, y: 0.50, confidence: 0.9),
+                 ImagePoint2D(x: 0.51, y: 0.50, confidence: 0.9)) == nil else {
+        return false
+    }
+    return true
+}
+
 func quantile(_ values: [Double], _ probability: Double) -> Double? {
     guard !values.isEmpty else { return nil }
     let sorted = values.sorted()
@@ -89,6 +177,12 @@ func countCycles(_ distances: [Double]) -> Int? {
         }
     }
     return cycles
+}
+
+if CommandLine.arguments.count == 2 && CommandLine.arguments[1] == "--geometry-selftest" {
+    let passed = geometrySelfTest()
+    print(passed ? "geometry_selftest_pass" : "geometry_selftest_fail")
+    exit(passed ? 0 : 1)
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -159,24 +253,19 @@ while let sampleBuffer = output.copyNextSampleBuffer() {
         // the resulting ratio is NOT a calibrated 3D/physical distance.
         if traceURL != nil,
            let indexMCP = points[.indexMCP],
-           let littleMCP = points[.littleMCP],
-           indexMCP.confidence >= 0.30,
-           littleMCP.confidence >= 0.30,
-           time.isFinite, time >= 0 {
-            let width = Double(CVPixelBufferGetWidth(pixelBuffer))
-            let height = Double(CVPixelBufferGetHeight(pixelBuffer))
-            let spanX = Double(indexMCP.location.x - littleMCP.location.x) * width
-            let spanY = Double(indexMCP.location.y - littleMCP.location.y) * height
-            let span = hypot(spanX, spanY)
-            let gap = hypot(dx * width, dy * height)
-            if span > 1e-6 {
-                let ratio = gap / span
-                if ratio.isFinite, ratio >= 0, ratio <= 3 {
-                    let confidence = Double(min(thumb.confidence, index.confidence,
-                                                indexMCP.confidence, littleMCP.confidence))
-                    normalizedTraceSamples.append(NormalizedTraceSample(
-                        time_s: time, gap_norm: ratio, confidence: confidence))
-                }
+           let littleMCP = points[.littleMCP] {
+            func imagePoint(_ point: VNRecognizedPoint) -> ImagePoint2D {
+                ImagePoint2D(x: Double(point.location.x), y: Double(point.location.y),
+                             confidence: Double(point.confidence))
+            }
+            if let sample = normalizedThumbIndexImageGap(
+                time: time,
+                width: Double(CVPixelBufferGetWidth(pixelBuffer)),
+                height: Double(CVPixelBufferGetHeight(pixelBuffer)),
+                thumb: imagePoint(thumb), index: imagePoint(index),
+                indexMCP: imagePoint(indexMCP), littleMCP: imagePoint(littleMCP)
+            ) {
+                normalizedTraceSamples.append(sample)
             }
         }
     } catch {
