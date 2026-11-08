@@ -55,7 +55,7 @@ def test_connected_model_does_not_claim_current_export_was_trained(monkeypatch, 
     assert status["inference"]["uses_verified_handoff"] is False
 
 
-def test_matching_training_binding_makes_pipeline_operational(monkeypatch, tmp_path):
+def test_matching_manifest_claim_does_not_verify_training_lineage(monkeypatch, tmp_path):
     path = _manifest(
         tmp_path,
         lambda manifest: {
@@ -68,8 +68,26 @@ def test_matching_training_binding_makes_pipeline_operational(monkeypatch, tmp_p
 
     status = pipeline_status.get_pipeline_status(path)
 
-    assert status["overall"] == "operational"
-    assert status["training_binding"]["verified"] is True
+    assert status["overall"] == "connected_unbound"
+    assert status["training_binding"]["verified"] is False
+    assert status["inference"]["uses_verified_handoff"] is False
+    assert "not an independently verified" in status["training_binding"]["reason"]
+
+
+def test_mismatched_manifest_model_claim_stays_unverified(monkeypatch, tmp_path):
+    path = _manifest(
+        tmp_path,
+        lambda manifest: {
+            "status": "verified",
+            "dataset_sha256": manifest["dataset_sha256"],
+            "model": "other-model",
+        },
+    )
+    _configure(monkeypatch)
+    status = pipeline_status.get_pipeline_status(path)
+    assert status["overall"] == "connected_unbound"
+    assert status["training_binding"]["verified"] is False
+    assert status["training_binding"]["status"] == "unverified"
 
 
 def test_route_returns_safe_aggregate_status(monkeypatch, tmp_path):
