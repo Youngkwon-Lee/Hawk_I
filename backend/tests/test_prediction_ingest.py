@@ -221,3 +221,18 @@ def test_hold_rejects_nonnull_score_and_primitive_severity():
     )
     with pytest.raises(PredictionValidationError, match="held clips must not contain primitive severities"):
         prediction_to_result(held_primitive)
+
+
+def test_incompatible_task_anchor_and_invalid_quality_gate_are_rejected():
+    finger_wrong = _ontology_prediction(
+        task="finger_tapping",
+        score_anchor={"updrs_3_10": 2, "source": "trusted_import"},
+    )
+    with pytest.raises(PredictionValidationError, match="task-specific UPDRS item"):
+        prediction_to_result(finger_wrong)
+
+    invalid_gate = _ontology_prediction(
+        quality_gate={"status": "pending", "reasons": []},
+    )
+    with pytest.raises(PredictionValidationError, match="quality_gate must be pass or hold"):
+        prediction_to_result(invalid_gate)
