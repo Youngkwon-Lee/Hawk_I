@@ -200,14 +200,21 @@ def index_by_identity(records: list[dict], *, role: str, task: str, dataset: str
 
 
 def pair_provenance_unverified(label: dict, prediction: dict) -> bool:
-    """A matching clip key is not proof of identical media/version."""
-    incomplete = "dataset" not in label
+    """Check declared metadata, but never certify an unverified source binding.
+
+    These fields are caller-supplied. Matching clip IDs, ontology versions and
+    source digests are not evidence that both files came from the same approved
+    media artifact. Independent source receipts and model-lineage verification
+    are outside this evaluator and have not been supplied here.
+    """
+    left_dataset, right_dataset = label.get("dataset"), prediction.get("dataset")
+    if left_dataset and right_dataset and left_dataset != right_dataset:
+        raise ValueError("model/label provenance mismatch: dataset")
     for key in ("ontology_version", "source_sha256"):
         left, right = label.get(key), prediction.get(key)
         if left and right and left != right:
             raise ValueError(f"model/label provenance mismatch: {key}")
-        incomplete |= not bool(left and right)
-    return incomplete
+    return True  # Never promote self-declared matching values into verified provenance.
 
 
 def temporal_evidence(record: dict, source: str, primitive: str) -> tuple[list[tuple[float, float]], int]:
