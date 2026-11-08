@@ -154,3 +154,54 @@ def test_conflicting_claimed_hash_and_dataset_are_rejected():
             _label(dataset="OTHER"),
             _prediction(),
         )
+
+
+def test_nested_gait_hold_cannot_be_scored_as_legacy_pass():
+    row = {"clip_id": "synthetic-gait", "item": "gait",
+           "label": {"quality_gate": {"status": "hold", "reasons": ["body_occluded"]},
+                     "updrs_score": 2,
+                     "primitives": {"gait_speed_reduction": 2}}}
+    with pytest.raises(ValueError, match="held clip"):
+        _index([row], task="gait")
+
+
+def test_nested_gait_hold_with_null_score_is_accepted_and_excluded():
+    from evaluate_primitive_predictions import _score_held
+
+    row = {"clip_id": "synthetic-gait", "item": "gait",
+           "label": {"quality_gate": {"status": "hold", "reasons": ["body_occluded"]},
+                     "score_anchor": {"updrs_3_10": None},
+                     "primitives": {"gait_speed_reduction": None}}}
+    assert len(_index([row], task="gait")) == 1
+    assert _score_held(row, "label", "gait") is True
+
+
+def test_conflicting_nested_and_outer_gates_fail_closed():
+    row = {"clip_id": "synthetic-gait", "item": "gait",
+           "quality_gate": {"status": "pass", "reasons": []},
+           "label": {"quality_gate": {"status": "hold", "reasons": ["body_occluded"]},
+                     "updrs_score": 2}}
+    with pytest.raises(ValueError, match="conflicting nested/top-level quality_gate"):
+        _index([row], task="gait")
+
+
+def test_nested_unreviewed_and_malformed_primitive_evidence_rejected():
+    with pytest.raises(ValueError, match="incomplete reviewer"):
+        _index([{"clip_id": "synthetic-gait", "item": "gait",
+                 "label": {"review_status": "draft", "updrs_score": 2}}], task="gait")
+    with pytest.raises(ValueError, match="invalid seconds interval"):
+        _index([{"clip_id": "synthetic-gait", "item": "gait",
+                 "label": {"quality_gate": {"status": "pass", "reasons": []},
+                           "primitives": {"turning_impairment": {
+                               "observability": "observed", "severity": 1,
+                               "evidence": [{"start_s": 3, "end_s": 3}]}}}}], task="gait")
+
+
+def test_inconsistent_label_gate_reasons_rejected():
+    with pytest.raises(ValueError, match="quality_gate reasons"):
+        _index([_label(quality_gate={"status": "pass", "reasons": ["hand_occluded"]})])
+    with pytest.raises(ValueError, match="quality_gate reasons"):
+        _index([_label(quality_gate={"status": "hold", "reasons": []},
+                       primitives={"tapping_speed": {"observability": "unobservable",
+                                                     "severity": None, "evidence": []}},
+                       score_anchor={"updrs_3_4": None})])

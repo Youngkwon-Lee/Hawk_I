@@ -68,17 +68,33 @@ def label_fields(record: dict) -> dict:
     return nested if isinstance(nested, dict) else record
 
 
+def _field_for(record: dict, role: str, name: str) -> Any:
+    """Resolve nested export fields without trusting conflicting values."""
+    outer = record.get(name)
+    if role != "label":
+        return outer
+    nested = label_fields(record)
+    if nested is record:
+        return outer
+    inner = nested.get(name)
+    if outer is not None and inner is not None and outer != inner:
+        raise ValueError(f"label: conflicting nested/top-level {name}")
+    return inner if inner is not None else outer
+
+
 def label_score(record: dict, task: str) -> Any:
-    fields = label_fields(record)
-    if fields.get("updrs_score") not in (None, ""):
-        return fields["updrs_score"]
-    anchor = record.get("score_anchor") or fields.get("score_anchor") or {}
+    value = _field_for(record, "label", "updrs_score")
+    if value not in (None, ""):
+        return value
+    anchor = _field_for(record, "label", "score_anchor") or {}
+    if not isinstance(anchor, dict):
+        raise ValueError("label: score_anchor must be an object")
     return anchor.get("updrs_3_4" if task == "finger_tapping" else "updrs_3_10")
 
 
 def label_primitives(record: dict, task: str) -> dict[str, float]:
     fields = label_fields(record)
-    structured = fields.get("primitives")
+    structured = _field_for(record, "label", "primitives")
     if isinstance(structured, dict):
         if all(isinstance(p, dict) for p in structured.values()):
             return extract_predicted_primitives({"primitives": structured})
@@ -93,11 +109,16 @@ def label_primitives(record: dict, task: str) -> dict[str, float]:
 
 
 def _score_held(record: dict, role: str, task: str) -> bool:
-    gate = record.get("quality_gate")
+    gate = _field_for(record, role, "quality_gate")
     if gate is None:
         return False  # Legacy labels have no certified quality gate.
     if not isinstance(gate, dict) or gate.get("status") not in ("pass", "hold"):
         raise ValueError(f"{role}: invalid quality_gate")
+    reasons = gate.get("reasons")
+    if not isinstance(reasons, list) or (gate["status"] == "hold" and not reasons) or (
+        gate["status"] == "pass" and reasons
+    ):
+        raise ValueError(f"{role}: quality_gate reasons do not match status")
     if gate["status"] != "hold":
         return False
     score = label_score(record, task) if role == "label" else score_from(record)
@@ -105,13 +126,13 @@ def _score_held(record: dict, role: str, task: str) -> bool:
         raise ValueError(f"{role}: held clip must not contain a score")
     if any((isinstance(p, dict) and p.get("severity") is not None)
            or (type(p) in (int, float) and math.isfinite(p))
-           for p in (record.get("primitives") or {}).values()):
+           for p in (_field_for(record, role, "primitives") or {}).values()):
         raise ValueError(f"{role}: held clip must not contain primitive severities")
     return True
 
 
 def _check_primitive_evidence(record: dict, role: str) -> None:
-    primitives = record.get("primitives")
+    primitives = _field_for(record, role, "primitives")
     if primitives is None:
         return
     if not isinstance(primitives, dict):
@@ -189,9 +210,10 @@ def index_by_identity(records: list[dict], *, role: str, task: str, dataset: str
             signatures.add((record.get("model"), record.get("condition"),
                             record.get("model_version"), record.get("model_sha256")))
         else:
-            if "review_status" in record and record["review_status"] not in ("reviewed", "adjudicated"):
+            review_status = _field_for(record, role, "review_status")
+            if review_status is not None and review_status not in ("reviewed", "adjudicated"):
                 raise ValueError(f"{role}: incomplete reviewer decision for {clip_id}")
-            if task == "finger_tapping" and not isinstance(record.get("primitives"), dict):
+            if task == "finger_tapping" and not isinstance(_field_for(record, role, "primitives"), dict):
                 raise ValueError(f"{role}: missing finger tapping primitives for {clip_id}")
         indexed[key] = record
     if role == "prediction" and len(signatures) > 1:
@@ -211,7 +233,7 @@ def pair_provenance_unverified(label: dict, prediction: dict) -> bool:
     if left_dataset and right_dataset and left_dataset != right_dataset:
         raise ValueError("model/label provenance mismatch: dataset")
     for key in ("ontology_version", "source_sha256"):
-        left, right = label.get(key), prediction.get(key)
+        left, right = _field_for(label, "label", key), prediction.get(key)
         if left and right and left != right:
             raise ValueError(f"model/label provenance mismatch: {key}")
     return True  # Never promote self-declared matching values into verified provenance.
