@@ -114,3 +114,19 @@ def test_malformed_evidence_is_rejected():
                 {"start_s": 1.2, "cycle_start": 2, "cycle_end": 3}
             ]}
         })])
+
+
+def test_held_numeric_training_label_not_scored():
+    record = {"clip_id": "synthetic-gait", "task": "gait",
+              "quality_gate": {"status": "hold", "reasons": ["body_occluded"]},
+              "primitives": {"gait_speed_reduction": 0},
+              "score_anchor": {"updrs_3_10": None}}
+    with pytest.raises(ValueError, match="held clip"):
+        _index([record], task="gait")
+
+
+def test_mixed_model_revisions_are_rejected():
+    a = _prediction(clip_id="synthetic-101", model_version="v1")
+    b = _prediction(clip_id="synthetic-102", model_version="v2")
+    with pytest.raises(ValueError, match="mixed model/condition"):
+        _index([a, b], role="prediction")
