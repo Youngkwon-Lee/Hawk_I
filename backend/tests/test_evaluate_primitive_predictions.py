@@ -130,3 +130,27 @@ def test_mixed_model_revisions_are_rejected():
     b = _prediction(clip_id="synthetic-102", model_version="v2")
     with pytest.raises(ValueError, match="mixed model/condition"):
         _index([a, b], role="prediction")
+
+
+def test_equal_declared_hash_is_not_independent_source_proof():
+    # Both parties can copy the same digest without reading the actual media.
+    claim = "a" * 64
+    label = _label(dataset="SYNTHETIC", source_sha256=claim)
+    prediction = _prediction(
+        ontology_version="finger_tapping_primitive_v0.1",
+        source_sha256=claim,
+    )
+    assert pair_provenance_unverified(label, prediction) is True
+
+
+def test_conflicting_claimed_hash_and_dataset_are_rejected():
+    with pytest.raises(ValueError, match="source_sha256"):
+        pair_provenance_unverified(
+            _label(source_sha256="a" * 64),
+            _prediction(source_sha256="b" * 64),
+        )
+    with pytest.raises(ValueError, match="dataset"):
+        pair_provenance_unverified(
+            _label(dataset="OTHER"),
+            _prediction(),
+        )
