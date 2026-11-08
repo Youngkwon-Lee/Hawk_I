@@ -103,7 +103,8 @@ def _score_held(record: dict, role: str, task: str) -> bool:
     score = label_score(record, task) if role == "label" else score_from(record)
     if score is not None:
         raise ValueError(f"{role}: held clip must not contain a score")
-    if any(isinstance(p, dict) and p.get("severity") is not None
+    if any((isinstance(p, dict) and p.get("severity") is not None)
+           or (type(p) in (int, float) and math.isfinite(p))
            for p in (record.get("primitives") or {}).values()):
         raise ValueError(f"{role}: held clip must not contain primitive severities")
     return True
@@ -185,7 +186,8 @@ def index_by_identity(records: list[dict], *, role: str, task: str, dataset: str
         _score_held(record, role, task)
         if role == "prediction":
             validate_prediction(record)
-            signatures.add((record.get("model"), record.get("condition")))
+            signatures.add((record.get("model"), record.get("condition"),
+                            record.get("model_version"), record.get("model_sha256")))
         else:
             if "review_status" in record and record["review_status"] not in ("reviewed", "adjudicated"):
                 raise ValueError(f"{role}: incomplete reviewer decision for {clip_id}")
