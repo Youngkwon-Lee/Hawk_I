@@ -205,3 +205,61 @@ def test_inconsistent_label_gate_reasons_rejected():
                        primitives={"tapping_speed": {"observability": "unobservable",
                                                      "severity": None, "evidence": []}},
                        score_anchor={"updrs_3_4": None})])
+
+
+
+def test_inconsistent_flat_score_and_anchor_rejected():
+    with pytest.raises(ValueError, match="conflicting ordinal score fields"):
+        _index([_label(updrs_score=2, score_anchor={"updrs_3_4": 4})])
+    with pytest.raises(ValueError, match="conflicting ordinal score fields"):
+        _index([_prediction(predicted_score=2, score_anchor={"updrs_3_4": 4})],
+               role="prediction")
+
+
+def test_matching_zero_score_and_anchor_are_valid():
+    from evaluate_primitive_predictions import validated_score
+    label = _label(updrs_score="0", score_anchor={"updrs_3_4": 0})
+    _index([label])
+    assert validated_score(label, role="label", task="finger_tapping") == 0
+
+
+def test_invalid_human_scores_are_not_grading_inputs():
+    for value in (True, -1, 5, float("nan"), float("inf"), "not-a-number"):
+        with pytest.raises(ValueError, match="score"):
+            _index([_label(updrs_score=value)])
+
+
+def test_scoreless_primitive_pair_not_claimed_scored(tmp_path):
+    import json
+    from evaluate_primitive_predictions import main
+
+    label = _label(dataset="SYNTHETIC")
+    pred = _prediction()
+    labels = tmp_path / "labels.jsonl"
+    preds = tmp_path / "preds.jsonl"
+    report = tmp_path / "report.json"
+    labels.write_text(json.dumps(label) + "\n", encoding="utf-8")
+    preds.write_text(json.dumps(pred) + "\n", encoding="utf-8")
+    code = main(["--labels", str(labels), "--predictions", str(preds),
+                 "--task", "finger_tapping", "--dataset", "SYNTHETIC",
+                 "--json-out", str(report)])
+    assert code == 0
+    summary = json.loads(report.read_text(encoding="utf-8"))
+    assert summary["quality_passing_pairs"] == 1
+    assert summary["scored_pairs"] == 0
+    assert summary["score_missing_pairs"] == 1
+    assert summary["score_vs_observation"]["evaluated"] == 0
+
+
+def test_nonfinite_evaluation_tolerances_rejected(tmp_path):
+    from evaluate_primitive_predictions import main
+    labels = tmp_path / "labels.jsonl"
+    preds = tmp_path / "preds.jsonl"
+    labels.write_text("", encoding="utf-8")
+    preds.write_text("", encoding="utf-8")
+    for arg, value in (("--score-tolerance", "nan"),
+                       ("--event-tolerance", "-1"),
+                       ("--event-tolerance", "inf")):
+        code = main(["--labels", str(labels), "--predictions", str(preds),
+                     "--task", "gait", "--dataset", "SYNTHETIC", arg, value])
+        assert code == 2

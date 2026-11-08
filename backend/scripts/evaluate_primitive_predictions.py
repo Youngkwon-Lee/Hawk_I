@@ -92,6 +92,40 @@ def label_score(record: dict, task: str) -> Any:
     return anchor.get("updrs_3_4" if task == "finger_tapping" else "updrs_3_10")
 
 
+def validated_score(record: dict, *, role: str, task: str) -> float | None:
+    """Validate score ranges and cross-field agreement without inventing missing scores."""
+    expected = "updrs_3_4" if task == "finger_tapping" else "updrs_3_10"
+    other = "updrs_3_10" if task == "finger_tapping" else "updrs_3_4"
+    field = "updrs_score" if role == "label" else "predicted_score"
+    flat = _field_for(record, role, field)
+    anchor = _field_for(record, role, "score_anchor")
+    if anchor is not None and not isinstance(anchor, dict):
+        raise ValueError(f"{role}: score_anchor must be an object")
+    anchor = anchor or {}
+    if anchor.get(other) not in (None, ""):
+        raise ValueError(f"{role}: score_anchor has the wrong task-specific UPDRS item")
+
+    supplied = [(field, flat), (f"score_anchor.{expected}", anchor.get(expected))]
+    if role == "prediction":
+        supplied.append(("score_anchor.score", anchor.get("score")))
+    numbers = []
+    for source, raw in supplied:
+        if raw is None or raw == "":
+            continue
+        if isinstance(raw, bool) or not isinstance(raw, (str, int, float)):
+            raise ValueError(f"{role}: {source} is not a numeric score")
+        try:
+            score = float(raw)
+        except (ValueError, OverflowError) as exc:
+            raise ValueError(f"{role}: {source} is not a numeric score") from exc
+        if not math.isfinite(score) or not 0 <= score <= 4:
+            raise ValueError(f"{role}: {source} must be a finite score in 0-4")
+        numbers.append(score)
+    if any(value != numbers[0] for value in numbers[1:]):
+        raise ValueError(f"{role}: conflicting ordinal score fields")
+    return numbers[0] if numbers else None
+
+
 def label_primitives(record: dict, task: str) -> dict[str, float]:
     fields = label_fields(record)
     structured = _field_for(record, "label", "primitives")
@@ -204,6 +238,7 @@ def index_by_identity(records: list[dict], *, role: str, task: str, dataset: str
         if key in indexed:
             raise ValueError(f"{role}: duplicate evaluation key {key}")
         _check_primitive_evidence(record, role)
+        validated_score(record, role=role, task=task)
         _score_held(record, role, task)
         if role == "prediction":
             validate_prediction(record)
@@ -292,6 +327,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.dataset.strip():
         print("error: dataset cannot be empty", file=sys.stderr)
         return 2
+    if (not math.isfinite(args.score_tolerance) or args.score_tolerance < 0
+            or not math.isfinite(args.event_tolerance) or args.event_tolerance < 0):
+        print("error: evaluation tolerances must be finite and nonnegative", file=sys.stderr)
+        return 2
     try:
         labels = index_by_identity(load_jsonl(args.labels), role="label", task=args.task, dataset=args.dataset)
         predictions = index_by_identity(load_jsonl(args.predictions), role="prediction", task=args.task, dataset=args.dataset)
@@ -320,12 +359,15 @@ def main(argv: list[str] | None = None) -> int:
         predicted_primitives = extract_predicted_primitives(predictions[key])
         pairs.append((label_primitives_for_key, predicted_primitives))
         cross_records.append({
-            "true_score": label_score(labels[key], args.task),
-            "predicted_score": score_from(predictions[key]),
+            "true_score": validated_score(labels[key], role="label", task=args.task),
+            "predicted_score": validated_score(predictions[key], role="prediction", task=args.task),
             "label_primitives": label_primitives_for_key,
             "predicted_primitives": predicted_primitives,
         })
 
+    ordinal_pairs = sum(row["true_score"] is not None and row["predicted_score"] is not None
+                        for row in cross_records)
+    print(f"quality-passing matched {len(comparable)} | pairs with both ordinal scores {ordinal_pairs}")
     distribution = label_distribution(pairs)
     agreement = per_primitive_agreement(pairs)
     cross = score_vs_observation(cross_records, score_tolerance=args.score_tolerance)
@@ -404,7 +446,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.json_out:
         args.json_out.write_text(
             json.dumps(
-                {"matched_identity_keys": len(shared), "scored_pairs": len(comparable),
+                {"matched_identity_keys": len(shared), "scored_pairs": ordinal_pairs,
+                 "quality_passing_pairs": len(comparable),
+                 "score_missing_pairs": len(comparable) - ordinal_pairs,
                  "held_pairs_excluded": held_count, "provenance_unverified_pairs": incomplete_provenance,
                  "unmatched_labels": len(labels)-len(shared),
                  "unmatched_predictions": len(predictions)-len(shared),
