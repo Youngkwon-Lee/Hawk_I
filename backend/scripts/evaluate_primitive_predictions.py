@@ -277,9 +277,15 @@ def pair_provenance_unverified(label: dict, prediction: dict) -> bool:
 def temporal_evidence(record: dict, source: str, primitive: str) -> tuple[list[tuple[float, float]], int]:
     """Return seconds only. Cycle-number spans are kept separate, never treated as seconds."""
     legacy = extract_intervals(record, source)
+    # The standalone label export wraps legacy gait events in the events field.
+    if not legacy and isinstance(record.get("events"), dict):
+        legacy = extract_intervals(
+            {"gait_events": record["events"].get("gait_events")}, source
+        )
     if legacy:
         return legacy, 0
-    rating = (record.get("primitives") or {}).get(primitive)
+    primitives = _field_for(record, "label", "primitives")
+    rating = (primitives or {}).get(primitive)
     if not isinstance(rating, dict):
         return [], 0
     intervals, cycle_only = [], 0

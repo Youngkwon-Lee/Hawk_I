@@ -263,3 +263,21 @@ def test_nonfinite_evaluation_tolerances_rejected(tmp_path):
         code = main(["--labels", str(labels), "--predictions", str(preds),
                      "--task", "gait", "--dataset", "SYNTHETIC", arg, value])
         assert code == 2
+
+
+def test_exported_legacy_gait_events_are_not_silently_dropped():
+    exported = {"clip_id": "SYNTHETIC_GAIT",
+                "events": {"gait_events": {"turning_intervals": [
+                    {"start": 1.0, "end": 2.0}]}}}
+    assert temporal_evidence(exported, "turning_intervals", "turning_impairment") == (
+        [(1.0, 2.0)], 0
+    )
+
+
+def test_nested_label_primitive_seconds_are_evaluated():
+    exported = {"clip_id": "SYNTHETIC_GAIT", "label": {"primitives": {
+        "turning_impairment": {"observability": "observed", "severity": 1,
+                               "evidence": [{"start_s": 1.0, "end_s": 2.0}]}}}}
+    assert temporal_evidence(exported, "turning_intervals", "turning_impairment") == (
+        [(1.0, 2.0)], 0
+    )
