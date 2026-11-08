@@ -18,6 +18,28 @@ gemini_scorer = GeminiResearchVLM()
 gpt56_terra_scorer = GPT56TerraResearchVLM()
 
 
+def _unreviewed_finger_score_response(task_type):
+    """Fail closed for legacy scored VLM finger-tapping paths.
+
+    Technical QC or a research score is not human-reviewed MDS-UPDRS 3.4.
+    The read-only observation endpoints and separately reviewed scoring
+    workflow have different owners and are deliberately left unchanged.
+    """
+    normalized = (
+        task_type.strip().casefold().replace("-", "_").replace(" ", "_")
+        if isinstance(task_type, str) else ""
+    )
+    if normalized == "finger_tapping" or normalized.startswith("finger_tapping_"):
+        return jsonify({
+            "success": False,
+            "state": "human_review_required",
+            "score": None,
+            "release_status": "not_authorized",
+            "error": "Finger-tapping automatic score release requires separate human review.",
+        }), 409
+    return None
+
+
 def _load_completed_analysis(video_id: str):
     """Resolve persisted media first so gunicorn workers do not lose the result."""
     result = load_analysis_result(current_app.config["UPLOAD_FOLDER"], video_id)
@@ -99,6 +121,12 @@ def analyze_video(video_id):
         video_path = analysis["video_path"]
         task_type = analysis["task_type"]
         ml_score = analysis["ml_score"]
+
+        # Do not call a scored VLM or release prior ML scores for unreviewed
+        # finger-tapping research. Other task-specific paths are unchanged.
+        blocked = _unreviewed_finger_score_response(task_type)
+        if blocked is not None:
+            return blocked
 
         if not video_path or not os.path.exists(video_path):
             return jsonify({
@@ -259,6 +287,11 @@ def analyze_direct():
 
         video = request.files['video']
         task_type = request.form.get('task_type', 'finger_tapping')
+
+        # Fail closed before writing even temporary uploaded video bytes.
+        blocked = _unreviewed_finger_score_response(task_type)
+        if blocked is not None:
+            return blocked
 
         # Save temporarily
         temp_path = f"/tmp/vlm_temp_{video.filename}"
