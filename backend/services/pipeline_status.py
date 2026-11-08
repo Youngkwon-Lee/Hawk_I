@@ -80,18 +80,20 @@ def get_pipeline_status(manifest_path: Path | None = None) -> dict[str, Any]:
     binding = handoff.get("model_binding")
     if not isinstance(binding, dict):
         binding = {}
-    binding_verified = (
+    # This binding is part of the same operator-editable manifest as the export
+    # digest. A matching model name/digest is *not* independent proof that the
+    # model actually trained on those bytes, even if status says "verified".
+    binding_claim_matches = (
         handoff.get("valid") is True
         and binding.get("status") == "verified"
         and binding.get("dataset_sha256") == handoff.get("dataset_sha256")
         and binding.get("model") == model.get("model")
     )
+    binding_verified = False  # No independent training-run attestation verifier.
     model_ready = model["reachable"] and model["model_present"]
     handoff_ready = handoff.get("valid") is True
 
-    if handoff_ready and model_ready and binding_verified:
-        overall = "operational"
-    elif handoff_ready and model_ready:
+    if handoff_ready and model_ready:
         overall = "connected_unbound"
     elif handoff_ready:
         overall = "handoff_ready"
@@ -120,8 +122,10 @@ def get_pipeline_status(manifest_path: Path | None = None) -> dict[str, Any]:
         "training_binding": {
             "verified": binding_verified,
             "status": "verified" if binding_verified else "unverified",
-            "reason": None if binding_verified else binding.get(
-                "reason", "The serving model has not declared this export digest."
+            "reason": (
+                "Matching manifest claim is not an independently verified training-run attestation."
+                if binding_claim_matches
+                else "No independently verified training-run attestation is available."
             ),
         },
         "model": model,
