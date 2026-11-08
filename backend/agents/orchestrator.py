@@ -5,6 +5,7 @@ from agents.clinical_agent import ClinicalAgent
 from agents.gait_cycle_agent import GaitCycleAgent
 from agents.validation_agent import ValidationAgent
 from agents.report_agent import ReportAgent
+from services.finger_final_egress import is_finger_task
 import traceback
 import time
 
@@ -100,7 +101,10 @@ class OrchestratorAgent(BaseAgent):
                     self._log_step("ClinicalAgent", "done", clinical_time)
                     if on_progress_update:
                         on_progress_update("metrics", "completed")
-                        on_progress_update("updrs_calculation", "completed")
+                        on_progress_update(
+                            "updrs_calculation",
+                            "skipped" if is_finger_task(ctx.task_type) else "completed",
+                        )
 
             # --- Step 3: Gait Cycle Analysis (for gait tasks) ---
             if ctx.task_type in ['gait', 'leg_agility']:
@@ -119,22 +123,33 @@ class OrchestratorAgent(BaseAgent):
             self._log_step("ValidationAgent", "done", time.time() - t0)
             if on_progress_update: on_progress_update("validation", "completed")
 
-            # --- Step 5: Report (Interpretation) ---
-            self._log_step("ReportAgent", "start")
-            t0 = time.time()
-            if on_progress_update: on_progress_update("ai_interpretation", "in_progress")
-
-            # Even if clinical failed, we might have visual data to report on
-            ctx = self.report_agent.process(ctx)
-            report_time = time.time() - t0
-
-            if ctx.error:
-                self._log_step("ReportAgent", "fail", report_time)
-                ctx.log("orchestrator", f"Report generation failed.")
-                if on_progress_update: on_progress_update("ai_interpretation", "failed")
+            # Engineering quality does not authorize hosted LLM transfer.
+            # Do not invoke ReportAgent's external-capable interpreter here.
+            if is_finger_task(ctx.task_type):
+                ctx.report = None
+                ctx.log(
+                    "orchestrator",
+                    "Finger-tapping interpretation withheld; no external report call.",
+                )
+                if on_progress_update:
+                    on_progress_update("ai_interpretation", "skipped")
             else:
-                self._log_step("ReportAgent", "done", report_time)
-                if on_progress_update: on_progress_update("ai_interpretation", "completed")
+                # --- Step 5: Report (Interpretation) ---
+                self._log_step("ReportAgent", "start")
+                t0 = time.time()
+                if on_progress_update: on_progress_update("ai_interpretation", "in_progress")
+
+                # Even if clinical failed, we might have visual data to report on
+                ctx = self.report_agent.process(ctx)
+                report_time = time.time() - t0
+
+                if ctx.error:
+                    self._log_step("ReportAgent", "fail", report_time)
+                    ctx.log("orchestrator", f"Report generation failed.")
+                    if on_progress_update: on_progress_update("ai_interpretation", "failed")
+                else:
+                    self._log_step("ReportAgent", "done", report_time)
+                    if on_progress_update: on_progress_update("ai_interpretation", "completed")
 
             total_time = time.time() - total_start
             print(f"\n{'='*60}")
