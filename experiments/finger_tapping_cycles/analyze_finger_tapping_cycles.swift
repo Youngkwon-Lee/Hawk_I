@@ -42,6 +42,7 @@ struct TraceProvenance: Codable {
     let calibrated_physical_distance: Bool
     let side_verification: String
     let continuous_hand_identity_verified: Bool
+    let task_verification: String
     let image_orientation_assumption: String
     let camera_mirroring_verified: Bool
 }
@@ -374,6 +375,7 @@ if let traceURL = traceURL {
             calibrated_physical_distance: false,
             side_verification: "operator_declared_unverified",
             continuous_hand_identity_verified: false,
+            task_verification: "operator_declared_unverified",
             image_orientation_assumption: "up_unverified",
             camera_mirroring_verified: false),
         vision_chirality_audit: summarizeVisionChirality(
