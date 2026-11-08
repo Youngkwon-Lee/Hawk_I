@@ -2,7 +2,8 @@
 """Grade model predictions against human labels and print the three result tables.
 
     python backend/scripts/evaluate_primitive_predictions.py \\
-        --labels labels_gait.jsonl --predictions preds_c3.jsonl
+        --labels labels_gait.jsonl --predictions preds_c3.jsonl \
+        --task gait --dataset PD4T
 
 Inputs
 ------
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -41,7 +43,7 @@ from services.primitive_eval import (  # noqa: E402
     score_vs_observation,
     temporal_event_agreement,
 )
-from services.prediction_ingest import score_from  # noqa: E402
+from services.prediction_ingest import score_from, validate_prediction  # noqa: E402
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -53,10 +55,10 @@ def load_jsonl(path: Path) -> list[dict]:
         try:
             record = json.loads(text)
         except json.JSONDecodeError as exc:
-            print(f"  skipped {path.name} line {index}: {exc.msg}", file=sys.stderr)
-            continue
-        if isinstance(record, dict):
-            records.append(record)
+            raise ValueError(f"{path.name}:{index}: invalid JSON ({exc.msg})") from exc
+        if not isinstance(record, dict):
+            raise ValueError(f"{path.name}:{index}: expected a JSON object")
+        records.append(record)
     return records
 
 
@@ -64,6 +66,165 @@ def label_fields(record: dict) -> dict:
     """Labels may be flat or nested under `label`, depending on the export."""
     nested = record.get("label")
     return nested if isinstance(nested, dict) else record
+
+
+def label_score(record: dict, task: str) -> Any:
+    fields = label_fields(record)
+    if fields.get("updrs_score") not in (None, ""):
+        return fields["updrs_score"]
+    anchor = record.get("score_anchor") or fields.get("score_anchor") or {}
+    return anchor.get("updrs_3_4" if task == "finger_tapping" else "updrs_3_10")
+
+
+def label_primitives(record: dict, task: str) -> dict[str, float]:
+    fields = label_fields(record)
+    structured = fields.get("primitives")
+    if isinstance(structured, dict):
+        if all(isinstance(p, dict) for p in structured.values()):
+            return extract_predicted_primitives({"primitives": structured})
+        # Existing gait training exports contain plain severity values.
+        if all(value is None or (type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 3)
+               for value in structured.values()):
+            return {key: float(value) for key, value in structured.items() if value is not None}
+        raise ValueError("mixed or invalid label primitive representation")
+    if task != "gait":
+        raise ValueError("finger tapping requires versioned structured primitives")
+    return extract_label_primitives(fields)
+
+
+def _score_held(record: dict, role: str, task: str) -> bool:
+    gate = record.get("quality_gate")
+    if gate is None:
+        return False  # Legacy labels have no certified quality gate.
+    if not isinstance(gate, dict) or gate.get("status") not in ("pass", "hold"):
+        raise ValueError(f"{role}: invalid quality_gate")
+    if gate["status"] != "hold":
+        return False
+    score = label_score(record, task) if role == "label" else score_from(record)
+    if score is not None:
+        raise ValueError(f"{role}: held clip must not contain a score")
+    if any(isinstance(p, dict) and p.get("severity") is not None
+           for p in (record.get("primitives") or {}).values()):
+        raise ValueError(f"{role}: held clip must not contain primitive severities")
+    return True
+
+
+def _check_primitive_evidence(record: dict, role: str) -> None:
+    primitives = record.get("primitives")
+    if primitives is None:
+        return
+    if not isinstance(primitives, dict):
+        raise ValueError(f"{role}: primitives must be a mapping")
+    for name, rating in primitives.items():
+        if rating is None or (type(rating) in (int, float) and math.isfinite(rating) and 0 <= rating <= 3):
+            if role != "label":
+                raise ValueError(f"{role}: primitive {name} must be structured")
+            continue  # Historical numeric training labels, never model output.
+        if not isinstance(rating, dict):
+            raise ValueError(f"{role}: invalid primitive {name}")
+        observed = rating.get("observability")
+        severity = rating.get("severity")
+        if observed not in ("observed", "unobservable", "uncertain"):
+            raise ValueError(f"{role}: invalid observability for {name}")
+        if observed == "observed":
+            if type(severity) is not int or severity not in (0, 1, 2, 3):
+                raise ValueError(f"{role}: invalid observed severity for {name}")
+        elif severity is not None:
+            raise ValueError(f"{role}: unobserved {name} requires null severity")
+        evidence = rating.get("evidence", [])
+        if not isinstance(evidence, list) or (severity is not None and severity > 0 and not evidence):
+            raise ValueError(f"{role}: positive {name} requires evidence")
+        for span in evidence:
+            if not isinstance(span, dict):
+                raise ValueError(f"{role}: invalid evidence for {name}")
+            seconds = (("start_s", "end_s"), ("start_sec", "end_sec"))
+            has_time = [any(k in span for k in pair) for pair in seconds]
+            has_cycle = any(k in span for k in ("cycle_start", "cycle_end"))
+            if sum(has_time) + int(has_cycle) != 1:
+                raise ValueError(f"{role}: ambiguous time/cycle evidence for {name}")
+            if has_cycle:
+                start, end = span.get("cycle_start"), span.get("cycle_end")
+                if type(start) is not int or type(end) is not int or start < 1 or end < start:
+                    raise ValueError(f"{role}: invalid cycle interval for {name}")
+            else:
+                start_key, end_key = seconds[has_time.index(True)]
+                start, end = span.get(start_key), span.get(end_key)
+                if (type(start) not in (int, float) or type(end) not in (int, float)
+                    or not math.isfinite(start) or not math.isfinite(end)
+                    or start < 0 or end <= start):
+                    raise ValueError(f"{role}: invalid seconds interval for {name}")
+
+
+def index_by_identity(records: list[dict], *, role: str, task: str, dataset: str) -> dict[tuple[str, str, str, str], dict]:
+    """Never silently overwrite a different side, dataset, or model condition."""
+    indexed = {}
+    signatures = set()
+    for record in records:
+        clip_id = record.get("clip_id")
+        if not isinstance(clip_id, str) or not clip_id.strip():
+            raise ValueError(f"{role}: missing clip_id")
+        declared_task = record.get("task") or (record.get("item") if role == "label" else None)
+        if declared_task is not None and declared_task != task:
+            raise ValueError(f"{role}: wrong task for {clip_id}")
+        if role == "prediction" and declared_task is None:
+            raise ValueError(f"{role}: missing task for {clip_id}")
+        declared_dataset = record.get("dataset")
+        if declared_dataset is not None and declared_dataset != dataset:
+            raise ValueError(f"{role}: dataset mismatch for {clip_id}")
+        if role == "prediction" and declared_dataset is None:
+            raise ValueError(f"{role}: dataset is required for {clip_id}")
+        side = record.get("side")
+        if task == "finger_tapping" and side not in ("left", "right"):
+            raise ValueError(f"{role}: finger tapping side required for {clip_id}")
+        if task == "gait" and side not in (None, "na"):
+            raise ValueError(f"{role}: unexpected gait side for {clip_id}")
+        key = (dataset, task, clip_id, side if task == "finger_tapping" else "na")
+        if key in indexed:
+            raise ValueError(f"{role}: duplicate evaluation key {key}")
+        _check_primitive_evidence(record, role)
+        _score_held(record, role, task)
+        if role == "prediction":
+            validate_prediction(record)
+            signatures.add((record.get("model"), record.get("condition")))
+        else:
+            if "review_status" in record and record["review_status"] not in ("reviewed", "adjudicated"):
+                raise ValueError(f"{role}: incomplete reviewer decision for {clip_id}")
+            if task == "finger_tapping" and not isinstance(record.get("primitives"), dict):
+                raise ValueError(f"{role}: missing finger tapping primitives for {clip_id}")
+        indexed[key] = record
+    if role == "prediction" and len(signatures) > 1:
+        raise ValueError("mixed model/condition predictions: evaluate each candidate separately")
+    return indexed
+
+
+def pair_provenance_unverified(label: dict, prediction: dict) -> bool:
+    """A matching clip key is not proof of identical media/version."""
+    incomplete = "dataset" not in label
+    for key in ("ontology_version", "source_sha256"):
+        left, right = label.get(key), prediction.get(key)
+        if left and right and left != right:
+            raise ValueError(f"model/label provenance mismatch: {key}")
+        incomplete |= not bool(left and right)
+    return incomplete
+
+
+def temporal_evidence(record: dict, source: str, primitive: str) -> tuple[list[tuple[float, float]], int]:
+    """Return seconds only. Cycle-number spans are kept separate, never treated as seconds."""
+    legacy = extract_intervals(record, source)
+    if legacy:
+        return legacy, 0
+    rating = (record.get("primitives") or {}).get(primitive)
+    if not isinstance(rating, dict):
+        return [], 0
+    intervals, cycle_only = [], 0
+    for span in rating.get("evidence") or []:
+        if "cycle_start" in span:
+            cycle_only += 1
+        elif "start_s" in span:
+            intervals.append((float(span["start_s"]), float(span["end_s"])))
+        elif "start_sec" in span:
+            intervals.append((float(span["start_sec"]), float(span["end_sec"])))
+    return intervals, cycle_only
 
 
 def print_table(title: str, rows: list[list[str]], headers: list[str]) -> None:
@@ -79,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--labels", type=Path, required=True)
     parser.add_argument("--predictions", type=Path, required=True)
+    parser.add_argument("--task", choices=("gait", "finger_tapping"), required=True)
+    parser.add_argument("--dataset", required=True, help="operator-confirmed common dataset identity")
     parser.add_argument(
         "--score-tolerance", type=float, default=0,
         help="0 grades the score as exact (default); 1 counts within-one as correct",
@@ -95,27 +258,40 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {path} not found", file=sys.stderr)
             return 2
 
-    labels = {str(r.get("clip_id")): r for r in load_jsonl(args.labels) if r.get("clip_id")}
-    predictions = {str(r.get("clip_id")): r for r in load_jsonl(args.predictions) if r.get("clip_id")}
+    if not args.dataset.strip():
+        print("error: dataset cannot be empty", file=sys.stderr)
+        return 2
+    try:
+        labels = index_by_identity(load_jsonl(args.labels), role="label", task=args.task, dataset=args.dataset)
+        predictions = index_by_identity(load_jsonl(args.predictions), role="prediction", task=args.task, dataset=args.dataset)
+        shared = sorted(set(labels) & set(predictions))
+        if not shared:
+            raise ValueError("no identical dataset/task/clip/side keys in both files")
+        incomplete_provenance = sum(pair_provenance_unverified(labels[key], predictions[key]) for key in shared)
+    except (ValueError, OSError) as exc:
+        print(f"error: evaluation input rejected: {exc}", file=sys.stderr)
+        return 2
 
-    shared = sorted(set(labels) & set(predictions))
-    print(f"labels {len(labels)} | predictions {len(predictions)} | matched clips {len(shared)}")
-    if not shared:
-        print("error: no clip_id appears in both files", file=sys.stderr)
+    print(f"labels {len(labels)} | predictions {len(predictions)} | matched identity keys {len(shared)}")
+    print(f"unmatched labels {len(labels)-len(shared)} | unmatched predictions {len(predictions)-len(shared)}")
+    print(f"provenance not fully bound for {incomplete_provenance}/{len(shared)} pair(s); results are research-only")
+    comparable = [key for key in shared if not _score_held(labels[key], "label", args.task)
+                  and not _score_held(predictions[key], "prediction", args.task)]
+    held_count = len(shared) - len(comparable)
+    if not comparable:
+        print("error: no quality-passing matched records to score", file=sys.stderr)
         return 1
-    if len(shared) < len(predictions):
-        print(f"  note: {len(predictions) - len(shared)} prediction(s) had no matching label")
 
     pairs = []
     cross_records = []
-    for clip_id in shared:
-        label_primitives = extract_label_primitives(label_fields(labels[clip_id]))
-        predicted_primitives = extract_predicted_primitives(predictions[clip_id])
-        pairs.append((label_primitives, predicted_primitives))
+    for key in comparable:
+        label_primitives_for_key = label_primitives(labels[key], args.task)
+        predicted_primitives = extract_predicted_primitives(predictions[key])
+        pairs.append((label_primitives_for_key, predicted_primitives))
         cross_records.append({
-            "true_score": label_fields(labels[clip_id]).get("updrs_score"),
-            "predicted_score": score_from(predictions[clip_id]),
-            "label_primitives": label_primitives,
+            "true_score": label_score(labels[key], args.task),
+            "predicted_score": score_from(predictions[key]),
+            "label_primitives": label_primitives_for_key,
             "predicted_primitives": predicted_primitives,
         })
 
@@ -161,14 +337,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  데이터 부족으로 제외: {cross['skipped_missing_data']}건")
 
     temporal: dict[str, Any] = {}
-    for source, primitive in INTERVAL_SOURCES.items():
-        span_pairs = [
-            (extract_intervals(labels[c], source), extract_intervals(predictions[c], source))
-            for c in shared
-        ]
-        if not any(truth for truth, _ in span_pairs):
-            continue
-        temporal[primitive] = temporal_event_agreement(span_pairs, tolerance_sec=args.event_tolerance)
+    cycle_only_evidence = 0
+    if args.task == "gait":
+        for source, primitive in INTERVAL_SOURCES.items():
+            span_pairs = []
+            for key in comparable:
+                truth, t_cycles = temporal_evidence(labels[key], source, primitive)
+                predicted, p_cycles = temporal_evidence(predictions[key], source, primitive)
+                cycle_only_evidence += t_cycles + p_cycles
+                span_pairs.append((truth, predicted))
+            if any(truth for truth, _ in span_pairs):
+                temporal[primitive] = temporal_event_agreement(span_pairs, tolerance_sec=args.event_tolerance)
+    if cycle_only_evidence:
+        print(f"  note: {cycle_only_evidence} cycle-number evidence span(s) excluded from seconds-based event matching")
 
     if temporal:
         print_table(
@@ -192,9 +373,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.json_out:
         args.json_out.write_text(
             json.dumps(
-                {"matched_clips": len(shared), "distribution": distribution,
-                 "agreement": agreement, "score_vs_observation": cross,
-                 "temporal_events": temporal},
+                {"matched_identity_keys": len(shared), "scored_pairs": len(comparable),
+                 "held_pairs_excluded": held_count, "provenance_unverified_pairs": incomplete_provenance,
+                 "unmatched_labels": len(labels)-len(shared),
+                 "unmatched_predictions": len(predictions)-len(shared),
+                 "dataset": args.dataset, "task": args.task, "research_only": True,
+                 "cycle_only_time_evidence_excluded": cycle_only_evidence,
+                 "distribution": distribution, "agreement": agreement,
+                 "score_vs_observation": cross, "temporal_events": temporal},
                 ensure_ascii=False, indent=2,
             ),
             encoding="utf-8",
