@@ -40,4 +40,21 @@ The optional JSON trace now also carries `frame_index` (zero-based decoded sourc
 
 A repeatable, purely synthetic `--geometry-selftest` on Mac exercises matched, opposite, mixed and unknown chirality reports (all stay `side_verified=false`), alongside normalized-distance geometry checks. Apple Vision's `VNHumanHandPoseObservation.chirality` is only an algorithmic estimate; mixed chirality reports can signal ambiguity but cannot prove a hand swap. A consistent reported side is likewise not verification of side identity, camera mirroring or continuity. **Positive hand tracking, missing-frame identity linkage, clinical measurements and MDS-UPDRS scoring remain untested.** The earlier schematic 240-frame video continues to show zero hand detections, correctly yielding an empty trace and a hold-like failure.
 
-Actual hand detections, left/right verification, continuity across missing frames, palm-span stability with hand orientation, mirror/camera metadata, physical calibration, and MDS-UPDRS validity remain unverified. Only authorized media and approved use may be used for any later positive-detection check.
+### Public CC0 hand-video smoke — positive detection, NOT tapping (2026-11-08)
+
+For a **nonclinical, non-Finger-Tapping** positive detector check, the authorized Mac tested Wikimedia Commons [*Woman counting on fingers.webm*](https://commons.wikimedia.org/wiki/File:Woman_counting_on_fingers.webm), by Mvolz, presented on Commons as **CC0 1.0**. The public clip depicts finger counting, not MDS-UPDRS 3.4, and has no clinical tap-event ground truth. Only a temporary 8-second 10fps 960-pixel-wide H.264 conversion (no audio) was used. Source media SHA-256: `71c19b00a8b575cbe6bbc061ce07e507cd303d8ba3f5263069b9fa3a6cab742e`; converted unmirrored MP4 SHA-256: `038a5f2e16ed1c9dc4520f681c3a8590e721e74c57912776aa29b8f2ddabfa0d`. No media, frames, raw traces or personal identifiers were committed.
+
+| Technical output | Original 8 s | Horizontally mirrored copy |
+| --- | ---: | ---: |
+| Decoded frames | 80 | 80 |
+| Four-point normalized hand traces | 72 | 73 |
+| Vision-reported Right frames | 72 | 0 |
+| Vision-reported Left frames | 0 | 73 |
+| Research QC result (Labeling Tool Draft #5) | `hold/unverified_task` | `hold/unverified_task` |
+| Clinical score `updrs_3_4` | `null` | `null` |
+
+The observed *hand-detection coverage* is 90.0% and 91.25% for these two versions of **one source video**. That is neither landmark accuracy nor external model validation. Mirroring changed the Vision chirality report and some normalized distance estimates; the median absolute distance difference was 0.0542 for 71 shared detected frame indices, with **no independent ground-truth reference**. The legacy cycle summary estimated one open-close event in the unmirrored counting clip; it is **not a valid Finger Tapping tap**.
+
+The video CLI previously populated `task: "finger_tapping"` without independent task verification. The trace now explicitly records `provenance.task_verification: "operator_declared_unverified"`. The existing Labeling Tool Draft PR #5 QC treats this marker as `hold/unverified_task`, even if landmarks are detected and handedness reports appear consistent. Thus the clip is **not admitted as a valid motor task or score sample**. The updated Swift code blob `b5d3f2300ca57a5f7d0a274f730534a209992089` passed macOS typecheck and geometry/chirality selftest, and the updated QC code blob `88e9131da99435803bcd61693c4554b2eecc847e` passed 18/18 synthetic tests on the authorized Mac.
+
+**Remaining gates:** verified actual finger-tapping task, independent frame/landmark reference, continuous hand identity, true left/right hand confirmation, video orientation/mirroring and palm-span stability, appropriate research/data rights, independent clinical ratings, participant-level split and any MDS-UPDRS scale-use permission. No 3D calibration, diagnostic validity, treatment effect or score performance is established. This is a local research smoke check only.
