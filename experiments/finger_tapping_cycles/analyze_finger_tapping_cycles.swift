@@ -24,6 +24,31 @@ struct Result: Codable {
     let method: String
 }
 
+// Research-only hand-trace interchange with hawkeye-labeling-tool's
+// analyze_finger_tapping_trace.py. This is 2D image-plane data, NOT 3D.
+struct NormalizedTraceSample: Codable {
+    let time_s: Double
+    let gap_norm: Double
+    let confidence: Double
+}
+
+struct TraceProvenance: Codable {
+    let coordinate_space: String
+    let normalization_reference: String
+    let calibrated_physical_distance: Bool
+    let side_verification: String
+    let continuous_hand_identity_verified: Bool
+}
+
+struct NormalizedTrace: Codable {
+    let task: String
+    let side: String
+    let unit: String
+    let decoded_frames: Int
+    let samples: [NormalizedTraceSample]
+    let provenance: TraceProvenance
+}
+
 func quantile(_ values: [Double], _ probability: Double) -> Double? {
     guard !values.isEmpty else { return nil }
     let sorted = values.sorted()
@@ -66,12 +91,25 @@ func countCycles(_ distances: [Double]) -> Int? {
     return cycles
 }
 
-guard CommandLine.arguments.count == 2 else {
-    fputs("usage: analyze_finger_tapping_cycles.swift VIDEO\n", stderr)
+let arguments = Array(CommandLine.arguments.dropFirst())
+let traceExportRequested = arguments.count == 5 &&
+    arguments[1] == "--trace-json" && arguments[3] == "--side" &&
+    (arguments[4] == "left" || arguments[4] == "right")
+guard arguments.count == 1 || traceExportRequested else {
+    fputs("usage: analyze_finger_tapping_cycles.swift VIDEO [--trace-json OUTPUT.json --side left|right]\n", stderr)
     exit(2)
 }
 
-let videoURL = URL(fileURLWithPath: CommandLine.arguments[1])
+let videoURL = URL(fileURLWithPath: arguments[0])
+let traceURL = traceExportRequested ? URL(fileURLWithPath: arguments[2]) : nil
+if let traceURL = traceURL {
+    guard traceURL.pathExtension.lowercased() == "json",
+          traceURL.standardizedFileURL != videoURL.standardizedFileURL,
+          !FileManager.default.fileExists(atPath: traceURL.path) else {
+        fputs("trace export must be a new local .json file, different from input\n", stderr)
+        exit(2)
+    }
+}
 let asset = AVURLAsset(url: videoURL)
 guard let track = asset.tracks(withMediaType: .video).first else {
     fputs("video track not found\n", stderr)
@@ -94,6 +132,7 @@ let request = VNDetectHumanHandPoseRequest()
 request.maximumHandCount = 1
 var decodedFrames = 0
 var samples: [Sample] = []
+var normalizedTraceSamples: [NormalizedTraceSample] = []
 var durationSec = 0.0
 
 while let sampleBuffer = output.copyNextSampleBuffer() {
@@ -113,6 +152,33 @@ while let sampleBuffer = output.copyNextSampleBuffer() {
         let dx = Double(thumb.location.x - index.location.x)
         let dy = Double(thumb.location.y - index.location.y)
         samples.append(Sample(time: time, distance: sqrt(dx * dx + dy * dy)))
+
+        // Unlike the legacy cycle summary, this optional export requires a
+        // palm-span proxy and real presentation timestamps on every sample.
+        // Pixel dimensions compensate for non-square normalized image axes;
+        // the resulting ratio is NOT a calibrated 3D/physical distance.
+        if traceURL != nil,
+           let indexMCP = points[.indexMCP],
+           let littleMCP = points[.littleMCP],
+           indexMCP.confidence >= 0.30,
+           littleMCP.confidence >= 0.30,
+           time.isFinite, time >= 0 {
+            let width = Double(CVPixelBufferGetWidth(pixelBuffer))
+            let height = Double(CVPixelBufferGetHeight(pixelBuffer))
+            let spanX = Double(indexMCP.location.x - littleMCP.location.x) * width
+            let spanY = Double(indexMCP.location.y - littleMCP.location.y) * height
+            let span = hypot(spanX, spanY)
+            let gap = hypot(dx * width, dy * height)
+            if span > 1e-6 {
+                let ratio = gap / span
+                if ratio.isFinite, ratio >= 0, ratio <= 3 {
+                    let confidence = Double(min(thumb.confidence, index.confidence,
+                                                indexMCP.confidence, littleMCP.confidence))
+                    normalizedTraceSamples.append(NormalizedTraceSample(
+                        time_s: time, gap_norm: ratio, confidence: confidence))
+                }
+            }
+        }
     } catch {
         continue
     }
@@ -145,5 +211,18 @@ let result = Result(
 )
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+if let traceURL = traceURL {
+    let trace = NormalizedTrace(
+        task: "finger_tapping", side: arguments[4],
+        unit: "thumb_index_gap_over_palm_width",
+        decoded_frames: decodedFrames, samples: normalizedTraceSamples,
+        provenance: TraceProvenance(
+            coordinate_space: "2d_image_plane",
+            normalization_reference: "index_mcp_to_little_mcp_image_pixel_span",
+            calibrated_physical_distance: false,
+            side_verification: "operator_declared_unverified",
+            continuous_hand_identity_verified: false))
+    try encoder.encode(trace).write(to: traceURL, options: [.atomic, .withoutOverwriting])
+}
 FileHandle.standardOutput.write(try encoder.encode(result))
 FileHandle.standardOutput.write(Data("\n".utf8))
