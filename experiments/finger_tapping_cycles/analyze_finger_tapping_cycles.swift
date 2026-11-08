@@ -30,6 +30,10 @@ struct NormalizedTraceSample: Codable {
     let time_s: Double
     let gap_norm: Double
     let confidence: Double
+    let palm_span_px: Double
+    // Diagnostic-only: no automatic identity or handedness verification.
+    var frame_index: Int? = nil
+    var vision_chirality: String? = nil
 }
 
 struct TraceProvenance: Codable {
@@ -38,6 +42,48 @@ struct TraceProvenance: Codable {
     let calibrated_physical_distance: Bool
     let side_verification: String
     let continuous_hand_identity_verified: Bool
+    let image_orientation_assumption: String
+    let camera_mirroring_verified: Bool
+}
+
+struct VisionChiralityAudit: Codable {
+    let left_frames: Int
+    let right_frames: Int
+    let unknown_frames: Int
+    let reported_side_disagreements: Int
+    let interpretation: String
+    let side_verified: Bool
+}
+
+// The Vision estimate is image metadata, not a confirmed participant side.
+// Mirror/orientation, two-hand swaps and tracking gaps require separate review.
+func summarizeVisionChirality(_ readings: [String], declaredSide: String) -> VisionChiralityAudit {
+    let left = readings.filter { $0 == "left" }.count
+    let right = readings.filter { $0 == "right" }.count
+    let unknown = readings.count - left - right
+    let disagreements = declaredSide == "left" ? right : left
+    let interpretation: String
+    if left > 0 && right > 0 {
+        interpretation = "mixed_reported_handedness_review_required"
+    } else if disagreements > 0 {
+        interpretation = "reported_side_disagreement_review_required"
+    } else if left + right == 0 {
+        interpretation = "no_known_vision_handedness"
+    } else {
+        interpretation = "reported_side_consistent_unverified"
+    }
+    return VisionChiralityAudit(
+        left_frames: left, right_frames: right, unknown_frames: unknown,
+        reported_side_disagreements: disagreements,
+        interpretation: interpretation, side_verified: false)
+}
+
+func visionChiralityLabel(_ chirality: VNChirality) -> String {
+    switch chirality {
+    case .left: return "left"
+    case .right: return "right"
+    default: return "unknown"
+    }
 }
 
 struct NormalizedTrace: Codable {
@@ -47,6 +93,7 @@ struct NormalizedTrace: Codable {
     let decoded_frames: Int
     let samples: [NormalizedTraceSample]
     let provenance: TraceProvenance
+    let vision_chirality_audit: VisionChiralityAudit
 }
 
 
@@ -82,7 +129,8 @@ func normalizedThumbIndexImageGap(
     guard ratio.isFinite, (0...3).contains(ratio) else { return nil }
     return NormalizedTraceSample(
         time_s: time, gap_norm: ratio,
-        confidence: points.map(\.confidence).min() ?? 0
+        confidence: points.map(\.confidence).min() ?? 0,
+        palm_span_px: palmSpan
     )
 }
 
@@ -134,6 +182,18 @@ func geometrySelfTest() -> Bool {
                  ImagePoint2D(x: 0.51, y: 0.50, confidence: 0.9)) == nil else {
         return false
     }
+    let matching = summarizeVisionChirality(["left", "left", "unknown"], declaredSide: "left")
+    let mismatch = summarizeVisionChirality(["right", "right"], declaredSide: "left")
+    let mixed = summarizeVisionChirality(["left", "right"], declaredSide: "left")
+    let unknown = summarizeVisionChirality(["unknown", "unknown"], declaredSide: "right")
+    guard matching.interpretation == "reported_side_consistent_unverified",
+          matching.unknown_frames == 1, matching.reported_side_disagreements == 0,
+          mismatch.interpretation == "reported_side_disagreement_review_required",
+          mismatch.reported_side_disagreements == 2,
+          mixed.interpretation == "mixed_reported_handedness_review_required",
+          unknown.interpretation == "no_known_vision_handedness",
+          !matching.side_verified, !mismatch.side_verified,
+          !mixed.side_verified, !unknown.side_verified else { return false }
     return true
 }
 
@@ -265,7 +325,10 @@ while let sampleBuffer = output.copyNextSampleBuffer() {
                 thumb: imagePoint(thumb), index: imagePoint(index),
                 indexMCP: imagePoint(indexMCP), littleMCP: imagePoint(littleMCP)
             ) {
-                normalizedTraceSamples.append(sample)
+                var traced = sample
+                traced.frame_index = decodedFrames - 1
+                traced.vision_chirality = visionChiralityLabel(observation.chirality)
+                normalizedTraceSamples.append(traced)
             }
         }
     } catch {
@@ -310,7 +373,12 @@ if let traceURL = traceURL {
             normalization_reference: "index_mcp_to_little_mcp_image_pixel_span",
             calibrated_physical_distance: false,
             side_verification: "operator_declared_unverified",
-            continuous_hand_identity_verified: false))
+            continuous_hand_identity_verified: false,
+            image_orientation_assumption: "up_unverified",
+            camera_mirroring_verified: false),
+        vision_chirality_audit: summarizeVisionChirality(
+            normalizedTraceSamples.map { $0.vision_chirality ?? "unknown" },
+            declaredSide: arguments[4]))
     try encoder.encode(trace).write(to: traceURL, options: .withoutOverwriting)
 }
 FileHandle.standardOutput.write(try encoder.encode(result))
