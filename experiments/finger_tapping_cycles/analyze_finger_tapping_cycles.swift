@@ -24,6 +24,180 @@ struct Result: Codable {
     let method: String
 }
 
+// Research-only hand-trace interchange with hawkeye-labeling-tool's
+// analyze_finger_tapping_trace.py. This is 2D image-plane data, NOT 3D.
+struct NormalizedTraceSample: Codable {
+    let time_s: Double
+    let gap_norm: Double
+    let confidence: Double
+    let palm_span_px: Double
+    // Diagnostic-only: no automatic identity or handedness verification.
+    var frame_index: Int? = nil
+    var vision_chirality: String? = nil
+}
+
+struct TraceProvenance: Codable {
+    let coordinate_space: String
+    let normalization_reference: String
+    let calibrated_physical_distance: Bool
+    let side_verification: String
+    let continuous_hand_identity_verified: Bool
+    let task_verification: String
+    let image_orientation_assumption: String
+    let camera_mirroring_verified: Bool
+}
+
+struct VisionChiralityAudit: Codable {
+    let left_frames: Int
+    let right_frames: Int
+    let unknown_frames: Int
+    let reported_side_disagreements: Int
+    let interpretation: String
+    let side_verified: Bool
+}
+
+// The Vision estimate is image metadata, not a confirmed participant side.
+// Mirror/orientation, two-hand swaps and tracking gaps require separate review.
+func summarizeVisionChirality(_ readings: [String], declaredSide: String) -> VisionChiralityAudit {
+    let left = readings.filter { $0 == "left" }.count
+    let right = readings.filter { $0 == "right" }.count
+    let unknown = readings.count - left - right
+    let disagreements = declaredSide == "left" ? right : left
+    let interpretation: String
+    if left > 0 && right > 0 {
+        interpretation = "mixed_reported_handedness_review_required"
+    } else if disagreements > 0 {
+        interpretation = "reported_side_disagreement_review_required"
+    } else if left + right == 0 {
+        interpretation = "no_known_vision_handedness"
+    } else {
+        interpretation = "reported_side_consistent_unverified"
+    }
+    return VisionChiralityAudit(
+        left_frames: left, right_frames: right, unknown_frames: unknown,
+        reported_side_disagreements: disagreements,
+        interpretation: interpretation, side_verified: false)
+}
+
+func visionChiralityLabel(_ chirality: VNChirality) -> String {
+    switch chirality {
+    case .left: return "left"
+    case .right: return "right"
+    default: return "unknown"
+    }
+}
+
+struct NormalizedTrace: Codable {
+    let task: String
+    let side: String
+    let unit: String
+    let decoded_frames: Int
+    let samples: [NormalizedTraceSample]
+    let provenance: TraceProvenance
+    let vision_chirality_audit: VisionChiralityAudit
+}
+
+
+struct ImagePoint2D {
+    let x: Double
+    let y: Double
+    let confidence: Double
+}
+
+// Pure image-plane geometry: makes scale/aspect/invalid-frame behavior
+// testable without camera access or synthetic hand detection claims.
+func normalizedThumbIndexImageGap(
+    time: Double, width: Double, height: Double,
+    thumb: ImagePoint2D, index: ImagePoint2D,
+    indexMCP: ImagePoint2D, littleMCP: ImagePoint2D
+) -> NormalizedTraceSample? {
+    guard time.isFinite, time >= 0,
+          width.isFinite, width > 0, height.isFinite, height > 0 else {
+        return nil
+    }
+    let points = [thumb, index, indexMCP, littleMCP]
+    guard points.allSatisfy({ point in
+        point.x.isFinite && point.y.isFinite && point.confidence.isFinite &&
+        (0...1).contains(point.x) && (0...1).contains(point.y) &&
+        (0.30...1).contains(point.confidence)
+    }) else { return nil }
+
+    let gap = hypot((thumb.x - index.x) * width, (thumb.y - index.y) * height)
+    let palmSpan = hypot((indexMCP.x - littleMCP.x) * width,
+                         (indexMCP.y - littleMCP.y) * height)
+    guard palmSpan > 1e-6 else { return nil }
+    let ratio = gap / palmSpan
+    guard ratio.isFinite, (0...3).contains(ratio) else { return nil }
+    return NormalizedTraceSample(
+        time_s: time, gap_norm: ratio,
+        confidence: points.map(\.confidence).min() ?? 0,
+        palm_span_px: palmSpan
+    )
+}
+
+// Fixture invariants only. Passing here does not establish real Vision
+// detection, hand tracking, camera orientation, or clinical accuracy.
+func geometrySelfTest() -> Bool {
+    let thumb = ImagePoint2D(x: 0.30, y: 0.45, confidence: 0.90)
+    let index = ImagePoint2D(x: 0.50, y: 0.45, confidence: 0.85)
+    let indexMCP = ImagePoint2D(x: 0.20, y: 0.55, confidence: 0.95)
+    let littleMCP = ImagePoint2D(x: 0.60, y: 0.55, confidence: 0.93)
+    func sample(_ a: ImagePoint2D = thumb,
+                _ b: ImagePoint2D = index,
+                _ c: ImagePoint2D = indexMCP,
+                _ d: ImagePoint2D = littleMCP,
+                time: Double = 1, width: Double = 800, height: Double = 600
+    ) -> NormalizedTraceSample? {
+        normalizedThumbIndexImageGap(
+            time: time, width: width, height: height,
+            thumb: a, index: b, indexMCP: c, littleMCP: d
+        )
+    }
+    func mirror(_ point: ImagePoint2D) -> ImagePoint2D {
+        ImagePoint2D(x: 1 - point.x, y: point.y, confidence: point.confidence)
+    }
+    guard let expected = sample(), abs(expected.gap_norm - 0.5) < 1e-10,
+          expected.confidence == 0.85,
+          let bigger = sample(width: 1600, height: 1200),
+          abs(bigger.gap_norm - expected.gap_norm) < 1e-10,
+          let mirrored = sample(mirror(thumb), mirror(index),
+                                mirror(indexMCP), mirror(littleMCP)),
+          abs(mirrored.gap_norm - expected.gap_norm) < 1e-10 else {
+        return false
+    }
+    let verticalThumb = ImagePoint2D(x: 0.25, y: 0.25, confidence: 0.95)
+    let verticalIndex = ImagePoint2D(x: 0.25, y: 0.50, confidence: 0.95)
+    let horizontalMCP = ImagePoint2D(x: 0.10, y: 0.20, confidence: 0.95)
+    let horizontalLittle = ImagePoint2D(x: 0.40, y: 0.20, confidence: 0.95)
+    guard let aspect = sample(verticalThumb, verticalIndex,
+                              horizontalMCP, horizontalLittle),
+          abs(aspect.gap_norm - 0.625) < 1e-10,
+          sample(thumb, index, indexMCP, indexMCP) == nil,
+          sample(ImagePoint2D(x: thumb.x, y: thumb.y, confidence: 0.1)) == nil,
+          sample(time: .nan) == nil,
+          sample(width: 0) == nil,
+          sample(ImagePoint2D(x: -0.1, y: thumb.y, confidence: 0.9)) == nil,
+          sample(ImagePoint2D(x: 0, y: 0, confidence: 0.9),
+                 ImagePoint2D(x: 1, y: 1, confidence: 0.9),
+                 ImagePoint2D(x: 0.49, y: 0.50, confidence: 0.9),
+                 ImagePoint2D(x: 0.51, y: 0.50, confidence: 0.9)) == nil else {
+        return false
+    }
+    let matching = summarizeVisionChirality(["left", "left", "unknown"], declaredSide: "left")
+    let mismatch = summarizeVisionChirality(["right", "right"], declaredSide: "left")
+    let mixed = summarizeVisionChirality(["left", "right"], declaredSide: "left")
+    let unknown = summarizeVisionChirality(["unknown", "unknown"], declaredSide: "right")
+    guard matching.interpretation == "reported_side_consistent_unverified",
+          matching.unknown_frames == 1, matching.reported_side_disagreements == 0,
+          mismatch.interpretation == "reported_side_disagreement_review_required",
+          mismatch.reported_side_disagreements == 2,
+          mixed.interpretation == "mixed_reported_handedness_review_required",
+          unknown.interpretation == "no_known_vision_handedness",
+          !matching.side_verified, !mismatch.side_verified,
+          !mixed.side_verified, !unknown.side_verified else { return false }
+    return true
+}
+
 func quantile(_ values: [Double], _ probability: Double) -> Double? {
     guard !values.isEmpty else { return nil }
     let sorted = values.sorted()
@@ -66,12 +240,31 @@ func countCycles(_ distances: [Double]) -> Int? {
     return cycles
 }
 
-guard CommandLine.arguments.count == 2 else {
-    fputs("usage: analyze_finger_tapping_cycles.swift VIDEO\n", stderr)
+if CommandLine.arguments.count == 2 && CommandLine.arguments[1] == "--geometry-selftest" {
+    let passed = geometrySelfTest()
+    print(passed ? "geometry_selftest_pass" : "geometry_selftest_fail")
+    exit(passed ? 0 : 1)
+}
+
+let arguments = Array(CommandLine.arguments.dropFirst())
+let traceExportRequested = arguments.count == 5 &&
+    arguments[1] == "--trace-json" && arguments[3] == "--side" &&
+    (arguments[4] == "left" || arguments[4] == "right")
+guard arguments.count == 1 || traceExportRequested else {
+    fputs("usage: analyze_finger_tapping_cycles.swift VIDEO [--trace-json OUTPUT.json --side left|right]\n", stderr)
     exit(2)
 }
 
-let videoURL = URL(fileURLWithPath: CommandLine.arguments[1])
+let videoURL = URL(fileURLWithPath: arguments[0])
+let traceURL = traceExportRequested ? URL(fileURLWithPath: arguments[2]) : nil
+if let traceURL = traceURL {
+    guard traceURL.pathExtension.lowercased() == "json",
+          traceURL.standardizedFileURL != videoURL.standardizedFileURL,
+          !FileManager.default.fileExists(atPath: traceURL.path) else {
+        fputs("trace export must be a new local .json file, different from input\n", stderr)
+        exit(2)
+    }
+}
 let asset = AVURLAsset(url: videoURL)
 guard let track = asset.tracks(withMediaType: .video).first else {
     fputs("video track not found\n", stderr)
@@ -94,6 +287,7 @@ let request = VNDetectHumanHandPoseRequest()
 request.maximumHandCount = 1
 var decodedFrames = 0
 var samples: [Sample] = []
+var normalizedTraceSamples: [NormalizedTraceSample] = []
 var durationSec = 0.0
 
 while let sampleBuffer = output.copyNextSampleBuffer() {
@@ -113,6 +307,31 @@ while let sampleBuffer = output.copyNextSampleBuffer() {
         let dx = Double(thumb.location.x - index.location.x)
         let dy = Double(thumb.location.y - index.location.y)
         samples.append(Sample(time: time, distance: sqrt(dx * dx + dy * dy)))
+
+        // Unlike the legacy cycle summary, this optional export requires a
+        // palm-span proxy and real presentation timestamps on every sample.
+        // Pixel dimensions compensate for non-square normalized image axes;
+        // the resulting ratio is NOT a calibrated 3D/physical distance.
+        if traceURL != nil,
+           let indexMCP = points[.indexMCP],
+           let littleMCP = points[.littleMCP] {
+            func imagePoint(_ point: VNRecognizedPoint) -> ImagePoint2D {
+                ImagePoint2D(x: Double(point.location.x), y: Double(point.location.y),
+                             confidence: Double(point.confidence))
+            }
+            if let sample = normalizedThumbIndexImageGap(
+                time: time,
+                width: Double(CVPixelBufferGetWidth(pixelBuffer)),
+                height: Double(CVPixelBufferGetHeight(pixelBuffer)),
+                thumb: imagePoint(thumb), index: imagePoint(index),
+                indexMCP: imagePoint(indexMCP), littleMCP: imagePoint(littleMCP)
+            ) {
+                var traced = sample
+                traced.frame_index = decodedFrames - 1
+                traced.vision_chirality = visionChiralityLabel(observation.chirality)
+                normalizedTraceSamples.append(traced)
+            }
+        }
     } catch {
         continue
     }
@@ -145,5 +364,24 @@ let result = Result(
 )
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+if let traceURL = traceURL {
+    let trace = NormalizedTrace(
+        task: "finger_tapping", side: arguments[4],
+        unit: "thumb_index_gap_over_palm_width",
+        decoded_frames: decodedFrames, samples: normalizedTraceSamples,
+        provenance: TraceProvenance(
+            coordinate_space: "2d_image_plane",
+            normalization_reference: "index_mcp_to_little_mcp_image_pixel_span",
+            calibrated_physical_distance: false,
+            side_verification: "operator_declared_unverified",
+            continuous_hand_identity_verified: false,
+            task_verification: "operator_declared_unverified",
+            image_orientation_assumption: "up_unverified",
+            camera_mirroring_verified: false),
+        vision_chirality_audit: summarizeVisionChirality(
+            normalizedTraceSamples.map { $0.vision_chirality ?? "unknown" },
+            declaredSide: arguments[4]))
+    try encoder.encode(trace).write(to: traceURL, options: .withoutOverwriting)
+}
 FileHandle.standardOutput.write(try encoder.encode(result))
 FileHandle.standardOutput.write(Data("\n".utf8))
