@@ -238,3 +238,40 @@ def test_temporal_agreement_handles_empty_input():
     report = temporal_event_agreement([([], [])])
     assert report["matched"] == 0
     assert report["precision"] is None and report["recall"] is None and report["f1"] is None
+
+
+def test_temporal_agreement_max_cardinality_over_greedy():
+    from services.primitive_eval import temporal_event_agreement
+
+    truths = [(0.9, 1.1), (1.9, 2.1)]
+    predictions = [(1.2, 1.4), (0.3, 0.5)]
+    for order in (predictions, list(reversed(predictions))):
+        report = temporal_event_agreement([(truths, order)], tolerance_sec=1.0)
+        assert report["matched"] == 2
+        assert report["labeled_events"] == 2
+        assert report["predicted_events"] == 2
+        assert report["precision"] == 1.0
+        assert report["recall"] == 1.0
+        assert report["f1"] == 1.0
+
+
+def test_temporal_agreement_prefers_smaller_distance_for_equal_cardinality():
+    from services.primitive_eval import temporal_event_agreement
+
+    truths = [(0.9, 1.1)]
+    predictions = [(0.9, 1.1), (1.05, 1.15)]
+    report = temporal_event_agreement([(truths, predictions)], tolerance_sec=1.0)
+    assert report["matched"] == 1
+    assert report["mean_iou_of_matched"] == 1.0
+
+
+def test_temporal_agreement_never_matches_across_clips():
+    from services.primitive_eval import temporal_event_agreement
+
+    report = temporal_event_agreement([
+        ([(0.9, 1.1)], []),
+        ([], [(0.9, 1.1)]),
+    ], tolerance_sec=1.0)
+    assert report["matched"] == 0
+    assert report["labeled_events"] == 1
+    assert report["predicted_events"] == 1

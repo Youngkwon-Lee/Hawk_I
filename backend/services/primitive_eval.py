@@ -184,17 +184,42 @@ def temporal_event_agreement(
     for truths, predictions in pairs:
         total_true += len(truths)
         total_pred += len(predictions)
-        available = list(predictions)
-        for truth in truths:
-            truth_mid = (truth[0] + truth[1]) / 2
-            best_index, best_distance = None, None
-            for index, prediction in enumerate(available):
-                distance = abs((prediction[0] + prediction[1]) / 2 - truth_mid)
-                if distance <= tolerance_sec and (best_distance is None or distance < best_distance):
-                    best_index, best_distance = index, distance
-            if best_index is not None:
-                ious.append(_iou(truth, available.pop(best_index)))
+        # A greedy nearest match can consume the only prediction another
+        # reference event can use. Ordered 1-D assignment maximizes the number
+        # of feasible pairs first, then minimizes total midpoint distance.
+        # Matching stays within each clip (pairs item) and remains one-to-one.
+        ordered_truths = sorted(truths, key=lambda e: ((e[0] + e[1]) / 2, e))
+        ordered_predictions = sorted(predictions, key=lambda e: ((e[0] + e[1]) / 2, e))
+        n, m = len(ordered_truths), len(ordered_predictions)
+        # DP value: (matched cardinality, negative total midpoint distance).
+        scores = [[(0, 0.0) for _ in range(m + 1)] for _ in range(n + 1)]
+        decisions = [["" for _ in range(m + 1)] for _ in range(n + 1)]
+        for i in range(1, n + 1):
+            truth_mid = (ordered_truths[i - 1][0] + ordered_truths[i - 1][1]) / 2
+            for j in range(1, m + 1):
+                best, action = scores[i - 1][j], "skip_truth"
+                if scores[i][j - 1] > best:
+                    best, action = scores[i][j - 1], "skip_prediction"
+                pred_mid = (ordered_predictions[j - 1][0] + ordered_predictions[j - 1][1]) / 2
+                distance = abs(truth_mid - pred_mid)
+                if distance <= tolerance_sec:
+                    prev_count, prev_neg_distance = scores[i - 1][j - 1]
+                    candidate = (prev_count + 1, prev_neg_distance - distance)
+                    if candidate >= best:
+                        best, action = candidate, "match"
+                scores[i][j], decisions[i][j] = best, action
+        i, j = n, m
+        while i > 0 and j > 0:
+            action = decisions[i][j]
+            if action == "match":
                 matched += 1
+                ious.append(_iou(ordered_truths[i - 1], ordered_predictions[j - 1]))
+                i -= 1
+                j -= 1
+            elif action == "skip_truth":
+                i -= 1
+            else:
+                j -= 1
 
     precision = matched / total_pred if total_pred else None
     recall = matched / total_true if total_true else None

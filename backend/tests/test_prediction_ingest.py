@@ -198,3 +198,41 @@ def test_primitives_and_quality_gate_reach_the_observation_row():
     row = attach_research_provenance({"measurement_context": {}}, _ontology_prediction())
     assert row["measurement_context"]["primitives"]["gait_speed_reduction"]["severity"] == 2
     assert row["measurement_context"]["quality_gate"]["status"] == "pass"
+
+
+def test_hold_rejects_nonnull_score_and_primitive_severity():
+    held_scored = _ontology_prediction(
+        quality_gate={"status": "hold", "reasons": ["body_occluded"]},
+        primitives={"freezing_of_gait": {
+            "observability": "unobservable", "severity": None, "confidence": "low", "evidence": []
+        }},
+        score_anchor={"updrs_3_10": 2, "source": "trusted_import"},
+    )
+    with pytest.raises(PredictionValidationError, match="held clips must not contain an ordinal score"):
+        prediction_to_result(held_scored)
+
+    held_primitive = _ontology_prediction(
+        quality_gate={"status": "hold", "reasons": ["body_occluded"]},
+        primitives={"gait_speed_reduction": {
+            "observability": "observed", "severity": 1, "confidence": "low",
+            "evidence": [{"start_s": 0.5, "end_s": 1.0}],
+        }},
+        score_anchor={"updrs_3_10": None, "source": "not_scored"},
+    )
+    with pytest.raises(PredictionValidationError, match="held clips must not contain primitive severities"):
+        prediction_to_result(held_primitive)
+
+
+def test_incompatible_task_anchor_and_invalid_quality_gate_are_rejected():
+    finger_wrong = _ontology_prediction(
+        task="finger_tapping",
+        score_anchor={"updrs_3_10": 2, "source": "trusted_import"},
+    )
+    with pytest.raises(PredictionValidationError, match="task-specific UPDRS item"):
+        prediction_to_result(finger_wrong)
+
+    invalid_gate = _ontology_prediction(
+        quality_gate={"status": "pending", "reasons": []},
+    )
+    with pytest.raises(PredictionValidationError, match="quality_gate must be pass or hold"):
+        prediction_to_result(invalid_gate)

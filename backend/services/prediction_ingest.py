@@ -110,9 +110,28 @@ def validate_prediction(prediction: dict[str, Any]) -> None:
     validate_primitives(prediction.get("primitives"))
 
     quality_gate = prediction.get("quality_gate")
+    if quality_gate is not None:
+        if not isinstance(quality_gate, dict) or quality_gate.get("status") not in ("pass", "hold"):
+            raise PredictionValidationError("quality_gate must be pass or hold")
+        reasons = quality_gate.get("reasons")
+        if not isinstance(reasons, list) or (quality_gate["status"] == "hold" and not reasons) \
+                or (quality_gate["status"] == "pass" and reasons):
+            raise PredictionValidationError("quality_gate reasons do not match status")
     on_hold = isinstance(quality_gate, dict) and quality_gate.get("status") == "hold"
+    anchor = prediction.get("score_anchor")
+    if isinstance(anchor, dict):
+        task = prediction.get("task")
+        if (task == "finger_tapping" and anchor.get("updrs_3_10") is not None) or \
+                (task == "gait" and anchor.get("updrs_3_4") is not None):
+            raise PredictionValidationError("score_anchor does not match task-specific UPDRS item")
 
     raw_score = score_from(prediction)
+    if on_hold:
+        if raw_score is not None:
+            raise PredictionValidationError("held clips must not contain an ordinal score")
+        if any(isinstance(p, dict) and p.get("severity") is not None
+               for p in (prediction.get("primitives") or {}).values()):
+            raise PredictionValidationError("held clips must not contain primitive severities")
     if raw_score is None:
         # A held clip, or a primitive-only run, legitimately carries no score.
         if on_hold or prediction.get("primitives"):

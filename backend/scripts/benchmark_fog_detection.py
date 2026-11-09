@@ -15,7 +15,8 @@ temporal overlap actually means something.
 Then grade the output with the existing evaluator:
 
     python backend/scripts/evaluate_primitive_predictions.py \\
-        --labels labels_gait.jsonl --predictions fog_preds.jsonl
+        --labels labels_gait.jsonl --predictions fog_preds.jsonl \
+        --task gait --dataset PD4T
 
 DATA USE
 --------
@@ -191,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\nwrote {written} prediction(s) to {args.out}; {failed} failed")
     print("grade with: backend/scripts/evaluate_primitive_predictions.py --labels <labels> --predictions "
-          f"{args.out}")
+          f"{args.out} --task gait --dataset PD4T")
     return 0 if failed == 0 else 1
 
 
