@@ -281,3 +281,102 @@ def test_nested_label_primitive_seconds_are_evaluated():
     assert temporal_evidence(exported, "turning_intervals", "turning_impairment") == (
         [(1.0, 2.0)], 0
     )
+
+
+def _synthetic_gait_score_pair(clip_id, *, quality_gate=True, event_reference=None):
+    label = {"clip_id": clip_id, "item": "gait", "dataset": "SYNTHETIC",
+             "label": {"updrs_score": 1, "gait_speed": "mild"}}
+    if quality_gate:
+        label["quality_gate"] = {"status": "pass", "reasons": []}
+    if event_reference is not None:
+        label["events"] = {"gait_events": {"turning_intervals": event_reference}}
+    pred = {"clip_id": clip_id, "task": "gait", "dataset": "SYNTHETIC",
+            "model": "SYNTHETIC_MODEL", "condition": "C3",
+            "quality_gate": {"status": "pass", "reasons": []},
+            "predicted_score": 1,
+            "primitives": {"turning_impairment": {
+                "observability": "observed", "severity": 1,
+                "evidence": [{"start_s": 1.0, "end_s": 2.0}]}}}
+    return label, pred
+
+
+def _score_gait_jsonl(tmp_path, labels, predictions):
+    import json
+    from evaluate_primitive_predictions import main
+
+    labels_path = tmp_path / "labels.jsonl"
+    preds_path = tmp_path / "preds.jsonl"
+    report_path = tmp_path / "report.json"
+    labels_path.write_text("".join(json.dumps(v) + "\n" for v in labels), encoding="utf-8")
+    preds_path.write_text("".join(json.dumps(v) + "\n" for v in predictions), encoding="utf-8")
+    status = main(["--labels", str(labels_path), "--predictions", str(preds_path),
+                   "--task", "gait", "--dataset", "SYNTHETIC",
+                   "--json-out", str(report_path)])
+    return status, json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else None
+
+
+def test_fractional_updrs_scores_rejected_for_both_roles():
+    for invalid in (2.5, "1.5", 3.1):
+        with pytest.raises(ValueError, match="integer score"):
+            _index([_label(updrs_score=invalid)])
+        with pytest.raises(ValueError, match="integer score"):
+            _index([_prediction(predicted_score=invalid)], role="prediction")
+    assert len(_index([_label(updrs_score=2.0)])) == 1
+
+
+def test_legacy_quality_unknown_does_not_enter_certified_score(tmp_path):
+    approved_label, approved_pred = _synthetic_gait_score_pair("SYN_CERTIFIED", event_reference=[])
+    unknown_label, unknown_pred = _synthetic_gait_score_pair("SYN_UNKNOWN", quality_gate=False)
+    status, report = _score_gait_jsonl(
+        tmp_path, [approved_label, unknown_label], [approved_pred, unknown_pred])
+    assert status == 0
+    assert report["matched_identity_keys"] == 2
+    assert report["quality_passing_pairs"] == 1
+    assert report["quality_unverified_pairs_excluded"] == 1
+    assert report["held_pairs_excluded"] == 0
+    assert report["scored_pairs"] == 1
+
+
+def test_only_uncertified_legacy_labels_do_not_claim_pass(tmp_path):
+    label, pred = _synthetic_gait_score_pair("SYN_UNCERTIFIED", quality_gate=False)
+    status, report = _score_gait_jsonl(tmp_path, [label], [pred])
+    assert status == 1
+    assert report is None
+
+
+def test_legacy_invalid_interval_values_rejected_before_grading():
+    for start, end in ((-2.0, -1.0), (float("nan"), 2.0), (1.0, float("inf")),
+                       (3.0, 2.0), (1.0, 1.0), (True, 2.0), ("oops", 2.0)):
+        label, _ = _synthetic_gait_score_pair("SYN_BAD_EVENT", event_reference=[
+            {"start": start, "end": end}])
+        with pytest.raises(ValueError, match="invalid legacy"):
+            _index([label], task="gait")
+
+
+def test_conflicting_legacy_event_sources_rejected():
+    label, _ = _synthetic_gait_score_pair(
+        "SYN_CONFLICT", event_reference=[{"start": 1.0, "end": 2.0}])
+    label["gait_events"] = {"turning_intervals": [{"start": 3.0, "end": 4.0}]}
+    with pytest.raises(ValueError, match="conflicting legacy"):
+        _index([label], task="gait")
+
+
+def test_explicit_zero_reference_events_report_model_false_positives(tmp_path):
+    label, prediction = _synthetic_gait_score_pair("SYN_EVENT_NEGATIVE", event_reference=[])
+    status, report = _score_gait_jsonl(tmp_path, [label], [prediction])
+    assert status == 0
+    turns = report["temporal_events"]["turning_impairment"]
+    assert turns["labeled_events"] == 0
+    assert turns["predicted_events"] == 1
+    assert turns["matched"] == 0
+    assert turns["false_positive_events"] == 1
+    assert turns["annotated_pairs"] == 1
+    assert turns["unannotated_pairs_excluded"] == 0
+
+
+def test_missing_temporal_annotation_is_not_assumed_negative(tmp_path):
+    label, prediction = _synthetic_gait_score_pair("SYN_EVENT_UNANNOTATED")
+    status, report = _score_gait_jsonl(tmp_path, [label], [prediction])
+    assert status == 0
+    assert "turning_impairment" not in report["temporal_events"]
+    assert report["unannotated_temporal_pairs_excluded"]["turning_impairment"] == 1

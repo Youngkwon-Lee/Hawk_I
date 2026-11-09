@@ -35,7 +35,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.primitive_eval import (  # noqa: E402
     INTERVAL_SOURCES,
-    extract_intervals,
     extract_label_primitives,
     extract_predicted_primitives,
     label_distribution,
@@ -118,8 +117,8 @@ def validated_score(record: dict, *, role: str, task: str) -> float | None:
             score = float(raw)
         except (ValueError, OverflowError) as exc:
             raise ValueError(f"{role}: {source} is not a numeric score") from exc
-        if not math.isfinite(score) or not 0 <= score <= 4:
-            raise ValueError(f"{role}: {source} must be a finite score in 0-4")
+        if not math.isfinite(score) or not 0 <= score <= 4 or not score.is_integer():
+            raise ValueError(f"{role}: {source} must be an integer score in 0-4")
         numbers.append(score)
     if any(value != numbers[0] for value in numbers[1:]):
         raise ValueError(f"{role}: conflicting ordinal score fields")
@@ -211,6 +210,72 @@ def _check_primitive_evidence(record: dict, role: str) -> None:
                     raise ValueError(f"{role}: invalid seconds interval for {name}")
 
 
+
+def _legacy_event_intervals(record: dict, source: str) -> tuple[list[tuple[float, float]], bool]:
+    """Validate raw legacy event intervals and retain explicit empty annotations.
+
+    Missing/null lists are unannotated, not proof of an event-free recording.
+    """
+    nested = label_fields(record)
+    export_events = record.get("events")
+    if export_events is not None and not isinstance(export_events, dict):
+        raise ValueError("invalid legacy events container")
+    candidates = [
+        ("gait_events", record.get("gait_events")),
+        ("label.gait_events", nested.get("gait_events") if nested is not record else None),
+        ("events.gait_events", export_events.get("gait_events") if export_events else None),
+    ]
+    declared = None
+    for location, events in candidates:
+        if events is None:
+            continue
+        if not isinstance(events, dict):
+            raise ValueError(f"invalid legacy {location} container")
+        if source not in events or events[source] is None:
+            continue
+        spans = events[source]
+        if not isinstance(spans, list):
+            raise ValueError(f"invalid legacy {location}.{source} intervals")
+        checked = []
+        for span in spans:
+            if not isinstance(span, dict):
+                raise ValueError(f"invalid legacy {source} span")
+            start, end = span.get("start"), span.get("end")
+            if any(isinstance(v, bool) or not isinstance(v, (str, int, float))
+                   for v in (start, end)):
+                raise ValueError(f"invalid legacy {source} interval values")
+            try:
+                begin, finish = float(start), float(end)
+            except (ValueError, OverflowError) as exc:
+                raise ValueError(f"invalid legacy {source} interval values") from exc
+            if not math.isfinite(begin) or not math.isfinite(finish) or begin < 0 or finish <= begin:
+                raise ValueError(f"invalid legacy {source} interval bounds")
+            checked.append((begin, finish))
+        checked.sort()
+        if declared is not None and declared != checked:
+            raise ValueError(f"conflicting legacy {source} event annotations")
+        declared = checked
+    return (declared if declared is not None else [], declared is not None)
+
+
+def _quality_state(record: dict, role: str, task: str) -> str:
+    """Separate certified pass, explicit hold, and missing quality evidence."""
+    if _score_held(record, role, task):
+        return "hold"
+    return "pass" if _field_for(record, role, "quality_gate") is not None else "unverified"
+
+
+def _temporal_label_annotated(record: dict, source: str, primitive: str) -> bool:
+    """Count predicted-only events only against explicitly annotated references."""
+    _, has_legacy_list = _legacy_event_intervals(record, source)
+    if has_legacy_list:
+        return True
+    primitives = _field_for(record, "label", "primitives")
+    rating = (primitives or {}).get(primitive) if isinstance(primitives, dict) else None
+    return (isinstance(rating, dict) and rating.get("observability") == "observed"
+            and isinstance(rating.get("evidence"), list))
+
+
 def index_by_identity(records: list[dict], *, role: str, task: str, dataset: str) -> dict[tuple[str, str, str, str], dict]:
     """Never silently overwrite a different side, dataset, or model condition."""
     indexed = {}
@@ -238,6 +303,9 @@ def index_by_identity(records: list[dict], *, role: str, task: str, dataset: str
         if key in indexed:
             raise ValueError(f"{role}: duplicate evaluation key {key}")
         _check_primitive_evidence(record, role)
+        if task == "gait":
+            for event_source in INTERVAL_SOURCES:
+                _legacy_event_intervals(record, event_source)
         validated_score(record, role=role, task=task)
         _score_held(record, role, task)
         if role == "prediction":
@@ -276,12 +344,7 @@ def pair_provenance_unverified(label: dict, prediction: dict) -> bool:
 
 def temporal_evidence(record: dict, source: str, primitive: str) -> tuple[list[tuple[float, float]], int]:
     """Return seconds only. Cycle-number spans are kept separate, never treated as seconds."""
-    legacy = extract_intervals(record, source)
-    # The standalone label export wraps legacy gait events in the events field.
-    if not legacy and isinstance(record.get("events"), dict):
-        legacy = extract_intervals(
-            {"gait_events": record["events"].get("gait_events")}, source
-        )
+    legacy, _ = _legacy_event_intervals(record, source)
     if legacy:
         return legacy, 0
     primitives = _field_for(record, "label", "primitives")
@@ -351,11 +414,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"labels {len(labels)} | predictions {len(predictions)} | matched identity keys {len(shared)}")
     print(f"unmatched labels {len(labels)-len(shared)} | unmatched predictions {len(predictions)-len(shared)}")
     print(f"provenance not fully bound for {incomplete_provenance}/{len(shared)} pair(s); results are research-only")
-    comparable = [key for key in shared if not _score_held(labels[key], "label", args.task)
-                  and not _score_held(predictions[key], "prediction", args.task)]
-    held_count = len(shared) - len(comparable)
+    comparable, held_count, uncertified_count = [], 0, 0
+    for key in shared:
+        label_state = _quality_state(labels[key], "label", args.task)
+        prediction_state = _quality_state(predictions[key], "prediction", args.task)
+        if "hold" in (label_state, prediction_state):
+            held_count += 1
+        elif label_state == prediction_state == "pass":
+            comparable.append(key)
+        else:
+            uncertified_count += 1
+    print(f"certified quality-pass pairs {len(comparable)} | held {held_count} | "
+          f"missing quality gate {uncertified_count}")
     if not comparable:
-        print("error: no quality-passing matched records to score", file=sys.stderr)
+        print("error: no certified quality-passing matched records to score", file=sys.stderr)
         return 1
 
     pairs = []
@@ -416,17 +488,28 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  데이터 부족으로 제외: {cross['skipped_missing_data']}건")
 
     temporal: dict[str, Any] = {}
+    unannotated_temporal_pairs: dict[str, int] = {}
     cycle_only_evidence = 0
     if args.task == "gait":
         for source, primitive in INTERVAL_SOURCES.items():
             span_pairs = []
+            skipped = 0
             for key in comparable:
+                if not _temporal_label_annotated(labels[key], source, primitive):
+                    skipped += 1
+                    continue
                 truth, t_cycles = temporal_evidence(labels[key], source, primitive)
                 predicted, p_cycles = temporal_evidence(predictions[key], source, primitive)
                 cycle_only_evidence += t_cycles + p_cycles
                 span_pairs.append((truth, predicted))
-            if any(truth for truth, _ in span_pairs):
-                temporal[primitive] = temporal_event_agreement(span_pairs, tolerance_sec=args.event_tolerance)
+            unannotated_temporal_pairs[primitive] = skipped
+            if span_pairs:
+                result = temporal_event_agreement(span_pairs, tolerance_sec=args.event_tolerance)
+                result["false_positive_events"] = result["predicted_events"] - result["matched"]
+                result["false_negative_events"] = result["labeled_events"] - result["matched"]
+                result["annotated_pairs"] = len(span_pairs)
+                result["unannotated_pairs_excluded"] = skipped
+                temporal[primitive] = result
     if cycle_only_evidence:
         print(f"  note: {cycle_only_evidence} cycle-number evidence span(s) excluded from seconds-based event matching")
 
@@ -434,14 +517,14 @@ def main(argv: list[str] | None = None) -> int:
         print_table(
             f"4) 시간 구간 예측 (매칭 기준: 중점 ±{args.event_tolerance:g}초)",
             [
-                [primitive, r["labeled_events"], r["predicted_events"], r["matched"],
+                [primitive, r["labeled_events"], r["predicted_events"], r["matched"], r["false_positive_events"],
                  "-" if r["precision"] is None else f"{r['precision']:.1%}",
                  "-" if r["recall"] is None else f"{r['recall']:.1%}",
                  "-" if r["f1"] is None else f"{r['f1']:.3f}",
                  "-" if r["mean_iou_of_matched"] is None else f"{r['mean_iou_of_matched']:.3f}"]
                 for primitive, r in temporal.items()
             ],
-            ["primitive", "정답구간", "예측구간", "매칭", "정밀도", "재현율", "F1", "평균 IoU"],
+            ["primitive", "정답구간", "예측구간", "매칭", "오탐", "정밀도", "재현율", "F1", "평균 IoU"],
         )
         if "turning_impairment" in temporal:
             print("  → 회전은 구간이 짧아(중앙값 0.7초) IoU가 작은 어긋남에도 무너집니다.")
@@ -455,11 +538,14 @@ def main(argv: list[str] | None = None) -> int:
                 {"matched_identity_keys": len(shared), "scored_pairs": ordinal_pairs,
                  "quality_passing_pairs": len(comparable),
                  "score_missing_pairs": len(comparable) - ordinal_pairs,
-                 "held_pairs_excluded": held_count, "provenance_unverified_pairs": incomplete_provenance,
+                 "held_pairs_excluded": held_count,
+                 "quality_unverified_pairs_excluded": uncertified_count,
+                 "provenance_unverified_pairs": incomplete_provenance,
                  "unmatched_labels": len(labels)-len(shared),
                  "unmatched_predictions": len(predictions)-len(shared),
                  "dataset": args.dataset, "task": args.task, "research_only": True,
                  "cycle_only_time_evidence_excluded": cycle_only_evidence,
+                 "unannotated_temporal_pairs_excluded": unannotated_temporal_pairs,
                  "distribution": distribution, "agreement": agreement,
                  "score_vs_observation": cross, "temporal_events": temporal},
                 ensure_ascii=False, indent=2,
