@@ -303,6 +303,7 @@ def index_by_identity(records: list[dict], *, role: str, task: str, dataset: str
         if key in indexed:
             raise ValueError(f"{role}: duplicate evaluation key {key}")
         _check_primitive_evidence(record, role)
+        declared_split(record, role)
         if task == "gait":
             for event_source in INTERVAL_SOURCES:
                 _legacy_event_intervals(record, event_source)
@@ -324,6 +325,32 @@ def index_by_identity(records: list[dict], *, role: str, task: str, dataset: str
     return indexed
 
 
+def declared_split(record: dict, role: str) -> str | None:
+    """Extract declared split from flat/nested label and legacy export metadata.
+
+    Compare claims only; a matching split declaration does not certify
+    training-run membership, a frozen subject split, or held-out status.
+    """
+    declared = [("split", _field_for(record, role, "split"))]
+    if role == "label":
+        meta = record.get("meta")
+        if meta is not None and not isinstance(meta, dict):
+            raise ValueError("label: meta must be an object")
+        if isinstance(meta, dict):
+            declared.append(("meta.split", meta.get("split")))
+    split = None
+    for name, raw in declared:
+        if raw is None or raw == "":
+            continue
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"{role}: invalid {name} identity")
+        value = raw.strip().lower()
+        if split is not None and value != split:
+            raise ValueError(f"{role}: conflicting declared split identity")
+        split = value
+    return split
+
+
 def pair_provenance_unverified(label: dict, prediction: dict) -> bool:
     """Check declared metadata, but never certify an unverified source binding.
 
@@ -335,6 +362,9 @@ def pair_provenance_unverified(label: dict, prediction: dict) -> bool:
     left_dataset, right_dataset = label.get("dataset"), prediction.get("dataset")
     if left_dataset and right_dataset and left_dataset != right_dataset:
         raise ValueError("model/label provenance mismatch: dataset")
+    left_split, right_split = declared_split(label, "label"), declared_split(prediction, "prediction")
+    if left_split is not None and right_split is not None and left_split != right_split:
+        raise ValueError("model/label provenance mismatch: split")
     for key in ("ontology_version", "source_sha256"):
         left, right = _field_for(label, "label", key), prediction.get(key)
         if left and right and left != right:
@@ -407,6 +437,16 @@ def main(argv: list[str] | None = None) -> int:
         if not shared:
             raise ValueError("no identical dataset/task/clip/side keys in both files")
         incomplete_provenance = sum(pair_provenance_unverified(labels[key], predictions[key]) for key in shared)
+        split_claims = [
+            (declared_split(labels[key], "label"), declared_split(predictions[key], "prediction"))
+            for key in shared
+        ]
+        declared_splits = {value for pair in split_claims for value in pair if value is not None}
+        if len(declared_splits) > 1:
+            raise ValueError("mixed split claims: evaluate each split separately")
+        split_claim_matching_pairs = sum(left is not None and right is not None
+                                         for left, right in split_claims)
+        split_claim_missing_pairs = len(shared) - split_claim_matching_pairs
     except (ValueError, OSError) as exc:
         print(f"error: evaluation input rejected: {exc}", file=sys.stderr)
         return 2
@@ -414,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"labels {len(labels)} | predictions {len(predictions)} | matched identity keys {len(shared)}")
     print(f"unmatched labels {len(labels)-len(shared)} | unmatched predictions {len(predictions)-len(shared)}")
     print(f"provenance not fully bound for {incomplete_provenance}/{len(shared)} pair(s); results are research-only")
+    print(f"split claims matching {split_claim_matching_pairs} | incomplete {split_claim_missing_pairs}; "
+          "held-out split provenance remains unverified")
     comparable, held_count, uncertified_count = [], 0, 0
     for key in shared:
         label_state = _quality_state(labels[key], "label", args.task)
@@ -541,6 +583,10 @@ def main(argv: list[str] | None = None) -> int:
                  "held_pairs_excluded": held_count,
                  "quality_unverified_pairs_excluded": uncertified_count,
                  "provenance_unverified_pairs": incomplete_provenance,
+                 "split_claim_matching_pairs": split_claim_matching_pairs,
+                 "split_claim_missing_pairs": split_claim_missing_pairs,
+                 "split_binding_verified": False,
+                 "held_out_verified": False,
                  "unmatched_labels": len(labels)-len(shared),
                  "unmatched_predictions": len(predictions)-len(shared),
                  "dataset": args.dataset, "task": args.task, "research_only": True,

@@ -380,3 +380,71 @@ def test_missing_temporal_annotation_is_not_assumed_negative(tmp_path):
     assert status == 0
     assert "turning_impairment" not in report["temporal_events"]
     assert report["unannotated_temporal_pairs_excluded"]["turning_impairment"] == 1
+
+
+def test_declared_split_mismatch_rejected():
+    from evaluate_primitive_predictions import declared_split
+    label = _label(meta={"split": "train"})
+    prediction = _prediction(split="test")
+    with pytest.raises(ValueError, match="provenance mismatch: split"):
+        pair_provenance_unverified(label, prediction)
+    assert declared_split(label, "label") == "train"
+
+
+def test_split_identity_conflict_within_label_is_rejected():
+    label = _label(split="test", meta={"split": "train"})
+    with pytest.raises(ValueError, match="conflicting declared split"):
+        _index([label])
+
+
+def test_matching_split_claims_remain_unverified(tmp_path):
+    label = _label(dataset="SYNTHETIC", meta={"split": "test"})
+    prediction = _prediction(split="test")
+    from evaluate_primitive_predictions import main
+    import json
+
+    label_path, pred_path, report_path = (tmp_path / name for name in ("labels.jsonl", "preds.jsonl", "report.json"))
+    label_path.write_text(json.dumps(label) + "\n", encoding="utf-8")
+    pred_path.write_text(json.dumps(prediction) + "\n", encoding="utf-8")
+    assert main(["--labels", str(label_path), "--predictions", str(pred_path),
+                 "--task", "finger_tapping", "--dataset", "SYNTHETIC",
+                 "--json-out", str(report_path)]) == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["split_claim_matching_pairs"] == 1
+    assert report["split_claim_missing_pairs"] == 0
+    assert report["split_binding_verified"] is False
+    assert report["held_out_verified"] is False
+    assert report["provenance_unverified_pairs"] == 1
+
+
+def test_missing_split_claim_is_counted_not_inferred(tmp_path):
+    label = _label(dataset="SYNTHETIC", meta={"split": "test"})
+    pred = _prediction()
+    from evaluate_primitive_predictions import main
+    import json
+
+    label_path, pred_path, report_path = (tmp_path / name for name in ("labels.jsonl", "preds.jsonl", "report.json"))
+    label_path.write_text(json.dumps(label) + "\n", encoding="utf-8")
+    pred_path.write_text(json.dumps(pred) + "\n", encoding="utf-8")
+    assert main(["--labels", str(label_path), "--predictions", str(pred_path),
+                 "--task", "finger_tapping", "--dataset", "SYNTHETIC",
+                 "--json-out", str(report_path)]) == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["split_claim_matching_pairs"] == 0
+    assert report["split_claim_missing_pairs"] == 1
+    assert report["held_out_verified"] is False
+
+
+def test_multiple_declared_splits_cannot_share_one_report(tmp_path):
+    from evaluate_primitive_predictions import main
+    import json
+
+    labels = [_label(clip_id=f"SYNTH_{split}", dataset="SYNTHETIC", meta={"split": split})
+              for split in ("train", "test")]
+    predictions = [_prediction(clip_id=f"SYNTH_{split}", split=split)
+                   for split in ("train", "test")]
+    label_path, pred_path = (tmp_path / name for name in ("labels.jsonl", "preds.jsonl"))
+    label_path.write_text("".join(json.dumps(x) + "\n" for x in labels), encoding="utf-8")
+    pred_path.write_text("".join(json.dumps(x) + "\n" for x in predictions), encoding="utf-8")
+    assert main(["--labels", str(label_path), "--predictions", str(pred_path),
+                 "--task", "finger_tapping", "--dataset", "SYNTHETIC"]) == 2
