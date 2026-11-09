@@ -12,11 +12,52 @@ class ReportAgent(BaseAgent):
                 ctx.log("report", "Skipping report: Clinical analysis not completed.")
                 return ctx
 
+            # Finger tapping is research-only; do not infer a zero score from
+            # missing/failed verification. Clinical score release is a
+            # separate human-authority gate and is NOT granted here.
+            if ctx.task_type == "finger_tapping":
+                import math
+                from numbers import Real
+
+                validation = ctx.validation_result if isinstance(ctx.validation_result, dict) else {}
+                scores = ctx.clinical_scores if isinstance(ctx.clinical_scores, dict) else {}
+                raw_score = scores.get("total_score", scores.get("score"))
+                valid_numeric = (
+                    isinstance(raw_score, Real)
+                    and not isinstance(raw_score, bool)
+                    and math.isfinite(float(raw_score))
+                    and 0 <= float(raw_score) <= 4
+                )
+                reason = None
+                if validation.get("is_valid") is not True:
+                    reason = "validation_missing_or_failed"
+                elif not valid_numeric:
+                    reason = "missing_or_invalid_score"
+                if reason:
+                    # Do not produce a synthetic 0 or a score-based narrative.
+                    # The serving route's legacy reasoning log still requires
+                    # separate redaction by its current PR owner.
+                    ctx.clinical_scores = None
+                    ctx.report = None
+                    ctx.status = "report_done"
+                    ctx.log(
+                        "report",
+                        "Finger-tapping result held for research review; no score or clinical report released.",
+                        meta={"status": "hold", "reason": reason},
+                    )
+                    return ctx
+
             ctx.log("report", "Report Agent generating summary...")
 
             # Prepare data for interpretation service
             # The existing service expects specific args. We map context to them.
-            updrs_score = ctx.clinical_scores.get("total_score", ctx.clinical_scores.get("score", 0))
+            score_payload = ctx.clinical_scores if isinstance(ctx.clinical_scores, dict) else {}
+            updrs_score = score_payload.get("total_score", score_payload.get("score"))
+            if updrs_score is None:
+                ctx.report = None
+                ctx.status = "report_done"
+                ctx.log("report", "No score available; score-based report withheld.")
+                return ctx
             severity = ctx.clinical_scores.get("severity", "Unknown")
             metrics = ctx.kinematic_metrics
             details = ctx.clinical_scores.get("details", {})
