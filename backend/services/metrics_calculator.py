@@ -408,8 +408,16 @@ class MetricsCalculator:
         norm_factor = np.max(finger_lengths) if len(finger_lengths) > 0 else 1.0
         distances_normalized = distances / norm_factor
 
-        duration = timestamps[-1] - timestamps[0]
-        dt = 1.0 / self.fps
+        # Preserve elapsed time between actual retained frames. The input may
+        # have been sampled (e.g. every 3rd source frame at 80 fps), in which
+        # case 1/source_fps is NOT the inter-landmark interval.
+        if not np.all(np.isfinite(timestamps)):
+            raise ValueError("Non-finite finger tapping timestamps")
+        sample_dts = np.diff(timestamps)
+        if len(sample_dts) == 0 or np.any(sample_dts <= 0):
+            raise ValueError("Finger tapping timestamps must increase strictly")
+        effective_sample_fps = 1.0 / float(np.median(sample_dts))
+        duration = float(timestamps[-1] - timestamps[0])
 
         # Smooth signal for better peak detection
         if len(distances_normalized) > 11:
@@ -421,14 +429,14 @@ class MetricsCalculator:
         peaks, peak_props = find_peaks(
             distances_smooth,
             height=np.mean(distances_smooth),
-            distance=int(self.fps * 0.08),  # Min 80ms between taps
+            distance=max(1, int(effective_sample_fps * 0.08)),  # Min 80ms between taps
             prominence=0.05 * np.ptp(distances_smooth)
         )
 
         # Detect valleys (minimum = finger closed)
         valleys, _ = find_peaks(
             -distances_smooth,
-            distance=int(self.fps * 0.08),
+            distance=max(1, int(effective_sample_fps * 0.08)),
             prominence=0.05 * np.ptp(distances_smooth)
         )
 
@@ -447,8 +455,11 @@ class MetricsCalculator:
 
         # ===== VELOCITY METRICS (NEW) =====
         # Calculate velocity as derivative of distance
-        velocity = np.diff(distances_normalized) / dt
-        acceleration = np.diff(velocity) / dt if len(velocity) > 1 else np.array([])
+        velocity = np.diff(distances_normalized) / sample_dts
+        acceleration = (
+            np.diff(velocity) / ((sample_dts[:-1] + sample_dts[1:]) / 2.0)
+            if len(velocity) > 1 else np.array([])
+        )
         index_tip_y_vel = np.diff(index_tip_y_rel, prepend=index_tip_y_rel[0]) if len(index_tip_y_rel) > 0 else np.array([])
         index_tip_y_acc = np.diff(index_tip_y_vel, prepend=index_tip_y_vel[0]) if len(index_tip_y_vel) > 0 else np.array([])
 
@@ -479,8 +490,8 @@ class MetricsCalculator:
                         closing_velocities.append(abs(np.min(closing_vel)))
 
             # Peak velocity for this tap
-            window_start = max(0, peak_idx - int(self.fps * 0.1))
-            window_end = min(len(velocity), peak_idx + int(self.fps * 0.1))
+            window_start = max(0, peak_idx - int(effective_sample_fps * 0.1))
+            window_end = min(len(velocity), peak_idx + int(effective_sample_fps * 0.1))
             if window_start < window_end:
                 peak_velocities.append(np.max(np.abs(velocity[window_start:window_end])))
 
