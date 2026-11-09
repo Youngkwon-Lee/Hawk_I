@@ -350,20 +350,16 @@ def apply_to_analysis_response(response: dict[str, Any], finetuned: dict[str, An
         score = supplied_score.get("total_score", supplied_score.get("score"))
         model_name = response.get("ml_model_type") or "fine-tuned VLM"
         if isinstance(score, Real):
-            score_index = int(round(float(score)))
-            severity = supplied_score.get("severity")
-            if not severity and 0 <= score_index <= 4:
-                severity = ("Normal", "Slight", "Mild", "Moderate", "Severe")[score_index]
-            severity = severity or "Unknown"
             display_score = int(score) if float(score).is_integer() else float(score)
             response["ai_interpretation"] = {
                 "summary": (
-                    f"미세조정 모델은 이번 보행의 UPDRS 3.10 점수를 "
-                    f"{display_score}점({severity})으로 추정했습니다."
+                    f"파인튜닝 VLM은 이 영상의 UPDRS 3.10 연구용 점수를 "
+                    f"{display_score}/4로 자동 예측했습니다. 임상 판정이나 진단 결과가 아닙니다."
                 ),
                 "explanation": (
-                    f"최종 표시는 {model_name}의 모델 예측값을 사용합니다. "
-                    "보행 속도·보폭 등 정량 지표와 원본 영상을 함께 검토하세요."
+                    f"이 점수는 {model_name}의 모델 추정치입니다. "
+                    "관절 추적·규칙 기반 보행 지표는 별도 계산이며, "
+                    "스톡 영상 인물의 질환 유무나 임상 중증도를 판정하지 않습니다."
                 ),
                 "recommendations": [],
             }

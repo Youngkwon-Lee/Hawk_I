@@ -12,9 +12,10 @@ export interface MetricRow {
 interface MetricsTableProps {
     data: MetricRow[]
     className?: string
+    showClinicalColumns?: boolean
 }
 
-export function MetricsTable({ data, className }: MetricsTableProps) {
+export function MetricsTable({ data, className, showClinicalColumns = true }: MetricsTableProps) {
     return (
         <div className={cn("w-full overflow-auto", className)}>
             <table className="w-full caption-bottom text-sm">
@@ -22,8 +23,8 @@ export function MetricsTable({ data, className }: MetricsTableProps) {
                     <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                         <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">항목</th>
                         <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">측정값</th>
-                        <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">정상 범위</th>
-                        <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">상태</th>
+                        {showClinicalColumns && <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">정상 범위</th>}
+                        {showClinicalColumns && <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">상태</th>}
                     </tr>
                 </thead>
                 <tbody className="[&_tr:last-child]:border-0">
@@ -33,10 +34,10 @@ export function MetricsTable({ data, className }: MetricsTableProps) {
                             <td className="p-4 align-middle">
                                 {row.value} <span className="text-muted-foreground text-xs">{row.unit}</span>
                             </td>
-                            <td className="p-4 align-middle text-muted-foreground text-sm">
+                            {showClinicalColumns && <td className="p-4 align-middle text-muted-foreground text-sm">
                                 {row.normalRange || "-"}
-                            </td>
-                            <td className="p-4 align-middle">
+                            </td>}
+                            {showClinicalColumns && <td className="p-4 align-middle">
                                 <span className={cn(
                                     "inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset",
                                     row.status === "good" && "bg-green-500/10 text-green-500 ring-green-500/20",
@@ -49,7 +50,7 @@ export function MetricsTable({ data, className }: MetricsTableProps) {
                                     {row.status === "bad" && "주의"}
                                     {row.status === "neutral" && "-"}
                                 </span>
-                            </td>
+                            </td>}
                         </tr>
                     ))}
                 </tbody>
