@@ -84,59 +84,61 @@ class MovementBasedROI:
 
     def _calculate_movement_map(self, video_path: str, num_frames: int = 30) -> np.ndarray:
         """
-        Calculate temporal movement map from frame differences
+        Build a coarse motion ROI map from samples spread over the full clip.
 
-        Algorithm:
-        1. Sample N frames from video
-        2. Convert to grayscale
-        3. Calculate absolute difference between consecutive frames
-        4. Threshold to binary (threshold=10)
-        5. Accumulate and normalize
-
-        Args:
-            video_path: Path to video file
-            num_frames: Number of frames to process
-
-        Returns:
-            Movement map (H x W) with values in [0, 1]
+        Each pair of selected frames is compared using thresholded absolute
+        pixel differences. This is NOT optical flow and does not preserve
+        source-FPS temporal information for clinical kinematic metrics.
         """
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise ValueError(f"Cannot open video: {video_path}")
 
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        try:
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        movement_map = np.zeros((height, width), dtype=np.float32)
-        prev_gray = None
-        count = 0
+            # Do not return a misleading first-seconds-only map when metadata
+            # are unavailable. The caller can report a failed ROI extraction.
+            if width <= 0 or height <= 0 or total_frames <= 0:
+                raise ValueError("Cannot determine video dimensions/frame count")
 
-        for _ in range(num_frames):
-            ret, frame = cap.read()
-            if not ret:
-                break
+            sample_count = min(total_frames, max(1, int(num_frames)))
+            sample_indices = np.linspace(
+                0, total_frames - 1, num=sample_count, dtype=int
+            )
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            movement_map = np.zeros((height, width), dtype=np.float32)
+            prev_gray = None
+            comparisons = 0
 
-            if prev_gray is not None:
-                # Frame differencing
-                diff = cv2.absdiff(gray, prev_gray)
-                _, thresh = cv2.threshold(diff, 10, 255, cv2.THRESH_BINARY)
-                movement_map += thresh.astype(np.float32)
-                count += 1
+            for frame_index in sample_indices:
+                # Random access avoids decoding every 1080p frame to construct
+                # a coarse ROI map; selected indices cover start through end.
+                if not cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_index)):
+                    raise ValueError(f"Cannot seek to video frame {frame_index}")
+                ret, frame = cap.read()
+                if not ret:
+                    raise ValueError(f"Cannot read sampled video frame {frame_index}")
 
-            prev_gray = gray
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                if prev_gray is not None:
+                    diff = cv2.absdiff(gray, prev_gray)
+                    _, thresholded = cv2.threshold(
+                        diff, 10, 255, cv2.THRESH_BINARY
+                    )
+                    movement_map += thresholded.astype(np.float32)
+                    comparisons += 1
+                prev_gray = gray
 
-        cap.release()
-
-        # Normalize
-        if count > 0:
-            movement_map /= count
-
-        if movement_map.max() > 0:
-            movement_map /= movement_map.max()
-
-        return movement_map
+            if comparisons > 0:
+                movement_map /= comparisons
+            if movement_map.max() > 0:
+                movement_map /= movement_map.max()
+            return movement_map
+        finally:
+            cap.release()
 
     def _find_movement_roi(
         self,
