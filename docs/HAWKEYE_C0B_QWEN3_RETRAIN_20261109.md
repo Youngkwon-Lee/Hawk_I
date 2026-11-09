@@ -13,7 +13,7 @@ This implements a **new, separately versioned research training path**, not retr
 - Outputs: private train.jsonl, validation.jsonl, private_media_binding.jsonl, run.json with hashes, counts and **explicitly unverified** state.
 - A held-out test portion is required to check declared split disjointness, but test videos/labels are **never** provided to the trainer or to validation.
 
-This is **not** an equivalent replication of 2026-08-17 C0B: the new pilot setting samples at most 16 video frames (via ms-swift), while the archived experiment describes 5 FPS / up to 100 frames / width 512 px. Treat any result as a separate experiment. Do not mix it with the archived report or claim benchmark improvement.
+This is **not** an equivalent replication of 2026-08-17 C0B: the new low-memory QLoRA pilot samples at most 8 video frames (via ms-swift), while the archived experiment describes 5 FPS / up to 100 frames / width 512 px. Treat any result as a separate experiment. Do not mix it with the archived report or claim benchmark improvement.
 
 ## Owner and data-use boundary
 
@@ -69,7 +69,23 @@ This is a schema example, **not** an approval. The script checks required fields
       --compute-approved \
       --execute
 
-The model engine invokes swift sft on a fixed frozen train and validation dataset, explicitly disables further auto-splitting, and uses LoRA rank 8 / alpha 32, frozen vision tower and aligner, bfloat16, one epoch, batch 1, gradient accumulation 2, a 16-frame/128-video-token pilot budget, and max sequence length 4096. This budget differs from the archived high-token study. Do not claim the two settings are comparable without controlled study.
+The model engine invokes swift sft on a fixed frozen train and validation dataset, explicitly disables further auto-splitting, and uses QLoRA rank 8 / alpha 32, bitsandbytes NF4 4-bit quantization, FP16 compute, SDPA (not FlashAttention-2), frozen vision tower and aligner, one epoch, batch 1, gradient accumulation 2, an **8-frame/128-token-per-frame pilot** budget, and max sequence length 3072. This budget differs from the archived high-token study. Do not claim the two settings are comparable without controlled study.
+
+### ICT hardware and feasibility check (2026-11-09)
+
+The authorized ICT host is WIN-B8QF2DSGDAG / Ubuntu-24.04 WSL2, user windowadmin3. It exposes **2x NVIDIA Quadro RTX 5000 with 16 GiB per GPU** (compute capability 7.5). The official Qwen3-VL-4B LoRA demonstration documents **2x21 GiB per GPU** for its standard BF16 multi-GPU recipe. Thus the previous BF16 non-quantized single-GPU preset must not be used on these cards.
+
+The separate pilot has **4-bit QLoRA + FP16 + SDPA**, following the documented ms-swift quantization flags. Its actual GPU peak memory and train stability are **not measured**: 4-bit does not guarantee training will fit. The preflight refuses a GPU with less than 15,000 MiB total or 14,500 MiB free memory, and refuses visible existing compute processes. GPU ownership and active runner reservations still require an independent manual check immediately before training; NVIDIA process metadata alone does not authorize use.
+
+In the inspected ICT Python environments, PyTorch CUDA 2.9.1+cu128 was available, but ms-swift, Transformers, PEFT, bitsandbytes, and Hugging Face-format Qwen3-VL-4B base weights were **not yet present in the checked environment/cache**. They were not installed or downloaded. Some Windows data-drive mounts were failing in WSL, and no approved frozen PD4T Gait manifest was located in the inspected research-run manifests directory. Resolve those blockers **without changing another agent's environment or service** before any execution.
+
+The code checks local model-format/weights, available NVIDIA memory, no observed compute owners, explicit study data-use approval, and explicit GPU-owner authorization. It does not itself grant permission or prove the unexamined data manifest is licensed.
+
+Official sources:
+- https://github.com/modelscope/ms-swift/blob/main/docs/source_en/BestPractices/Qwen3-VL-Best-Practice.md
+- https://github.com/modelscope/ms-swift/blob/main/docs/source_en/Instruction/Command-line-parameters.md
+- https://github.com/modelscope/ms-swift/blob/main/examples/train/qlora/bnb/train.sh
+
 
 The prepared training files include private paths; only local, restricted output folders and logs may contain them. The script does not touch the running HawkEye server, Vercel, a clinical database, or patient timelines.
 

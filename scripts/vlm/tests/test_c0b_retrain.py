@@ -183,6 +183,11 @@ def test_command_reuses_frozen_train_val_only_and_never_autosplits(case):
     assert command[:2] == ["swift", "sft"]
     assert command[command.index("--split_dataset_ratio") + 1] == "0"
     assert command[command.index("--tuner_type") + 1] == "lora"
+    assert command[command.index("--quant_method") + 1] == "bnb"
+    assert command[command.index("--quant_bits") + 1] == "4"
+    assert command[command.index("--torch_dtype") + 1] == "float16"
+    assert command[command.index("--attn_impl") + 1] == "sdpa"
+    assert command[command.index("--max_length") + 1] == "3072"
     assert command[command.index("--freeze_vit") + 1] == "true"
     assert command[command.index("--model") + 1] == str(case["media"])
     assert not any("test.jsonl" in x for x in command)
@@ -211,3 +216,37 @@ def test_execute_requires_separate_compute_owner_approval(case):
                   approval_path=case["media"] / "unapproved.json",
                   gpu_index=0, execute=True, compute_approved=False)
     assert not (target / "execution.json").exists()
+
+
+def test_gpu_capacity_accepts_idle_ict_16gb_card(monkeypatch):
+    class Result:
+        returncode = 0
+        stdout = "0, 16384, 14816\n1, 16384, 16127\n"
+    monkeypatch.setattr(c0b.subprocess, "run", lambda *args, **kwargs: Result())
+    info = c0b.verify_gpu_capacity(1)
+    assert info == {"gpu_index": 1, "total_mib": 16384,
+                    "free_mib_at_check": 16127}
+
+
+@pytest.mark.parametrize("output", [
+    "0, 16384, 12000\n",
+    "0, 12288, 12288\n",
+    "0, malformed, value\n",
+    "",
+])
+def test_gpu_capacity_fails_closed(monkeypatch, output):
+    class Result:
+        returncode = 0
+        stdout = output
+    monkeypatch.setattr(c0b.subprocess, "run", lambda *args, **kwargs: Result())
+    with pytest.raises(c0b.PreflightError):
+        c0b.verify_gpu_capacity(0)
+
+
+def test_gpu_capacity_fails_when_no_selected_gpu(monkeypatch):
+    class Result:
+        returncode = 0
+        stdout = "0, 16384, 16127\n"
+    monkeypatch.setattr(c0b.subprocess, "run", lambda *args, **kwargs: Result())
+    with pytest.raises(c0b.PreflightError, match="missing"):
+        c0b.verify_gpu_capacity(2)

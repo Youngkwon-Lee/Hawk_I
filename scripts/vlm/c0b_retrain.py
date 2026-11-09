@@ -257,7 +257,11 @@ def validate_approval(path: Path) -> str:
 
 
 def build_swift_command(run_dir: Path, model_dir: Path, output_dir: Path) -> list[str]:
-    """Official ms-swift Qwen3-VL LoRA SFT; never assigns a fresh data split."""
+    """Hardware-constrained Qwen3-VL QLoRA SFT pilot; never re-split patients.
+
+    This FP16 4-bit 8-frame pilot is NOT equivalent to the archived August
+    experiment or the upstream 2x21GiB BF16 LoRA reference.
+    """
     return [
         "swift", "sft",
         "--model", str(model_dir),
@@ -265,7 +269,13 @@ def build_swift_command(run_dir: Path, model_dir: Path, output_dir: Path) -> lis
         "--val_dataset", str(run_dir / "validation.jsonl"),
         "--split_dataset_ratio", "0",
         "--tuner_type", "lora",
-        "--torch_dtype", "bfloat16",
+        "--quant_method", "bnb",
+        "--quant_bits", "4",
+        "--bnb_4bit_compute_dtype", "float16",
+        "--bnb_4bit_quant_type", "nf4",
+        "--bnb_4bit_use_double_quant", "true",
+        "--torch_dtype", "float16",
+        "--attn_impl", "sdpa",
         "--num_train_epochs", "1",
         "--per_device_train_batch_size", "1",
         "--per_device_eval_batch_size", "1",
@@ -277,13 +287,53 @@ def build_swift_command(run_dir: Path, model_dir: Path, output_dir: Path) -> lis
         "--freeze_aligner", "true",
         "--gradient_checkpointing", "true",
         "--gradient_accumulation_steps", "2",
-        "--max_length", "4096",
+        "--max_length", "3072",
         "--logging_steps", "5",
         "--save_steps", "100",
         "--save_total_limit", "2",
         "--eval_steps", "100",
         "--output_dir", str(output_dir),
     ]
+
+
+def verify_gpu_capacity(gpu_index: int) -> dict[str, int]:
+    """Refuse training unless NVIDIA reports one idle GPU with memory headroom.
+
+    GPU contention and ownership can change immediately after this check.
+    The operator must also obtain resource-owner approval before --execute.
+    """
+    if gpu_index < 0:
+        raise PreflightError("An authorized CUDA GPU index is required.")
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.total,memory.free",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, check=False, timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise PreflightError("GPU memory inventory unavailable.") from exc
+    if result.returncode != 0:
+        raise PreflightError("GPU memory inventory unavailable.")
+    rows: dict[int, tuple[int, int]] = {}
+    for line in result.stdout.splitlines():
+        try:
+            values = [int(part.strip()) for part in line.split(",")]
+            if len(values) != 3:
+                raise ValueError
+            idx, total, free = values
+            if idx < 0 or total <= 0 or not 0 <= free <= total or idx in rows:
+                raise ValueError
+            rows[idx] = (total, free)
+        except ValueError as exc:
+            raise PreflightError("Unexpected GPU capacity output.") from exc
+    if gpu_index not in rows:
+        raise PreflightError("Requested GPU index is missing from NVIDIA inventory.")
+    total, free = rows[gpu_index]
+    if total < 15_000 or free < 14_500:
+        raise PreflightError(
+            "ICT QLoRA pilot requires at least 15000 MiB total and 14500 MiB free GPU memory."
+        )
+    return {"gpu_index": gpu_index, "total_mib": total, "free_mib_at_check": free}
 
 
 def train(
@@ -307,6 +357,7 @@ def train(
     if shutil.which("swift") is None or shutil.which("nvidia-smi") is None:
         raise PreflightError("ms-swift or NVIDIA training environment unavailable.")
     approval_digest = validate_approval(approval_path)
+    gpu_memory = verify_gpu_capacity(gpu_index)
 
     # Existing compute ownership and permissions must be established by the
     # caller; this check only detects obvious contention.
@@ -323,7 +374,9 @@ def train(
     weight_hashes = [{"file": f.name, "sha256": sha256_file(f)} for f in weights]
     evidence = {"approval_sha256": approval_digest, "model_config_sha256":
                 sha256_file(model_dir / "config.json"), "model_weights": weight_hashes,
-                "status": "running_unverified"}
+                "status": "running_unverified",
+                "hardware_check": gpu_memory,
+                "training_recipe": "qwen3-vl-4b-bnb4-fp16-8frame-sdpa-v1"}
     _write_json(run_dir / "execution.json", evidence)  # x mode: cannot restart/overwrite
     command = build_swift_command(run_dir, model_dir, run_dir / "checkpoints")
     env = os.environ.copy()
@@ -333,7 +386,8 @@ def train(
         "TRANSFORMERS_OFFLINE": "1",
         "HF_HUB_DISABLE_TELEMETRY": "1",
         "WANDB_DISABLED": "true",
-        "FPS_MAX_FRAMES": "16",
+        "FPS_MAX_FRAMES": "8",
+        "IMAGE_MAX_TOKEN_NUM": "512",
         "VIDEO_MAX_TOKEN_NUM": "128",
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
     })
