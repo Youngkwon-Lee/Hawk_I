@@ -27,6 +27,7 @@ from services.vlm_training_contract import (  # noqa: E402
 )
 
 SPLITS = ("train", "validation", "test")
+VALIDATION_POLICIES = ("declared", "none_paper_protocol")
 PROMPT = "\n\n".join((GAIT_ANCHOR, GAIT_GLOSSARY, GAIT_QUESTION, "<video>"))
 MODEL = "Qwen/Qwen3-VL-4B-Instruct"
 
@@ -68,7 +69,9 @@ def _resolve_video(raw: Any, media_root: Path) -> Path:
     return candidate
 
 
-def _load_rows(manifest: Path, media_root: Path) -> tuple[list[dict[str, Any]], dict[str, int]]:
+def _load_rows(
+    manifest: Path, media_root: Path, validation_policy: str = "declared",
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
     rows: list[dict[str, Any]] = []
     subjects: dict[str, str] = {}
     clips: set[str] = set()
@@ -112,9 +115,15 @@ def _load_rows(manifest: Path, media_root: Path) -> tuple[list[dict[str, Any]], 
             counts[split] += 1
             rows.append({"clip_id": clip, "subject_id": subject, "split": split, "score": score,
                          "video_path": str(video)})
-    if any(counts[s] == 0 for s in SPLITS):
+    if validation_policy == "none_paper_protocol":
+        # PD4T/PECoP protocol: all 22 official train subjects train, 8 test subjects stay sealed.
+        if counts["validation"]:
+            raise PreflightError("Paper protocol forbids validation rows; use the declared policy instead.")
+        if counts["train"] == 0 or counts["test"] == 0:
+            raise PreflightError("Train and sealed test must both be nonempty.")
+    elif any(counts[s] == 0 for s in SPLITS):
         raise PreflightError("Train, validation and sealed test must all be nonempty.")
-    return rows, dict(counts)
+    return rows, {split: counts.get(split, 0) for split in SPLITS}
 
 
 def _open_private(path: Path):
@@ -148,8 +157,10 @@ def build_sft_record(row: dict[str, Any]) -> dict[str, Any]:
 
 def prepare(
     *, manifest: Path, media_root: Path, run_root: Path,
-    run_id: str, expected_sha256: str,
+    run_id: str, expected_sha256: str, validation_policy: str = "declared",
 ) -> Path:
+    if validation_policy not in VALIDATION_POLICIES:
+        raise PreflightError("Unknown validation policy.")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{2,79}", run_id):
         raise PreflightError("Invalid run ID.")
     if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
@@ -162,7 +173,7 @@ def prepare(
     actual = sha256_file(manifest)
     if actual != expected_sha256:
         raise PreflightError("Frozen private manifest SHA-256 mismatch.")
-    rows, counts = _load_rows(manifest, media_root)
+    rows, counts = _load_rows(manifest, media_root, validation_policy)
     destination = run_root / run_id
     if destination.exists():
         raise PreflightError("The immutable run ID already exists; never overwrite runs.")
@@ -202,6 +213,7 @@ def prepare(
             "subject_counts": {split: len({r["subject_id"] for r in rows if r["split"] == split})
                                for split in SPLITS},
             "split_check": "declared_subject_disjoint_only",
+            "validation_policy": validation_policy,
             "held_out_verified": False,
             "training_binding_verified": False,
             "clinical_validity_verified": False,
@@ -256,17 +268,23 @@ def validate_approval(path: Path) -> str:
     return sha256_file(path)
 
 
-def build_swift_command(run_dir: Path, model_dir: Path, output_dir: Path) -> list[str]:
+def build_swift_command(
+    run_dir: Path, model_dir: Path, output_dir: Path, *, with_validation: bool = True,
+) -> list[str]:
     """Hardware-constrained Qwen3-VL QLoRA SFT pilot; never re-split patients.
 
     This FP16 4-bit 8-frame pilot is NOT equivalent to the archived August
     experiment or the upstream 2x21GiB BF16 LoRA reference.
     """
-    return [
+    evaluation = (
+        ["--val_dataset", str(run_dir / "validation.jsonl")] if with_validation
+        else ["--eval_strategy", "no"]
+    )
+    command = [
         "swift", "sft",
         "--model", str(model_dir),
         "--dataset", str(run_dir / "train.jsonl"),
-        "--val_dataset", str(run_dir / "validation.jsonl"),
+        *evaluation,
         "--split_dataset_ratio", "0",
         "--tuner_type", "lora",
         "--quant_method", "bnb",
@@ -291,9 +309,11 @@ def build_swift_command(run_dir: Path, model_dir: Path, output_dir: Path) -> lis
         "--logging_steps", "5",
         "--save_steps", "100",
         "--save_total_limit", "2",
-        "--eval_steps", "100",
         "--output_dir", str(output_dir),
     ]
+    if with_validation:
+        command[command.index("--output_dir"):command.index("--output_dir")] = ["--eval_steps", "100"]
+    return command
 
 
 def verify_gpu_capacity(gpu_index: int) -> dict[str, int]:
@@ -342,7 +362,8 @@ def train(
 ) -> None:
     run_dir = _private_path(run_dir)
     model_dir = _private_path(model_dir)
-    _verify_prepared(run_dir)
+    prepared = _verify_prepared(run_dir)
+    with_validation = prepared.get("validation_policy", "declared") != "none_paper_protocol"
     if not execute:
         print("Preflight only: training not executed.")
         return
@@ -378,7 +399,8 @@ def train(
                 "hardware_check": gpu_memory,
                 "training_recipe": "qwen3-vl-4b-bnb4-fp16-8frame-sdpa-v1"}
     _write_json(run_dir / "execution.json", evidence)  # x mode: cannot restart/overwrite
-    command = build_swift_command(run_dir, model_dir, run_dir / "checkpoints")
+    command = build_swift_command(run_dir, model_dir, run_dir / "checkpoints",
+                                  with_validation=with_validation)
     env = os.environ.copy()
     env.update({
         "CUDA_VISIBLE_DEVICES": str(gpu_index),
@@ -425,6 +447,8 @@ def main(argv: list[str] | None = None) -> int:
     prep.add_argument("--run-root", required=True, type=Path)
     prep.add_argument("--run-id", required=True)
     prep.add_argument("--expected-manifest-sha256", required=True)
+    prep.add_argument("--validation-policy", choices=VALIDATION_POLICIES, default="declared",
+                      help="none_paper_protocol: PD4T/PECoP 22-train/8-test protocol without validation")
     run = sub.add_parser("train", help="Run offline ms-swift on approved private CUDA hardware")
     run.add_argument("--run-dir", required=True, type=Path)
     run.add_argument("--base-model-dir", required=True, type=Path)
@@ -440,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
                 manifest=args.manifest, media_root=args.media_root,
                 run_root=args.run_root, run_id=args.run_id,
                 expected_sha256=args.expected_manifest_sha256,
+                validation_policy=args.validation_policy,
             )
             result = json.loads((destination / "run.json").read_text(encoding="utf-8"))
             print(json.dumps({"status": result["status"], "counts": result["counts"],

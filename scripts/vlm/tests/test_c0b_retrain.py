@@ -250,3 +250,41 @@ def test_gpu_capacity_fails_when_no_selected_gpu(monkeypatch):
     monkeypatch.setattr(c0b.subprocess, "run", lambda *args, **kwargs: Result())
     with pytest.raises(c0b.PreflightError, match="missing"):
         c0b.verify_gpu_capacity(2)
+
+
+def test_paper_protocol_trains_without_validation_and_keeps_test_sealed(case):
+    rows = [r for r in case["rows"] if r["split"] != "validation"]
+    write_rows(case["manifest"], rows)
+    out = c0b.prepare(
+        manifest=case["manifest"], media_root=case["media"], run_root=case["root"],
+        run_id="synthetic-20261109", expected_sha256=c0b.sha256_file(case["manifest"]),
+        validation_policy="none_paper_protocol",
+    )
+    run = json.loads((out / "run.json").read_text(encoding="utf-8"))
+    assert run["validation_policy"] == "none_paper_protocol"
+    assert run["counts"] == {"train": 1, "validation": 0, "test": 1}
+    assert (out / "validation.jsonl").read_text(encoding="utf-8") == ""
+    assert "synthetic_2" not in (out / "train.jsonl").read_text(encoding="utf-8")
+    command = c0b.build_swift_command(out, case["media"], case["root"] / "o", with_validation=False)
+    assert "--val_dataset" not in command and "--eval_steps" not in command
+    assert command[command.index("--eval_strategy") + 1] == "no"
+    assert command[command.index("--split_dataset_ratio") + 1] == "0"
+
+
+def test_paper_protocol_rejects_validation_rows(case):
+    with pytest.raises(c0b.PreflightError, match="Paper protocol"):
+        c0b.prepare(
+            manifest=case["manifest"], media_root=case["media"], run_root=case["root"],
+            run_id="synthetic-20261109", expected_sha256=c0b.sha256_file(case["manifest"]),
+            validation_policy="none_paper_protocol",
+        )
+
+
+def test_paper_protocol_still_requires_sealed_test(case):
+    write_rows(case["manifest"], [case["rows"][0]])
+    with pytest.raises(c0b.PreflightError, match="nonempty"):
+        c0b.prepare(
+            manifest=case["manifest"], media_root=case["media"], run_root=case["root"],
+            run_id="synthetic-20261109", expected_sha256=c0b.sha256_file(case["manifest"]),
+            validation_policy="none_paper_protocol",
+        )

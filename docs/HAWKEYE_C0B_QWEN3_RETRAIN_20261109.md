@@ -29,6 +29,16 @@ Supply corresponding private MP4 files under the declared media root. The script
 
 **No automatic re-split.** The data owner must supply the existing approved split roster and its origin. A matching source manifest SHA-256 proves which local file was used, not that the roster is independently correct or that a human scored the clips reliably.
 
+## Validation policy (2026-11-10)
+
+- `--validation-policy declared` (default): the manifest must contain train, validation and test rows.
+- `--validation-policy none_paper_protocol`: follows the PD4T/PECoP protocol. All official train subjects
+  (PD4T `Annotations/Gait/train.csv`, 22 subjects) are used for training, there are **no validation rows**,
+  and the 8 official test subjects (`test.csv`, 116 gait clips) stay sealed. Training then runs with
+  `--eval_strategy no`; checkpoint choice cannot use validation loss, so evaluate only the final adapter on test once.
+- Project decision 2026-11-10: use `none_paper_protocol` for the comparison with the original paper.
+  PD4T research use and ICT GPU use are approved (see `docs/research/PD4T_OFFICIAL_SPLIT_AND_APPROVALS_20261110.md`).
+
 ## Prepare offline in a private workspace
 
     # On the authorized research machine; use absolute paths outside the Git checkout:
