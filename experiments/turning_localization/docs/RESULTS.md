@@ -30,6 +30,21 @@ Turn duration (matched turns): BiGRU MAE 0.26 s, ICC 0.70; VLM MAE 0.20 s, ICC 0
 
 Caveat: primitives and the annotator's score come from the same rater; the oracle row is optimistic.
 
+## 2b. Automatic primitive bottleneck (pose -> 7 primitives -> UPDRS 3.10), `primitive_bottleneck.py`
+
+Per-primitive test agreement (QWK vs clinician): gait speed reduction 0.89 · shortened stride 0.85 ·
+festination 0.76 · postural instability 0.54 · step-length asymmetry 0.41 · trunk flexion 0.29 ·
+arm-swing asymmetry 0.16 (freezing excluded).
+
+| route | acc | MAE | QWK (CI) |
+|---|---|---|---|
+| bottleneck, integrator trained on out-of-fold predicted primitives | 0.66 | 0.37 | **0.743** (0.54–0.87) |
+| bottleneck, integrator trained on clinician primitives | 0.61 | 0.43 | 0.679 (0.40–0.84) |
+| same pose features, direct to score (no bottleneck) | 0.65 | 0.37 | 0.718 (0.57–0.82) |
+
+Fully automatic; matches the clinician-primitive upper bound (0.746) and is above the RGB VLM C0B (0.621);
+differences are within CIs (8 test subjects). One run of a deterministic pipeline.
+
 ## 3. External (TULIP, 12 subjects, frozen BiGRU)
 
 Turn location/count transfers; boundaries do not (whole far-end dwell of 5–6 s marked). Needs ~60 human
