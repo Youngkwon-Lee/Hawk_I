@@ -43,16 +43,36 @@ python rule_path.py
 python turn_sup.py            # ~12 min on CPU: 5-fold CV + 3 test seeds + rule comparison
 ```
 
-## Results (official test, 8 subjects, 158 labelled far turns)
+## Results (official test, 8 subjects, 116 clips, 158 labelled far turns)
 
-Matching: a label is detected if its centre falls inside a predicted interval ±0.5 s (one-to-one).
-tIoU columns use one-to-one interval overlap.
+Trained on the official train split (22 subjects, 310 clips). Settings chosen by 5-fold subject-grouped
+cross-validation inside train (40 epochs, threshold 0.6); test evaluated once. This is an **internal
+held-out test** (same dataset, site and annotator), not external validation.
 
-| method | recall | precision | F1 | F1@tIoU0.3 | F1@tIoU0.5 | centre error (median) |
-|---|---|---|---|---|---|---|
-| rule v1 body height | 0.873 | 0.651 | 0.746 | 0.508 | 0.270 | 0.37 s |
-| rule v2 path reversal | 0.734 | 0.753 | 0.744 | 0.679 | 0.455 | 0.18 s |
-| Conv1d-BiGRU (mean ± sd, 3 seeds) | 0.956 ± 0.005 | 0.915 ± 0.016 | 0.935 ± 0.009 | 0.925 ± 0.014 | 0.861 ± 0.013 | 0.11 s |
+**Primary metric: segment F1 at temporal IoU (tIoU) 0.5**, with one-to-one matching. F1 at 0.3/0.7 and
+the mean over tIoU 0.1–0.7 are also reported. Produced by `eval_report.py` (set `PD4T_TURN_MODELS` to the checkpoint folder; checkpoints live in the private repo `pd4t-turn-localizer`).
+
+| method | F1@tIoU0.3 | **F1@tIoU0.5** | F1@tIoU0.7 | mean F1 (tIoU 0.1–0.7) | centre error (median) |
+|---|---|---|---|---|---|
+| BiGRU, mean ± sd of 3 seeds | 0.925 ± 0.014 | **0.861 ± 0.013** | 0.487 ± 0.008 | 0.822 ± 0.011 | 0.11 s |
+| Rule: walking-path reversal | 0.679 | 0.455 | 0.167 | 0.516 | 0.18 s |
+| Rule: body-height extrema | 0.508 | 0.270 | 0.027 | 0.370 | 0.37 s |
+| Trivial: one fixed segment at mean train turn time | 0.007 | 0.000 | 0.000 | 0.007 | – |
+| Trivial: whole clip as one segment | 0.000 | 0.000 | 0.000 | 0.006 | – |
+| Control: BiGRU trained on shuffled labels | 0.167 | 0.076 | 0.022 | 0.134 | 0.58 s |
+
+- Subject-level bootstrap 95% CI (seed 100, 1000 resamples of the 8 test subjects): F1@tIoU0.5 0.81–0.92.
+  Per-subject F1@tIoU0.5 ranges 0.70–0.97.
+- Boundaries are the weak point: at tIoU 0.7 F1 drops to ~0.49. Labels are short pivots (~0.9 s on
+  average, i.e. ~14 frames at 15 fps), so a few frames of boundary disagreement change the IoU a lot.
+- Leakage checks: no subject or visit overlap between train and test; feature normalisation and all
+  model selection use train only; the shuffled-label control collapses (F1@tIoU0.5 0.08), so the score
+  is not produced by the pipeline itself.
+
+**About the earlier "centre-match F1".** An earlier version of this README (and of this PR) reported F1 0.935 using a
+lenient rule (label centre inside a predicted segment ±0.5 s). That rule rewards long segments:
+predicting the whole clip already scores 0.774 on it, above both rule baselines (0.746, 0.744). It is
+kept in `eval_report.py` only as a secondary metric and should not be used as the headline number.
 
 ## Limits
 
