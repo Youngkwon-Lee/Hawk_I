@@ -50,3 +50,5 @@ Last verified: 2026-11-12.
 | results summary | `docs/RESULTS.md` |
 | 15th meeting slides | Claude artifact "HawkEye 15차 회의 — 회전 primitive 연구" |
 | meeting notes | Notion 회의록 › 15차 회의 사전 안건 (status view, not SSOT) |
+| Drive copy (share/archive, not SSOT) | yonsei Drive › 10_research/active/HawkEye_PD_VLM/2026-11-12_turn_primitive_study (https://drive.google.com/drive/folders/1iQDtn1w_LS1r57x9zz154f0X7g5Aime4) |
+| research index (decisions) | second-brain `candidates/2026-11-12-hawkeye-turn-primitive-research-index.md` (PR #657, pending review) |
