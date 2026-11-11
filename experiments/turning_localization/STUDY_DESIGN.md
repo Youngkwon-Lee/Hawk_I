@@ -27,7 +27,7 @@ FoG-during-turn analysis need upstream.
 3. Hand rules: body-height extrema; walking-path reversal.
 4. Supervised Conv1d-BiGRU on pose (main model).
 5. Control: same model trained on shuffled labels.
-6. Planned: zero-shot VLM (Qwen3-VL) temporal grounding.
+6. Zero-shot VLM: Qwen3-VL-4B-Instruct temporal grounding (`qwen_turn_zeroshot.py`, scored by `eval_vlm.py`).
 7. **Human ceiling (planned):** second clinician re-labels the 116 test clips blind; inter-rater F1@tIoU
    and kappa reported on the same scale as the models.
 
@@ -39,6 +39,7 @@ FoG-during-turn analysis need upstream.
 | Rule: walking-path reversal | 0.679 | 0.455 | 0.167 |
 | Your Turn-definition baseline | 0.546 | 0.283 | 0.082 |
 | Rule: body-height extrema | 0.508 | 0.270 | 0.027 |
+| Qwen3-VL-4B zero-shot (4 fps, fixed prompt) | 0.270 | 0.161 | 0.029 |
 | Shuffled-label control | 0.167 | 0.076 | 0.022 |
 | Trivial baselines | ≤0.007 | 0 | 0 |
 
@@ -67,5 +68,5 @@ localisation output to Your Turn's angle measure and is a candidate clinical rea
 
 - Second rater for the 116 test clips (needed for the human ceiling).
 - Agreement from the original annotator on authorship and use of the labels.
-- Qwen3-VL zero-shot comparison (ICT now reachable).
+- Optional: Qwen3-VL fine-tuned on the 310 train clips (fairer large-model comparison).
 - Choose target venue (MIDL abstract 11/30, paper 12/4; EMBC 1/24; CHIL 2/3).
