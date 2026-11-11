@@ -56,6 +56,7 @@ the mean over tIoU 0.1–0.7 are also reported. Produced by `eval_report.py` (se
 |---|---|---|---|---|---|
 | BiGRU, mean ± sd of 3 seeds | 0.925 ± 0.014 | **0.861 ± 0.013** | 0.487 ± 0.008 | 0.822 ± 0.011 | 0.11 s |
 | Rule: walking-path reversal | 0.679 | 0.455 | 0.167 | 0.516 | 0.18 s |
+| Your Turn-definition baseline (hip+knee yaw, ≥45° rotation; `yourturn_baseline.py`) | 0.546 | 0.283 | 0.082 | 0.384 | 0.27 s |
 | Rule: body-height extrema | 0.508 | 0.270 | 0.027 | 0.370 | 0.37 s |
 | Trivial: one fixed segment at mean train turn time | 0.007 | 0.000 | 0.000 | 0.007 | – |
 | Trivial: whole clip as one segment | 0.000 | 0.000 | 0.000 | 0.006 | – |
@@ -63,6 +64,8 @@ the mean over tIoU 0.1–0.7 are also reported. Produced by `eval_report.py` (se
 
 - Subject-level bootstrap 95% CI (seed 100, 1000 resamples of the 8 test subjects): F1@tIoU0.5 0.81–0.92.
   Per-subject F1@tIoU0.5 ranges 0.70–0.97.
+- Rotation inside the clinician labels (Your Turn angle formula): median 128° (IQR 103–162°); inside
+  BiGRU predictions: median 155°. Design and positioning: `STUDY_DESIGN.md`.
 - Boundaries are the weak point: at tIoU 0.7 F1 drops to ~0.49. Labels are short pivots (~0.9 s on
   average, i.e. ~14 frames at 15 fps), so a few frames of boundary disagreement change the IoU a lot.
 - Leakage checks: no subject or visit overlap between train and test; feature normalisation and all
