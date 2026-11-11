@@ -24,6 +24,11 @@ PROMPT = (
     "Give the start and end time in seconds of each far-end turnaround (usually exactly one; zero if none "
     "is visible). Answer with JSON only, e.g. [{{\"start\": 7.2, \"end\": 8.4}}]."
 )
+# v2 (added after the v1 test run): v1 told the model "usually exactly one", but 191/310 TRAIN clips have two
+# labelled far-end turns. v2 only changes that clause. Used for fine-tuning and for a post-hoc zero-shot run.
+PROMPTS = {"v1": PROMPT,
+           "v2": PROMPT.replace("(usually exactly one; zero if none ", "(one or two; zero if none ")}
+assert PROMPTS["v2"] != PROMPT
 
 
 def parse(text):
@@ -65,6 +70,8 @@ def main():
     ap.add_argument("--dur", type=float, default=20.0)
     ap.add_argument("--out", required=True)
     ap.add_argument("--gpu", type=int, default=0)
+    ap.add_argument("--prompt", default="v1", choices=list(PROMPTS))
+    ap.add_argument("--adapter", help="LoRA adapter dir from qwen_turn_finetune.py")
     args = ap.parse_args()
 
     dev = f"cuda:{args.gpu}"
@@ -72,6 +79,10 @@ def main():
     model = Qwen3VLForConditionalGeneration.from_pretrained(MODEL, dtype=torch.float16, device_map={"": dev},
                                                             attn_implementation="sdpa").eval()
     patch_conv3d_as_linear(model)
+    if args.adapter:
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, args.adapter).eval()
+    prompt = PROMPTS[args.prompt]
     if args.video:
         jobs = [{"key": "smoke", "path": args.video, "dur": args.dur}]
     else:
@@ -89,7 +100,7 @@ def main():
         msgs = [{"role": "user", "content": [
             {"type": "video", "video": j["path"], "fps": FPS, "min_pixels": 64 * 32 * 32, "max_pixels": MAXPIX,
              "video_start": 0.0, "video_end": float(j["dur"])},
-            {"type": "text", "text": PROMPT.format(dur=j["dur"])}]}]
+            {"type": "text", "text": prompt.format(dur=j["dur"])}]}]
         text = proc.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
         images, videos, vk = process_vision_info(msgs, image_patch_size=16, return_video_kwargs=True,
                                                  return_video_metadata=True)
@@ -106,7 +117,7 @@ def main():
                "n_input_tokens": int(inp["input_ids"].shape[1]), "sec": round(time.time() - t0, 1)}
         fo.write(json.dumps(rec) + "\n"); fo.flush()
         print(json.dumps(rec)[:300], flush=True)
-    meta = {"model": MODEL, "fps": FPS, "max_pixels": MAXPIX, "prompt": PROMPT, "dtype": "float16",
+    meta = {"model": MODEL, "adapter": args.adapter, "prompt_version": args.prompt, "fps": FPS, "max_pixels": MAXPIX, "prompt": prompt, "dtype": "float16",
             "decoding": "greedy, max_new_tokens 256"}
     json.dump(meta, open(args.out + ".protocol.json", "w"), indent=1)
 

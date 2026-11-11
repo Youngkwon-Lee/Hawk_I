@@ -40,6 +40,8 @@ FoG-during-turn analysis need upstream.
 | Your Turn-definition baseline | 0.546 | 0.283 | 0.082 |
 | Rule: body-height extrema | 0.508 | 0.270 | 0.027 |
 | Qwen3-VL-4B zero-shot (4 fps, fixed prompt) | 0.270 | 0.161 | 0.029 |
+| Qwen3-VL-4B QLoRA fine-tuned (train 310, 1 run) | 0.933 | 0.831 | 0.454 |
+| Qwen3-VL-4B zero-shot, prompt v2 (post-hoc) | 0.226 | 0.088 | 0.007 |
 | Shuffled-label control | 0.167 | 0.076 | 0.022 |
 | Trivial baselines | ≤0.007 | 0 | 0 |
 
@@ -68,5 +70,7 @@ localisation output to Your Turn's angle measure and is a candidate clinical rea
 
 - Second rater for the 116 test clips (needed for the human ceiling).
 - Agreement from the original annotator on authorship and use of the labels.
-- Optional: Qwen3-VL fine-tuned on the 310 train clips (fairer large-model comparison).
+- Fine-tuned Qwen3-VL-4B reached F1@tIoU0.5 0.831, not significantly different from the BiGRU (paired
+  subject bootstrap CIs include 0). Paper framing: a 74 k-parameter pose model matches a fine-tuned 4 B VLM.
+- Optional: more fine-tuning seeds; a larger VLM (8B) if GPU time allows.
 - Choose target venue (MIDL abstract 11/30, paper 12/4; EMBC 1/24; CHIL 2/3).

@@ -59,6 +59,8 @@ the mean over tIoU 0.1–0.7 are also reported. Produced by `eval_report.py` (se
 | Your Turn-definition baseline (hip+knee yaw, ≥45° rotation; `yourturn_baseline.py`) | 0.546 | 0.283 | 0.082 | 0.384 | 0.27 s |
 | Rule: body-height extrema | 0.508 | 0.270 | 0.027 | 0.370 | 0.37 s |
 | Qwen3-VL-4B-Instruct, zero-shot temporal grounding (4 fps; `qwen_turn_zeroshot.py`) | 0.270 | 0.161 | 0.029 | 0.214 | 0.50 s |
+| Qwen3-VL-4B QLoRA fine-tuned on the 310 train clips (`qwen_turn_finetune.py`, 1 run) | 0.933 | 0.831 | 0.454 | 0.811 | 0.15 s |
+| Qwen3-VL-4B zero-shot, prompt v2 (post-hoc) | 0.226 | 0.088 | 0.007 | 0.184 | 0.60 s |
 | Trivial: one fixed segment at mean train turn time | 0.007 | 0.000 | 0.000 | 0.007 | – |
 | Trivial: whole clip as one segment | 0.000 | 0.000 | 0.000 | 0.006 | – |
 | Control: BiGRU trained on shuffled labels | 0.167 | 0.076 | 0.022 | 0.134 | 0.58 s |
@@ -70,6 +72,14 @@ the mean over tIoU 0.1–0.7 are also reported. Produced by `eval_report.py` (se
 - Qwen3-VL-4B zero-shot: always answered with exactly one far turn; subject-bootstrap 95% CI for
   F1@tIoU0.5 0.09–0.24. Protocol (model, 4 fps, prompt, greedy decoding) was fixed before scoring; a format
   smoke test used a train video only.
+- **Fine-tuned Qwen3-VL-4B is close to the BiGRU.** F1@tIoU0.5 0.831 (subject-bootstrap 95% CI 0.75–0.90).
+  Paired subject bootstrap, BiGRU minus fine-tuned VLM: tIoU0.5 differences of +0.013 to +0.045 across the
+  three BiGRU seeds, every 95% CI includes 0 (e.g. seed 100: −0.03 to +0.10); same at tIoU 0.3 and 0.7
+  (`compare_paired.py`). It costs ~4.5 B parameters, a GPU and ~3 h of training versus ~74 k parameters on CPU.
+  One fine-tuning run only (seed 0); 4 of 310 train clips were skipped on GPU OOM.
+- Zero-shot prompt v1 said a clip "usually" has one far turn, but 191/310 train clips have two. Prompt v2 fixes
+  that clause; it was written after the v1 test run, so the v2 zero-shot row is post-hoc. Zero-shot still
+  answered one turn per clip.
 - Boundaries are the weak point: at tIoU 0.7 F1 drops to ~0.49. Labels are short pivots (~0.9 s on
   average, i.e. ~14 frames at 15 fps), so a few frames of boundary disagreement change the IoU a lot.
 - Leakage checks: no subject or visit overlap between train and test; feature normalisation and all
