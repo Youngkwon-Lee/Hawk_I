@@ -1,0 +1,63 @@
+{
+ "generated_by": "training/make_manifest.py",
+ "host": "DESKTOP-T43SN5M",
+ "python": "3.12.3",
+ "packages": {
+  "numpy": "2.4.4",
+  "scipy": "1.17.1",
+  "torch": "2.11.0+cu130",
+  "sklearn": "1.8.0",
+  "mediapipe": "0.10.33",
+  "cv2": "4.13.0",
+  "pandas": "3.1.1"
+ },
+ "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+ "git_sha": "8c9c87a0ec4932939d4b98eb080bbec8493468f5",
+ "labels": {
+  "test.jsonl": "aff63eac29daa23b0cf6990356f3a6276ac0173d80a4089d77f52603186d9cdc",
+  "train.jsonl": "0320796c6860636a4842222638ed2638764bd34f78b5d2e63a5acf5c525ae1f9",
+  "validation.jsonl": "b8279a5a9076793756f2da2df590a920e5a9f408bc026f2212f6038f6ef70fe7"
+ },
+ "official_split": {
+  "test.csv": "fa96dd2821c7b60bb187a830b0b7019f0a5b196d8d6a8572584489e993ceb9fa",
+  "train.csv": "0442c45af3dc9aacd46aa09b8d3446dbfbdb53815d9c96c96ba627164ba1894a"
+ },
+ "clips_20s": {
+  "count": 426,
+  "combined_sha256": "421225c46f7f9b8e81b37d741ff2b298348ab98df06c953e81e886a4b7ea83b7"
+ },
+ "pose_npz": {
+  "count": 426,
+  "combined_sha256": "dc0b4af73455447d0aebf6b411247b8f71a52051109280babb115259a2735de0",
+  "note": "MediaPipe pose_landmarker_full, 15 fps target; regenerate with extract_pose.py"
+ },
+ "mediapipe_model": "4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad",
+ "checkpoints": {
+  "turn_bigru_seed100.pt": "302411a3cfd24999a9b766c7a903ba6c378f86ab991e6f91f3630db1cf811bbc",
+  "turn_bigru_seed101.pt": "137505a69c424b38dd97ebf66fdf1b10a01d0d1aebe751bb4ed6130f9619814e",
+  "turn_bigru_seed102.pt": "54803ae962ecf0e286767c969bb430b49ea73106742b53f4e22b07cd83755c35"
+ },
+ "result_files": {
+  "eval_report.json": "3086dcbe29cfe2f9927e16dbf16717a9182ae6bfb8574b2bdbe5743f7ea975d6",
+  "sanity_20261111.json": "14cdff5877413a1421941836717be864cb81d612d60bad0dd5370b15a8cc6e20",
+  "yourturn_baseline.json": "747c0400f7db058430491fb6d1d6a425726e87d84351915968eb0ded14bdcf22",
+  "updrs_from_turns.json": "4622e52f1e69401c24dc50b5aeb27c5416b456045da9a0a137bef4f1147d92f5",
+  "fusion_c0b.json": "160e2c76a112639df6482f593fc671bd77f1993227bb99db7faf4b6d3186778a",
+  "primitive_bottleneck.json": "5c4c36263c560f40318e1d281fe12084fa78934afab62062ebfba5bfbe678338",
+  "primitive_manifest.json": "21d26718f526aad065a7138618418d511f1eefec983314087f8cc4a81a25f14f",
+  "primitive_bottleneck_cache.npz": "b3d7d30d0a09cabe2bb87ad4f1654536b42695305f8299d69f0264687503de49",
+  "primitive_fusion_eval.json": "5f0f31970efda94876917ddd93d6f9dbbdf5ca5b693fc7eeca9122effcdd4326",
+  "prim_compact.txt": "f3a4a202d61e90bd30f358ce306e8350fd93bd5b718792b6859f717ebd3ac3db",
+  "tulip/tulip_turns.json": "8c28c9a5ff6b04eec817c272099a2d7e92baa58acbbd7d198e9fea60fccced66",
+  "tulip/tulip_bottleneck.json": "94fdb48892287cb625824c1d673c11128c160e17e805986402828848dc0d6260",
+  "qwen3vl4b_ft_epoch2_test116.jsonl": "0e3c38970d134a69e5a42b3a35ceab9531e1e02413d54e1e3c39a78844d3333f",
+  "qwen3vl4b_zeroshot_test116.jsonl": "502740560af669bfa930dc39455a2c9a13aa576507d5b07634f0817788fc8484",
+  "qwen3vl4b_zeroshot_v2_test116.jsonl": "4f385b736bcd8da7b3aee1bea6fb20328873c91e6e0fc7ebbeb079697caf9212"
+ },
+ "ict_vlm_primitive_predictions": {
+  "prim_all_test.jsonl": "8e8a7605f3968a75fe073738007326c870a5bd3a340cb4c3fdce3599ff26933b",
+  "prim_f0_pred_fold1.jsonl": "3c4dc11109480960fc1f57d7eda11edf4377fc79e2384780dc006e79aeb97888",
+  "prim_f1_pred_fold0.jsonl": "d25ca216faea9c6e114458455a18a234b27949424ccdbf09876663d053f9db35",
+  "prim_compact.txt": "f3a4a202d61e90bd30f358ce306e8350fd93bd5b718792b6859f717ebd3ac3db"
+ }
+}
