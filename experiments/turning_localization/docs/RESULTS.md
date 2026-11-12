@@ -45,12 +45,49 @@ arm-swing asymmetry 0.16 (freezing excluded).
 Fully automatic; matches the clinician-primitive upper bound (0.746) and is above the RGB VLM C0B (0.621);
 differences are within CIs (8 test subjects). One run of a deterministic pipeline.
 
-## 3. External (TULIP, 12 subjects, frozen BiGRU)
+## 2c. RGB+pose early fusion for the 4 weak primitives (Qwen3-VL-4B QLoRA), `primitive_fusion_eval.py`
 
-Turn location/count transfers; boundaries do not (whole far-end dwell of 5–6 s marked). Needs ~60 human
-turn labels for a quantitative result (`tulip_external.py`).
+8 frames (≤448 px) + the pose measurements as text → JSON scores for arm-swing asymmetry, trunk flexion,
+step-length asymmetry, postural instability. Final adapter on all train clips (test predictions) and two
+fold2 adapters (train out-of-fold). Clips with a missing rating excluded from each primitive's QWK.
+
+| primitive | pose QWK train-OOF / test | RGB+pose QWK train-OOF / test | RGB+pose non-zero predictions (test) |
+|---|---|---|---|
+| arm-swing asymmetry | 0.26 / 0.16 | 0.01 / 0.13 | 6 of 115 (clinician 56) |
+| trunk flexion | 0.65 / 0.29 | 0.24 / 0.45 | 11 of 114 (clinician 20) |
+| step-length asymmetry | 0.34 / 0.41 | 0.00 / 0.00 | 0 of 115 (clinician 29) |
+| postural instability | 0.51 / 0.54 | 0.10 / 0.07 | 2 of 114 (clinician 30) |
+
+| UPDRS 3.10 route | acc | MAE | QWK (CI) | Δ vs pose (CI) |
+|---|---|---|---|---|
+| pose bottleneck (2b, reproduced) | 0.66 | 0.37 | 0.743 (0.54–0.87) | — |
+| 4 primitives from RGB+pose | 0.51 | 0.58 | 0.592 (0.30–0.78) | −0.31 to −0.04 |
+| per-primitive source chosen on train-OOF | = pose bottleneck (pose chosen for all 4) | | 0.743 | 0 |
+
+Negative result: the fine-tuned VLM collapses to the majority score 0 (no class weighting; missing ratings
+trained as 0). The trunk-flexion test gain (0.29→0.45) is not supported by train-OOF (0.24 vs 0.65) and is
+treated as chance. Single run; GPU shared, see the run logs.
+
+## 3. External (TULIP, 12 subjects: 8 PD / 4 healthy, Camera1 frontal gait, 3 clinicians)
+
+Turns (frozen BiGRU, `tulip_external.py`): location/count transfer; boundaries do not (whole far-end dwell of
+5–6 s marked); quantitative turn agreement needs ~60 human turn labels.
+
+UPDRS 3.10 (`tulip_bottleneck.py`): 60-s video → three 20-s windows → bottleneck rebuilt on PD4T (reproduces
+0.743) → mean expected score per subject; no TULIP label is used for fitting.
+
+| variant | Spearman vs clinician mean (p) | MAE | QWK vs rounded mean | exact / within 1 | PD vs HT mean pred (p) |
+|---|---|---|---|---|---|
+| A frozen (as trained) | 0.29 (0.36) | 0.86 | 0.09 | 33% / 75% | 1.89 vs 1.61 (0.28) |
+| B label-free feature alignment (TULIP feature stats → PD4T train mean/sd) | **0.66 (0.02)** | **0.33** | **0.70** | 67% / 100% | 0.86 vs 0.35 (0.06) |
+| T turn timing only (reference) | 0.18 (0.58) | 0.53 | 0.19 | 42% / 83% | 1.58 vs 1.15 (0.57) |
+
+Clinicians agree with each other at pairwise QWK 0.46–0.52. Frozen transfer over-scores almost everyone
+(~2; predicted festination and postural instability inflated) → camera geometry shifts the feature ranges.
+Alignment uses TULIP's own feature distribution (assumes a comparable case mix) — a site-level, label-free
+calibration that must be stated as such. n = 12; TULIP pose is 16 fps vs 15 fps in PD4T.
 
 ## Open items
 
-Second rater (test 116), TULIP labels, more VLM seeds, annotator consent/authorship, venue (EMBC 2027-01-24 /
+Second rater (test 116), TULIP turn labels, VLM primitive re-run with class weighting (or drop), more VLM seeds, annotator consent/authorship, venue (EMBC 2027-01-24 /
 MIDL abstract 2026-11-30).

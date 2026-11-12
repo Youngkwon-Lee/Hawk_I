@@ -59,13 +59,21 @@ def main():
     out["checkpoints"] = {os.path.basename(p): sha(p) for p in sorted(glob.glob(os.path.join(HERE, "..", "models", "*.pt")))}
     res = {}
     for name in ("eval_report.json", "sanity_20261111.json", "yourturn_baseline.json", "updrs_from_turns.json",
-                 "fusion_c0b.json", "primitive_bottleneck.json", "primitive_manifest.json"):
+                 "fusion_c0b.json", "primitive_bottleneck.json", "primitive_manifest.json",
+                 "primitive_bottleneck_cache.npz", "primitive_fusion_eval.json", "prim_compact.txt",
+                 "tulip/tulip_turns.json", "tulip/tulip_bottleneck.json"):
         p = os.path.join(DATA_ROOT, name)
         if os.path.exists(p):
             res[name] = sha(p)
     for p in sorted(glob.glob(os.path.join(DATA_ROOT, "*test116.jsonl"))):
         res[os.path.basename(p)] = sha(p)
     out["result_files"] = res
+    # VLM primitive predictions live on ICT (raw jsonl); sha256 recorded at transfer (prim_sha.txt)
+    out["ict_vlm_primitive_predictions"] = {
+        "prim_all_test.jsonl": "8e8a7605f3968a75fe073738007326c870a5bd3a340cb4c3fdce3599ff26933b",
+        "prim_f0_pred_fold1.jsonl": "3c4dc11109480960fc1f57d7eda11edf4377fc79e2384780dc006e79aeb97888",
+        "prim_f1_pred_fold0.jsonl": "d25ca216faea9c6e114458455a18a234b27949424ccdbf09876663d053f9db35",
+        "prim_compact.txt": "f3a4a202d61e90bd30f358ce306e8350fd93bd5b718792b6859f717ebd3ac3db"}
     os.makedirs(os.path.join(HERE, "..", "repro"), exist_ok=True)
     dst = os.path.join(HERE, "..", "repro", "input_manifest.json")
     json.dump(out, open(dst, "w"), indent=1)

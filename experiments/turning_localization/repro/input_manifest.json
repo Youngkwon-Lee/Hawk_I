@@ -12,7 +12,7 @@
   "pandas": "3.1.1"
  },
  "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
- "git_sha": "not a git checkout (copy of the repo at the commit recorded in repro/README)",
+ "git_sha": "8c9c87a0ec4932939d4b98eb080bbec8493468f5",
  "labels": {
   "test.jsonl": "aff63eac29daa23b0cf6990356f3a6276ac0173d80a4089d77f52603186d9cdc",
   "train.jsonl": "0320796c6860636a4842222638ed2638764bd34f78b5d2e63a5acf5c525ae1f9",
@@ -45,8 +45,19 @@
   "fusion_c0b.json": "160e2c76a112639df6482f593fc671bd77f1993227bb99db7faf4b6d3186778a",
   "primitive_bottleneck.json": "5c4c36263c560f40318e1d281fe12084fa78934afab62062ebfba5bfbe678338",
   "primitive_manifest.json": "21d26718f526aad065a7138618418d511f1eefec983314087f8cc4a81a25f14f",
+  "primitive_bottleneck_cache.npz": "b3d7d30d0a09cabe2bb87ad4f1654536b42695305f8299d69f0264687503de49",
+  "primitive_fusion_eval.json": "5f0f31970efda94876917ddd93d6f9dbbdf5ca5b693fc7eeca9122effcdd4326",
+  "prim_compact.txt": "f3a4a202d61e90bd30f358ce306e8350fd93bd5b718792b6859f717ebd3ac3db",
+  "tulip/tulip_turns.json": "8c28c9a5ff6b04eec817c272099a2d7e92baa58acbbd7d198e9fea60fccced66",
+  "tulip/tulip_bottleneck.json": "94fdb48892287cb625824c1d673c11128c160e17e805986402828848dc0d6260",
   "qwen3vl4b_ft_epoch2_test116.jsonl": "0e3c38970d134a69e5a42b3a35ceab9531e1e02413d54e1e3c39a78844d3333f",
   "qwen3vl4b_zeroshot_test116.jsonl": "502740560af669bfa930dc39455a2c9a13aa576507d5b07634f0817788fc8484",
   "qwen3vl4b_zeroshot_v2_test116.jsonl": "4f385b736bcd8da7b3aee1bea6fb20328873c91e6e0fc7ebbeb079697caf9212"
+ },
+ "ict_vlm_primitive_predictions": {
+  "prim_all_test.jsonl": "8e8a7605f3968a75fe073738007326c870a5bd3a340cb4c3fdce3599ff26933b",
+  "prim_f0_pred_fold1.jsonl": "3c4dc11109480960fc1f57d7eda11edf4377fc79e2384780dc006e79aeb97888",
+  "prim_f1_pred_fold0.jsonl": "d25ca216faea9c6e114458455a18a234b27949424ccdbf09876663d053f9db35",
+  "prim_compact.txt": "f3a4a202d61e90bd30f358ce306e8350fd93bd5b718792b6859f717ebd3ac3db"
  }
 }

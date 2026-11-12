@@ -25,6 +25,8 @@ Paths come from environment variables read in `training/config.py` (`PD4T_TURN_R
 | 10 primitive bottleneck | `python primitive_bottleneck.py` | `primitive_bottleneck.json` | OOF turn models seeds 200–204 |
 | 11 fusion with C0B | `python fusion_c0b.py c0b_preds.json` | `fusion_c0b.json` | fixed 50:50 rule |
 | 12 TULIP external | `python tulip_external.py extract|apply|updrs` | `tulip/` | frozen checkpoints |
+| 12b TULIP bottleneck | `python tulip_bottleneck.py` | `tulip/tulip_bottleneck.json` | rebuilds 2b (OOF seeds 200–204, asserts 0.743 in the log) |
+| 12c RGB+pose fusion eval | ICT: `python dump_vlm_primitives.py <turnvlm> <out>` → copy `prim_compact.txt` (check sha256) → `python primitive_fusion_eval.py` | `primitive_fusion_eval.json` | needs `primitive_bottleneck_cache.npz` from step 10 |
 | 13 manifest | `python make_manifest.py` | `repro/input_manifest.json` | — |
 
 ## B. GPU (ICT), Qwen3-VL-4B

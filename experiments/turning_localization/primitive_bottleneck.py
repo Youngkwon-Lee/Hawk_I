@@ -112,6 +112,10 @@ def main():
     p = m.predict(Xte)
     res["updrs_direct_pose_no_bottleneck"] = {"acc": float((p == yte).mean()), "mae": float(np.abs(p - yte).mean()),
                                               "qwk": float(qwk(yte, p)), "qwk_95ci": ci(yte, p)}
+    np.savez(os.path.join(T.DATA_ROOT, "primitive_bottleneck_cache.npz"), prims=np.array(PRIMS),
+             keys_tr=np.array([d["key"] for d in tr]), keys_te=np.array([d["key"] for d in te]),
+             subj_tr=gtr, subj_te=np.array([d["subj"] for d in te]), ytr=ytr, yte=yte,
+             Ptr_clin=Ptr_clin, Pte_clin=Pte_clin, Ptr_oof=Ptr_oof, Pte_hat=Pte_hat)   # for primitive_fusion_eval.py
     json.dump(res, open(os.path.join(T.DATA_ROOT, "primitive_bottleneck.json"), "w"), indent=1)
     print(json.dumps(res, indent=1))
 
